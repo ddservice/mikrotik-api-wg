@@ -242,7 +242,20 @@ app.put('/api/sites/:id', requireAuth(['admin']), (req, res) => {
 app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) => {
     const { wireguardIp, vpsPublicKey } = req.body;
     const targetIp = wireguardIp || '10.10.88.2';
-    const pubKey = vpsPublicKey || '<ใส่_PUBLIC_KEY_ของ_VPS>';
+    
+    let pubKey = vpsPublicKey;
+    if (!pubKey) {
+        try {
+            if (fs.existsSync('/etc/wireguard/publickey')) {
+                pubKey = fs.readFileSync('/etc/wireguard/publickey', 'utf8').trim();
+            }
+        } catch (e) {
+            console.error('Failed to read VPS public key:', e.message);
+        }
+    }
+    if (!pubKey) {
+        pubKey = '<ใส่_PUBLIC_KEY_ของ_VPS>';
+    }
 
     const script = `# ======================================================
 # MikroTik RouterOS WireGuard Setup Script (MT Management)
@@ -272,6 +285,7 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 
     res.json({ script, wireguardIp: targetIp });
 });
+
 
 
 // Delete site (Admin only)
