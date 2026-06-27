@@ -1,0 +1,13 @@
+{
+    "activeSiteId": "site_1",
+    "sites": [
+        {
+            "id": "site_1",
+            "name": "สาขาหลัก (Main Site)",
+            "host": "b4a00a4696aa.sn.mynetname.net",
+            "port": 8927,
+            "username": "ddserviceapi",
+            "password": "$Atmin04910"
+        }
+    ]
+}

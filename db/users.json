@@ -1,0 +1,16 @@
+[
+    {
+        "id": "1",
+        "username": "admin",
+        "passwordHash": "ec2cb6affaced355e7ddb334b51c3afa42c20de8db30e659f8fb3c67c1451e2f",
+        "role": "admin",
+        "name": "System Administrator"
+    },
+    {
+        "id": "1781860657193",
+        "username": "test",
+        "passwordHash": "f98c84b5a7979202c17bf13d65211acf8520c9a80e5100d0262a70e723ea64a5",
+        "role": "user",
+        "name": "somchai"
+    }
+]

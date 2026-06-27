@@ -1,0 +1,13 @@
+{
+  "name": "mikrotik-dashboard",
+  "version": "1.0.0",
+  "description": "MikroTik Web Dashboard for Traffic Monitoring, Hotspot & Firewall Management",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

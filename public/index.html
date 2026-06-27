@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mikrotik API Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- CSS stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Background glowing shapes for premium glassmorphic feel -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <!-- ========================================== -->
+    <!-- LOGIN SCREEN -->
+    <!-- ========================================== -->
+    <div id="login-container" class="login-wrapper">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="brand-badge">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h2>Mikrotik API Dashboard</h2>
+                <p>กรอกข้อมูลผู้ใช้งานเพื่อดูแลระบบเราท์เตอร์</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-username">ชื่อผู้ใช้งานระบบ (Username)</label>
+                    <div class="input-with-icon">
+                        <i class="fa-solid fa-user"></i>
+                        <input type="text" id="login-username" class="form-control" placeholder="กรอกชื่อผู้ใช้" required autocomplete="username">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">รหัสผ่าน (Password)</label>
+                    <div class="input-with-icon">
+                        <i class="fa-solid fa-lock"></i>
+                        <input type="password" id="login-password" class="form-control" placeholder="กรอกรหัสผ่าน" required autocomplete="current-password">
+                    </div>
+                </div>
+                <div id="login-error" class="error-msg" style="display: none;"></div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <span>เข้าสู่ระบบระบบจัดการ</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MAIN DASHBOARD LAYOUT -->
+    <!-- ========================================== -->
+    <div id="dashboard-container" class="dashboard-wrapper" style="display: none;">
+        
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-router"></i>
+                <div>
+                    <h3>MT Management</h3>
+                    <span class="router-status-indicator" id="router-conn-status"><span class="status-dot status-offline"></span> Disconnected</span>
+                </div>
+            </div>
+
+            
+            <nav class="sidebar-menu">
+                <a href="#" class="menu-item active" data-target="page-overview">
+                    <i class="fa-solid fa-chart-line"></i> <span>ข้อมูลทั่วไป (Overview)</span>
+                </a>
+                <a href="#" class="menu-item" data-target="page-hotspot" id="nav-hotspot" style="display: none;">
+                    <i class="fa-solid fa-wifi"></i> <span>จัดการ Hotspot</span>
+                </a>
+                <a href="#" class="menu-item" data-target="page-firewall" id="nav-firewall" style="display: none;">
+                    <i class="fa-solid fa-fire-burner"></i> <span>จัดการบล็อกเว็บ (Firewall)</span>
+                </a>
+                <a href="#" class="menu-item" data-target="page-admins" id="nav-admins" style="display: none;">
+                    <i class="fa-solid fa-users-gear"></i> <span>ผู้ใช้งานระบบ Dashboard</span>
+                </a>
+                <a href="#" class="menu-item" data-target="page-settings" id="nav-settings" style="display: none;">
+                    <i class="fa-solid fa-gears"></i> <span>ตั้งค่าเชื่อมต่อเราท์เตอร์</span>
+                </a>
+                <a href="#" class="menu-item" data-target="page-logs" id="nav-logs" style="display: none;">
+                    <i class="fa-solid fa-list-check"></i> <span>ประวัติการทำงาน (Logs)</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar"><i class="fa-solid fa-circle-user"></i></div>
+                    <div class="user-details">
+                        <h4 id="user-display-name">Username</h4>
+                        <span id="user-display-role" class="badge">Role</span>
+                    </div>
+                </div>
+                <button id="btn-logout" class="btn btn-icon-only logout-btn" title="ออกจากระบบ">
+                    <i class="fa-solid fa-power-off"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT AREA -->
+        <main class="main-content">
+            
+            <!-- HEADER -->
+            <header class="content-header">
+                <div class="header-left">
+                    <button id="btn-menu-toggle" class="btn-menu-toggle" aria-label="Toggle Menu">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div>
+                        <h1 id="page-title">ข้อมูลทั่วไป</h1>
+                        <p id="page-description">ภาพรวมสถานะเราท์เตอร์และทราฟฟิกพอร์ต</p>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <div class="site-selector-wrapper" id="site-selector-container">
+                        <i class="fa-solid fa-location-dot text-primary"></i>
+                        <select id="select-active-site" class="form-control select-sm site-select" title="เลือกไซต์งาน">
+                            <option value="">กำลังโหลดไซต์งาน...</option>
+                        </select>
+                    </div>
+                    <span id="update-timer" class="update-timer-badge"><i class="fa-solid fa-rotate"></i> อัปเดตล่าสุด: กำลังดาวน์โหลด...</span>
+                    <button class="btn btn-secondary btn-sm" id="btn-refresh"><i class="fa-solid fa-arrows-rotate"></i> รีเฟรช</button>
+                </div>
+            </header>
+
+            <div class="content-body">
+                
+                <!-- 1. OVERVIEW PAGE -->
+                <section id="page-overview" class="page-section">
+                    
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon cpu"><i class="fa-solid fa-microchip"></i></div>
+                            <div class="stat-info">
+                                <h3>CPU Load</h3>
+                                <p id="stat-cpu">- %</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon ram"><i class="fa-solid fa-memory"></i></div>
+                            <div class="stat-info">
+                                <h3>RAM Memory</h3>
+                                <p id="stat-ram">- / - MB</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon uptime"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                            <div class="stat-info">
+                                <h3>Uptime</h3>
+                                <p id="stat-uptime">-</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon model"><i class="fa-solid fa-server"></i></div>
+                            <div class="stat-info">
+                                <h3>Router Model</h3>
+                                <p id="stat-model">-</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chart Card -->
+                    <div class="card chart-card mt-24">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fa-solid fa-chart-area text-primary"></i>
+                                <div>
+                                    <h4>กราฟแสดง Traffic รายพอร์ตแบบ Real-time</h4>
+                                    <p>แสดงผลความเร็ว Upload และ Download ในปัจจุบัน</p>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <select id="traffic-interface-select" class="form-control select-sm">
+                                    <option value="">-- เลือกอินเตอร์เฟส --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="card-body chart-container">
+                            <canvas id="trafficChart" width="800" height="280"></canvas>
+                            <div class="chart-legend">
+                                <span class="legend-item"><span class="legend-color download"></span> ดาวน์โหลด (Download / In)</span>
+                                <span class="legend-item"><span class="legend-color upload"></span> อัปโหลด (Upload / Out)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Interface List Card -->
+                    <div class="card mt-24">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fa-solid fa-network-wired text-primary"></i>
+                                <div>
+                                    <h4>สถานะพอร์ตเชื่อมต่อ (Interfaces)</h4>
+                                    <p>รายการพอร์ตเชื่อมต่อทั้งหมดบนตัวเราท์เตอร์</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table" id="table-interfaces">
+                                    <thead>
+                                        <tr>
+                                            <th>ชื่อพอร์ต</th>
+                                            <th>ประเภท</th>
+                                            <th>สถานะการเชื่อมต่อ</th>
+                                            <th>ทราฟฟิกสะสมรวม (In)</th>
+                                            <th>ทราฟฟิกสะสมรวม (Out)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="5" class="text-center text-muted">กำลังโหลดข้อมูล...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. HOTSPOT PAGE -->
+                <section id="page-hotspot" class="page-section" style="display: none;">
+                    
+                    <!-- Tabs Navigation -->
+                    <div class="tab-nav">
+                        <button class="tab-btn active" data-tab="tab-hotspot-active">
+                            <i class="fa-solid fa-circle-nodes"></i> ผู้ใช้งานที่กำลังเชื่อมต่อ (Active Users)
+                        </button>
+                        <button class="tab-btn" data-tab="tab-hotspot-accounts">
+                            <i class="fa-solid fa-users"></i> บัญชีผู้ใช้ Hotspot ทั้งหมด
+                        </button>
+                        <button class="tab-btn" data-tab="tab-hotspot-profiles">
+                            <i class="fa-solid fa-sliders"></i> โปรไฟล์ Hotspot (User Profiles)
+                        </button>
+                        <button class="tab-btn" data-tab="tab-hotspot-vouchers">
+                            <i class="fa-solid fa-ticket"></i> สร้างคูปองแบบกลุ่ม (Voucher Generator)
+                        </button>
+                    </div>
+
+                    <!-- Tab content 1: Active Users -->
+                    <div id="tab-hotspot-active" class="tab-content active">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-bolt text-warning"></i>
+                                    <div>
+                                        <h4>รายการผู้ใช้งานที่เชื่อมต่ออยู่</h4>
+                                        <p>ผู้ใช้อินเตอร์เน็ตที่ทำการล็อกอินผ่านหน้า Hotspot ในปัจจุบัน</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-active-users">
+                                        <thead>
+                                            <tr>
+                                                <th>ชื่อผู้ใช้</th>
+                                                <th>IP Address</th>
+                                                <th>MAC Address</th>
+                                                <th>ล็อกอินผ่าน</th>
+                                                <th>เวลาใช้งาน</th>
+                                                <th>ดาวน์โหลด</th>
+                                                <th>อัปโหลด</th>
+                                                <th class="text-center">เตะผู้ใช้ (Kick)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="8" class="text-center text-muted">กำลังโหลดข้อมูล...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab content 2: Hotspot Accounts -->
+                    <div id="tab-hotspot-accounts" class="tab-content">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-address-book text-primary"></i>
+                                    <div>
+                                        <h4>บัญชี Hotspot ทั้งหมด</h4>
+                                        <p>รายชื่อบัญชีผู้ใช้ในระบบ Hotspot ของเราท์เตอร์</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions flex-wrap gap-8">
+                                    <button class="btn btn-secondary btn-sm" id="btn-print-selected-vouchers"><i class="fa-solid fa-print"></i> พิมพ์คูปองที่เลือก</button>
+                                    <button class="btn btn-danger btn-sm" id="btn-clean-expired-now"><i class="fa-solid fa-broom"></i> ลบคูปองหมดอายุทันที</button>
+                                    <button class="btn btn-primary" id="btn-add-hotspot-user"><i class="fa-solid fa-user-plus"></i> เพิ่มบัญชีผู้ใช้</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Expired Auto Cleanup Status Bar -->
+                                <div class="cleanup-status-bar mb-16">
+                                    <div class="cleanup-info">
+                                        <i class="fa-solid fa-robot text-primary"></i>
+                                        <span>การลบคูปองหมดอายุอัตโนมัติ (Auto-Cleanup Routine)</span>
+                                    </div>
+                                    <label class="switch switch-sm">
+                                        <input type="checkbox" id="toggle-auto-cleanup">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table" id="table-hotspot-users">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="chk-select-all-users"></th>
+                                                <th>ชื่อผู้ใช้ (Username)</th>
+                                                <th>รหัสผ่าน (Password)</th>
+                                                <th>โปรไฟล์</th>
+                                                <th>จำกัดเวลาใช้งาน</th>
+                                                <th>จำกัดปริมาณเน็ต</th>
+                                                <th>เวลาใช้งานสะสม</th>
+                                                <th>ปริมาณเน็ตที่ใช้ไป</th>
+                                                <th>หมายเหตุ</th>
+                                                <th class="text-center">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="10" class="text-center text-muted">กำลังโหลดข้อมูล...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab content 3: Hotspot Profiles -->
+                    <div id="tab-hotspot-profiles" class="tab-content">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-sliders text-primary"></i>
+                                    <div>
+                                        <h4>การจัดการโปรไฟล์ Hotspot (User Profiles)</h4>
+                                        <p>กำหนดโปรไฟล์เพื่อจำกัดความเร็วเน็ต (Bandwidth), จำนวนอุปกรณ์ และระยะเวลาเซสชัน</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-primary" id="btn-add-profile"><i class="fa-solid fa-plus"></i> เพิ่มโปรไฟล์ใหม่</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-hotspot-profiles">
+                                        <thead>
+                                            <tr>
+                                                <th>ชื่อโปรไฟล์ (Name)</th>
+                                                <th>จำกัดความเร็ว (Upload / Download)</th>
+                                                <th>จำนวนอุปกรณ์ (Shared Users)</th>
+                                                <th>เวลาเซสชัน (Session Timeout)</th>
+                                                <th class="text-center">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="5" class="text-center text-muted">กำลังโหลดข้อมูลโปรไฟล์...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- Tab content 3: Voucher Generator -->
+                    <div id="tab-hotspot-vouchers" class="tab-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-tags text-primary"></i>
+                                    <div>
+                                        <h4>ระบบสร้างคูปอง Hotspot แบบกลุ่ม</h4>
+                                        <p>ระบุความต้องการและตั้งค่าเพื่อสุ่มรหัสผ่านและสร้างชุดบัตรคูปองแบบรวดเร็ว</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <form id="form-generator">
+                                    <div class="horizontal-form-grid">
+                                        <div class="form-group">
+                                            <label for="gen-prefix">คำขึ้นต้น (Prefix) บัญชี</label>
+                                            <input type="text" id="gen-prefix" placeholder="เช่น mt-, vip-" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="gen-qty">จำนวนคูปองที่ต้องการสร้าง *</label>
+                                            <input type="number" id="gen-qty" value="10" min="1" max="100" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="gen-profile">โปรไฟล์ Hotspot *</label>
+                                            <select id="gen-profile" class="form-control" required>
+                                                <option value="default">default</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="gen-limit-uptime">จำกัดชั่วโมงการใช้งาน (Uptime)</label>
+                                            <select id="gen-limit-uptime" class="form-control">
+                                                <option value="">ไม่จำกัด</option>
+                                                <option value="01:00:00">1 ชั่วโมง</option>
+                                                <option value="02:00:00">2 ชั่วโมง</option>
+                                                <option value="06:00:00">6 ชั่วโมง</option>
+                                                <option value="12:00:00">12 ชั่วโมง</option>
+                                                <option value="1d">1 วัน</option>
+                                                <option value="7d">7 วัน</option>
+                                                <option value="30d">30 วัน</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="gen-limit-bytes">จำกัดปริมาณข้อมูลรวม</label>
+                                            <select id="gen-limit-bytes" class="form-control">
+                                                <option value="">ไม่จำกัด</option>
+                                                <option value="524288000">500 MB</option>
+                                                <option value="1073741824">1 GB</option>
+                                                <option value="3221225472">3 GB</option>
+                                                <option value="5368709120">5 GB</option>
+                                                <option value="10737418240">10 GB</option>
+                                                <option value="21474836480">20 GB</option>
+                                                <option value="53687091200">50 GB</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <!-- Section: Custom Voucher Print Specs -->
+                                    <div class="voucher-custom-specs-box mt-20">
+                                        <h5 class="specs-title"><i class="fa-solid fa-pen-to-square text-primary"></i> ตั้งค่าข้อมูลสำหรับพิมพ์คูปอง (Voucher Custom Print)</h5>
+                                        <div class="horizontal-form-grid mt-12">
+                                            <div class="form-group">
+                                                <label for="gen-site-title">ชื่อสถานที่ / ไซต์งานบนคูปอง</label>
+                                                <input type="text" id="gen-site-title" placeholder="เช่น Hotspot High-Speed Wi-Fi" class="form-control">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="gen-package-name">ชื่อแพ็กเกจ (Package Name)</label>
+                                                <input type="text" id="gen-package-name" placeholder="เช่น บัตร 1 วัน (VIP Pass)" class="form-control">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="gen-price">ราคา (Price)</label>
+                                                <input type="text" id="gen-price" placeholder="เช่น 50 บาท หรือ Free" class="form-control">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="gen-contact">หมายเหตุ / เบอร์โทรซัพพอร์ต</label>
+                                                <input type="text" id="gen-contact" placeholder="เช่น โทร. 081-234-5678" class="form-control">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group mt-20 text-right">
+                                        <button type="submit" class="btn btn-primary btn-lg"><i class="fa-solid fa-wand-magic-sparkles"></i> สร้างคูปองและเตรียมพิมพ์</button>
+                                    </div>
+                                </form>
+
+                                <!-- Generated Vouchers Printable Output -->
+                                <div id="voucher-print-area" class="voucher-print-area mt-32" style="display: none;">
+                                    <div class="print-area-header mb-16">
+                                        <div>
+                                            <h5><i class="fa-solid fa-ticket text-primary"></i> บัตรคูปองที่สร้างสำเร็จพร้อมพิมพ์</h5>
+                                            <p class="text-muted text-sm">ตรวจสอบความถูกต้องและกดปุ่มพิมพ์เพื่อส่งออกเครื่องพิมพ์</p>
+                                        </div>
+                                        <div class="print-actions">
+                                            <button class="btn btn-primary" id="btn-print-vouchers"><i class="fa-solid fa-print"></i> สั่งพิมพ์คูปอง (Print Vouchers)</button>
+                                        </div>
+                                    </div>
+                                    <div class="voucher-grid" id="voucher-result-grid">
+                                        <!-- Voucher template inside will repeat here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. FIREWALL BLOCK PAGE -->
+                <section id="page-firewall" class="page-section" style="display: none;">
+                    <div class="firewall-grid">
+                        
+                        <!-- 1. Youtube Block Card -->
+                        <div class="firewall-card" id="card-block-youtube">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon youtube"><i class="fa-brands fa-youtube"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block YouTube</h3>
+                                    <p>บล็อกการเข้าถึงเว็บไซต์และแอปพลิเคชัน YouTube</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-youtube">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-youtube" data-service="youtube" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="youtube">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="youtube"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-youtube" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="youtube" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="youtube" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="youtube">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. LINE Block Card -->
+                        <div class="firewall-card" id="card-block-line">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon line-app"><i class="fa-brands fa-line"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block LINE</h3>
+                                    <p>บล็อกการส่งข้อความ รูปภาพ และแอปพลิเคชัน LINE</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-line">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-line" data-service="line" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="line">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="line"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-line" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="line" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="line" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="line">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Mobile Games Block Card -->
+                        <div class="firewall-card" id="card-block-games">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon games"><i class="fa-solid fa-gamepad"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Mobile Games</h3>
+                                    <p>บล็อกเกมมือถือยอดนิยม (ROV, Free Fire, PUBG, Roblox ฯลฯ)</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-games">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-games" data-service="games" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="games">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="games"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-games" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="games" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="games" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="games">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Ads Block Card -->
+                        <div class="firewall-card" id="card-block-ads">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon ads"><i class="fa-solid fa-rectangle-ad"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Ads & Trackers</h3>
+                                    <p>บล็อกโฆษณา แบนเนอร์กวนใจ และระบบติดตามพฤติกรรม</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-ads">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-ads" data-service="ads" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="ads">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="ads"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-ads" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="ads" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="ads" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="ads">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. TikTok Block Card -->
+                        <div class="firewall-card" id="card-block-tiktok">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon tiktok"><i class="fa-brands fa-tiktok"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block TikTok</h3>
+                                    <p>บล็อกการเล่นวิดีโอสั้นและแอปพลิเคชัน TikTok</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-tiktok">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-tiktok" data-service="tiktok" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="tiktok">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="tiktok"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-tiktok" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="tiktok" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="tiktok" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="tiktok">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. Facebook & IG Block Card -->
+                        <div class="firewall-card" id="card-block-facebook">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon facebook"><i class="fa-brands fa-facebook-f"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Facebook & Instagram</h3>
+                                    <p>บล็อกเครือข่ายสังคมออนไลน์ Facebook และ Instagram</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-facebook">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-facebook" data-service="facebook" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="facebook">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="facebook"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-facebook" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="facebook" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="facebook" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="facebook">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7. Adult Content Block Card -->
+                        <div class="firewall-card" id="card-block-adult">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon adult"><i class="fa-solid fa-user-slash"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Adult Content</h3>
+                                    <p>บล็อกเว็บไซต์ผู้ใหญ่ เนื้อหาไม่เหมาะสม และเว็บโป๊</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-adult">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-adult" data-service="adult" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="adult">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="adult"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-adult" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="adult" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="adult" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="adult">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- 4. DASHBOARD ADMINS PAGE (Admin only) -->
+                <section id="page-admins" class="page-section" style="display: none;">
+                    <div class="card">
+                        <div class="card-header card-header-flex">
+                            <div class="card-title">
+                                <i class="fa-solid fa-users-gear text-primary"></i>
+                                <div>
+                                    <h4>จัดการบัญชีผู้ดูแลระบบ Dashboard</h4>
+                                    <p>จัดการผู้ใช้งานระบบที่มีสิทธิ์ล็อกอินเข้าใช้งานหน้า Dashboard นี้</p>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" id="btn-add-admin"><i class="fa-solid fa-user-shield"></i> เพิ่มผู้ใช้งานระบบ</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                 <table class="table" id="table-admins">
+                                    <thead>
+                                        <tr>
+                                            <th>ชื่อผู้ใช้ (Username)</th>
+                                            <th>ชื่อจริง / แผนก</th>
+                                            <th>บทบาทการใช้งาน</th>
+                                            <th>ไซต์งานที่อนุญาต</th>
+                                            <th class="text-center">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="5" class="text-center text-muted">กำลังโหลดข้อมูล...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5. ROUTER SETTINGS PAGE (Admin only) -->
+                <section id="page-settings" class="page-section" style="display: none;">
+                    <div class="card">
+                        <div class="card-header card-header-flex">
+                            <div class="card-title">
+                                <i class="fa-solid fa-network-wired text-primary"></i>
+                                <div>
+                                    <h4>จัดการไซต์งานและเราท์เตอร์ (Multi-Site Router Management)</h4>
+                                    <p>รายการเราท์เตอร์และสาขาทั้งหมดที่เชื่อมต่อในระบบ สามารถเพิ่มและเลือกสลับการทำงานได้ทันที</p>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" id="btn-add-site"><i class="fa-solid fa-plus"></i> เพิ่มไซต์งานใหม่</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table" id="table-sites">
+                                    <thead>
+                                        <tr>
+                                            <th>สถานะไซต์งาน</th>
+                                            <th>ชื่อไซต์งาน / สาขา</th>
+                                            <th>IP Address / Hostname</th>
+                                            <th>API Port</th>
+                                            <th>Username</th>
+                                            <th class="text-center">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 6. AUDIT LOGS PAGE (Admin only) -->
+                <section id="page-logs" class="page-section" style="display: none;">
+                    <div class="card">
+                        <div class="card-header card-header-flex">
+                            <div class="card-title">
+                                <i class="fa-solid fa-list-check text-primary"></i>
+                                <div>
+                                    <h4>ประวัติการทำงานระบบ (Audit Logs)</h4>
+                                    <p>แสดงประวัติการทำงานผู้ใช้ การเปลี่ยนการตั้งค่า และรายการจัดทำ Hotspot / Firewall</p>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-secondary" id="btn-refresh-logs"><i class="fa-solid fa-arrows-rotate"></i> รีเฟรช</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table" id="table-logs">
+                                    <thead>
+                                        <tr>
+                                            <th>วัน-เวลา</th>
+                                            <th>ผู้ดำเนินการ</th>
+                                            <th>การกระทำ</th>
+                                            <th>รายละเอียดเพิ่มเติม</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted">กำลังโหลดข้อมูลประวัติ...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+            </div>
+        </main>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: ADD/EDIT HOTSPOT USER -->
+    <!-- ========================================== -->
+    <div id="modal-hotspot" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="hotspot-modal-title">เพิ่มผู้ใช้ Hotspot ใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-hotspot-user">
+                    <input type="hidden" id="hotspot-user-id">
+                    <div class="form-group">
+                        <label for="hotspot-name">ชื่อผู้ใช้ (Username) *</label>
+                        <input type="text" id="hotspot-name" required class="form-control" placeholder="ชื่อที่ใช้ในการล็อกอิน">
+                    </div>
+                    <div class="form-group">
+                        <label for="hotspot-password">รหัสผ่าน (Password)</label>
+                        <input type="text" id="hotspot-password" class="form-control" placeholder="รหัสผ่านเข้าใช้งาน (เว้นว่างไว้เพื่อไม่จำกัด)">
+                    </div>
+                    <div class="form-group">
+                        <label for="hotspot-profile">โปรไฟล์ผู้ใช้งาน (Profile) *</label>
+                        <select id="hotspot-profile" required class="form-control">
+                            <option value="default">default</option>
+                        </select>
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="hotspot-limit-uptime">จำกัดชั่วโมง (Uptime Limit)</label>
+                            <input type="text" id="hotspot-limit-uptime" class="form-control" placeholder="เช่น 01:00:00 (1 ชม.), 1d (1 วัน)">
+                        </div>
+                        <div class="form-group">
+                            <label for="hotspot-limit-bytes">จำกัดปริมาณเน็ต (Bytes Limit)</label>
+                            <input type="number" id="hotspot-limit-bytes" class="form-control" placeholder="ระบุหน่วยเป็น bytes เช่น 1073741824 = 1GB">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="hotspot-comment">หมายเหตุ (Comment)</label>
+                        <input type="text" id="hotspot-comment" class="form-control" placeholder="เช่น ชื่อลูกค้า, เบอร์โทร">
+                    </div>
+                    <div id="hotspot-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary">บันทึกข้อมูล</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- MODAL: ADD/EDIT DASHBOARD ADMIN -->
+    <!-- ========================================== -->
+    <div id="modal-admin" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="admin-modal-title">เพิ่มผู้ใช้งานระบบใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-admin-user">
+                    <input type="hidden" id="admin-user-id">
+                    <div class="form-group">
+                        <label for="admin-name">ชื่อจริง / ส่วนงาน *</label>
+                        <input type="text" id="admin-name" required class="form-control" placeholder="เช่น สมชาย ใจดี, แผนกบัญชี">
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="admin-username">ชื่อผู้ใช้ (Username) *</label>
+                            <input type="text" id="admin-username" required class="form-control" placeholder="ใช้ล็อกอินระบบ" autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label for="admin-role">สิทธิ์การใช้งาน (Role) *</label>
+                            <select id="admin-role" required class="form-control">
+                                <option value="user">User (ดูกราฟและทั่วไป)</option>
+                                <option value="co-admin">Co-Admin (จัดการ Hotspot และ Firewall)</option>
+                                <option value="admin">Admin (ผู้ดูแลระบบสูงสุด)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="admin-assigned-site">ไซต์งานที่อนุญาต (Assigned Site) *</label>
+                        <select id="admin-assigned-site" required class="form-control">
+                            <option value="all">ทุกไซต์งาน (All Sites)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="admin-password">รหัสผ่าน (Password) <span id="admin-pwd-label-hint">*</span></label>
+                        <input type="password" id="admin-password" class="form-control" placeholder="รหัสผ่านสำหรับการเข้าใช้งาน" autocomplete="new-password">
+                        <span class="help-text" id="admin-pwd-help" style="display: none;">ปล่อยว่างไว้หากไม่ต้องการเปลี่ยนรหัสผ่านเดิม</span>
+                    </div>
+                    <div id="admin-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary">บันทึกผู้ใช้</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: ADD/EDIT SITE -->
+    <!-- ========================================== -->
+    <div id="modal-site" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="site-modal-title">เพิ่มไซต์งาน / เราท์เตอร์ใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-site-item">
+                    <input type="hidden" id="site-id">
+                    <div class="form-group">
+                        <label for="site-name">ชื่อไซต์งาน / สาขา *</label>
+                        <input type="text" id="site-name" required class="form-control" placeholder="เช่น สาขา 1 - โรงแรมเซ็นทรัล">
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="site-conn-type">รูปแบบการเชื่อมต่อ (Connection Type)</label>
+                            <select id="site-conn-type" class="form-control">
+                                <option value="wireguard">WireGuard VPN Tunnel (แนะนำ 10.10.88.x)</option>
+                                <option value="direct">Direct IP / DDNS (พอร์ต 8728 เดิม)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="site-wg-ip">WireGuard IP (วง 10.10.88.x)</label>
+                            <input type="text" id="site-wg-ip" class="form-control" placeholder="เช่น 10.10.88.2">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="site-host">IP Address / Hostname *</label>
+                        <input type="text" id="site-host" required class="form-control" placeholder="เช่น 10.10.88.2 หรือ 192.168.88.1">
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="site-port">API Port *</label>
+                            <input type="number" id="site-port" value="8728" required class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="site-username">Username *</label>
+                            <input type="text" id="site-username" required class="form-control" placeholder="เช่น admin" autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="site-password">Password</label>
+                        <input type="password" id="site-password" class="form-control" placeholder="••••••••" autocomplete="new-password">
+                        <span class="help-text" id="site-pwd-help" style="display: none;">ปล่อยว่างไว้หากไม่ต้องการเปลี่ยนรหัสผ่านเดิม</span>
+                    </div>
+                    <div id="site-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="button" class="btn btn-warning" id="btn-modal-gen-wg"><i class="fa-solid fa-shield-halved"></i> สร้างสคริปต์ WireGuard</button>
+                        <button type="button" class="btn btn-info" id="btn-modal-test-site"><i class="fa-solid fa-plug"></i> ทดสอบเชื่อมต่อ</button>
+                        <button type="submit" class="btn btn-primary">บันทึกไซต์งาน</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: WIREGUARD SCRIPT DISPLAY -->
+    <!-- ========================================== -->
+    <div id="modal-wg-script" class="modal-wrapper">
+        <div class="modal-card" style="max-width: 650px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-shield-halved text-primary"></i> สคริปต์เชื่อมต่อ WireGuard อัตโนมัติ</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    คัดลอกโค้ดสคริปต์ด้านล่างนี้ ไปวางใน <strong>WinBox ➔ Terminal</strong> บนเราท์เตอร์ MikroTik ของคุณ แล้วกด <strong>Enter</strong> เพื่อเชื่อมต่อแบบ WireGuard ทันที
+                </p>
+                <div class="form-group">
+                    <textarea id="wg-script-textarea" class="form-control" rows="12" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px;"></textarea>
+                </div>
+                <div class="modal-footer mt-16">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิดหน้าต่าง</button>
+                    <button type="button" class="btn btn-primary" id="btn-copy-wg-script"><i class="fa-solid fa-copy"></i> คัดลอกสคริปต์ทั้งหมด</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- MODAL: PRINT SINGLE VOUCHER -->
+    <!-- ========================================== -->
+    <div id="modal-print-single" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4>พิมพ์คูปองผู้ใช้งาน</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-print-single-setup">
+                    <div class="form-group">
+                        <label for="single-site-title">ชื่อสถานที่ / ไซต์งานบนคูปอง</label>
+                        <input type="text" id="single-site-title" placeholder="เช่น Hotspot High-Speed Wi-Fi" class="form-control">
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="single-package-name">ชื่อแพ็กเกจ</label>
+                            <input type="text" id="single-package-name" placeholder="เช่น บัตรใช้งานทั่วไป" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="single-price">ราคา</label>
+                            <input type="text" id="single-price" placeholder="เช่น 50 บาท" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="single-contact">หมายเหตุ / ติดต่อ</label>
+                        <input type="text" id="single-contact" placeholder="เช่น โทร 081-xxx-xxxx" class="form-control">
+                    </div>
+                    
+                    <div class="single-voucher-preview-wrapper mt-16" id="single-voucher-preview-container">
+                        <!-- Voucher Preview Card will be rendered here -->
+                    </div>
+
+                    <div class="modal-footer mt-20">
+                        <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                        <button type="button" class="btn btn-primary" id="btn-trigger-single-print"><i class="fa-solid fa-print"></i> พิมพ์คูปองนี้</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: ADD/EDIT HOTSPOT PROFILE -->
+    <!-- ========================================== -->
+    <div id="modal-profile" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="profile-modal-title">เพิ่มโปรไฟล์ Hotspot ใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-profile-item">
+                    <input type="hidden" id="profile-id">
+                    <div class="form-group">
+                        <label for="profile-name">ชื่อโปรไฟล์ (Profile Name) *</label>
+                        <input type="text" id="profile-name" required class="form-control" placeholder="เช่น VIP-10M, Guest-1Hour">
+                    </div>
+                    <div class="form-group">
+                        <label for="profile-rate-preset">จำกัดความเร็วเน็ตมาตรฐาน (Rate Limit Preset)</label>
+                        <select id="profile-rate-preset" class="form-control mb-8">
+                            <option value="">-- กำหนดความเร็วเอง (Custom) --</option>
+                            <option value="2M/2M">2 Mbps / 2 Mbps (ทั่วไป)</option>
+                            <option value="5M/5M">5 Mbps / 5 Mbps (ปานกลาง)</option>
+                            <option value="10M/10M">10 Mbps / 10 Mbps (เร็ว)</option>
+                            <option value="20M/20M">20 Mbps / 20 Mbps (VIP High Speed)</option>
+                            <option value="50M/50M">50 Mbps / 50 Mbps (Ultra Speed)</option>
+                        </select>
+                        <input type="text" id="profile-rate-limit" class="form-control" placeholder="ระบุเองในรูปแบบ Rx/Tx เช่น 10M/10M หรือ 2M/5M">
+                        <span class="help-text">รูปแบบ: Upload/Download เช่น 5M/10M (ปล่อยว่างไว้หากไม่จำกัด)</span>
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="profile-shared-users">อุปกรณ์ต่อบัญชี (Shared Users) *</label>
+                            <input type="number" id="profile-shared-users" value="1" min="1" max="100" required class="form-control">
+                            <span class="help-text">จำนวนเครื่องล็อกอินพร้อมกัน</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="profile-session-timeout">เวลาเซสชัน (Session Timeout)</label>
+                            <select id="profile-session-timeout-preset" class="form-control mb-8">
+                                <option value="">-- ไม่จำกัดเวลา / กำหนดเอง --</option>
+                                <option value="00:30:00">30 นาที</option>
+                                <option value="01:00:00">1 ชั่วโมง</option>
+                                <option value="02:00:00">2 ชั่วโมง</option>
+                                <option value="1d">1 วัน</option>
+                            </select>
+                            <input type="text" id="profile-session-timeout" class="form-control" placeholder="เช่น 01:00:00 หรือ 1d">
+                        </div>
+                    </div>
+                    <div id="profile-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer mt-16">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary">บันทึกโปรไฟล์</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay for mobile sidebar -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Script loading -->
+    <script src="app.js"></script>
+</body>
+</html>
+

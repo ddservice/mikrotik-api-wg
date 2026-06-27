@@ -1,0 +1,98 @@
+[
+    {
+        "timestamp": "2026-06-27T09:13:09.095Z",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-06-27T09:06:18.904Z",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:41.723Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2C"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:35.168Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2A"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:32.218Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2B"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:29.427Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2D"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:24.351Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2E"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:22.058Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *30"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:19.062Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *31"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:14.053Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *2F"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:10.979Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *32"
+    },
+    {
+        "timestamp": "2026-06-27T08:51:09.596Z",
+        "username": "admin",
+        "action": "ลบบัญชี Hotspot",
+        "details": "ลบผู้ใช้ ID: *33"
+    },
+    {
+        "timestamp": "2026-06-27T08:50:43.408Z",
+        "username": "admin",
+        "action": "สร้างคูปองกลุ่ม",
+        "details": "สร้างคูปองจำนวน 10 ใบ (โปรไฟล์: default)"
+    },
+    {
+        "timestamp": "2026-06-27T08:45:38.354Z",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-06-27T15:40:13.950311",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-06-27T15:29:15.421716",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    }
+]
