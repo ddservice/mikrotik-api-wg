@@ -454,7 +454,7 @@ class RouterDashboardHandler(BaseHTTPRequestHandler):
                     try:
                         sock = connect_and_login()
                         res = execute_command(sock, "/ip/hotspot/user/print", {
-                            ".proplist": ".id,name,password,profile,limit-uptime,limit-bytes-total,uptime,bytes-in,bytes-out,disabled,comment"
+                            ".proplist": ".id,name,password,plain-password,pass,secret,profile,limit-uptime,limit-bytes-total,uptime,bytes-in,bytes-out,disabled,comment"
                         })
                         output = []
                         for item in res:
