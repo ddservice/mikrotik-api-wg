@@ -1602,6 +1602,34 @@ const formSiteItem = document.getElementById('form-site-item');
 const siteError = document.getElementById('site-error');
 const modalWgScript = document.getElementById('modal-wg-script');
 
+function getNextWireguardIp() {
+    const sites = (currentSitesData && currentSitesData.sites) ? currentSitesData.sites : [];
+    const usedLastOctets = new Set();
+    
+    // Gateway is 10.10.88.1
+    usedLastOctets.add(1);
+    
+    sites.forEach(site => {
+        const ip = site.wireguardIp || site.host || '';
+        if (ip.startsWith('10.10.88.')) {
+            const parts = ip.split('.');
+            if (parts.length === 4) {
+                const lastOctet = parseInt(parts[3]);
+                if (!isNaN(lastOctet)) {
+                    usedLastOctets.add(lastOctet);
+                }
+            }
+        }
+    });
+    
+    let nextOctet = 2;
+    while (usedLastOctets.has(nextOctet)) {
+        nextOctet++;
+    }
+    
+    return `10.10.88.${nextOctet}`;
+}
+
 function openSiteModal(item = null) {
     if (item) {
         document.getElementById('site-modal-title').textContent = 'แก้ไขข้อมูลไซต์งาน / เราท์เตอร์';
@@ -1615,12 +1643,13 @@ function openSiteModal(item = null) {
         document.getElementById('site-password').value = '';
         document.getElementById('site-pwd-help').style.display = item.hasPassword ? 'block' : 'none';
     } else {
+        const nextIp = getNextWireguardIp();
         document.getElementById('site-modal-title').textContent = 'เพิ่มไซต์งาน / เราท์เตอร์ใหม่';
         document.getElementById('site-id').value = '';
         document.getElementById('site-name').value = '';
         document.getElementById('site-conn-type').value = 'wireguard';
-        document.getElementById('site-wg-ip').value = '10.10.88.2';
-        document.getElementById('site-host').value = '10.10.88.2';
+        document.getElementById('site-wg-ip').value = nextIp;
+        document.getElementById('site-host').value = nextIp;
         document.getElementById('site-port').value = '8728';
         document.getElementById('site-username').value = 'admin';
         document.getElementById('site-password').value = '';

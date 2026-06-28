@@ -135,14 +135,21 @@ function saveConfig(config, siteId) {
 
 function getNextWireGuardIP() {
     const data = getSitesData();
-    const usedLastOctets = data.sites
-        .map(s => s.wireguardIp)
-        .filter(Boolean)
-        .map(ip => parseInt(ip.split('.')[3]))
-        .filter(n => !isNaN(n));
+    const usedLastOctets = new Set([1]); // 10.10.88.1 is VPS
     
-    let nextOctet = 2; // start from 10.10.88.2 (10.10.88.1 is VPS)
-    while (usedLastOctets.includes(nextOctet) && nextOctet < 254) {
+    data.sites.forEach(s => {
+        const ip = s.wireguardIp || s.host || '10.10.88.2';
+        if (ip.startsWith('10.10.88.')) {
+            const parts = ip.split('.');
+            if (parts.length === 4) {
+                const octet = parseInt(parts[3]);
+                if (!isNaN(octet)) usedLastOctets.add(octet);
+            }
+        }
+    });
+    
+    let nextOctet = 2;
+    while (usedLastOctets.has(nextOctet) && nextOctet < 254) {
         nextOctet++;
     }
     return `10.10.88.${nextOctet}`;
@@ -160,7 +167,7 @@ function getSites() {
             username: s.username,
             hasPassword: !!s.password,
             connectionType: s.connectionType || 'wireguard',
-            wireguardIp: s.wireguardIp || '10.10.88.2',
+            wireguardIp: s.wireguardIp || s.host || '10.10.88.2',
             wireguardPublicKey: s.wireguardPublicKey || ''
         }))
     };
@@ -179,6 +186,14 @@ function addSite(siteData) {
     const data = getSitesData();
     const id = 'site_' + Date.now();
     const wireguardIp = siteData.wireguardIp || getNextWireGuardIP();
+    
+    if (siteData.connectionType === 'wireguard' || !siteData.connectionType) {
+        const duplicate = data.sites.find(s => (s.wireguardIp === wireguardIp || s.host === wireguardIp));
+        if (duplicate) {
+            throw new Error(`ไอพี WireGuard (${wireguardIp}) ถูกใช้งานแล้วโดยไซต์งาน "${duplicate.name}" กรุณาใช้ไอพีที่ไม่ซ้ำกัน`);
+        }
+    }
+
     const newSite = {
         id,
         name: siteData.name || 'ไซต์งานใหม่',
@@ -201,6 +216,14 @@ function updateSite(id, updateData) {
     if (index === -1) throw new Error('Site not found');
 
     const s = data.sites[index];
+
+    if (updateData.wireguardIp && updateData.wireguardIp !== s.wireguardIp) {
+        const duplicate = data.sites.find(item => item.id !== id && (item.wireguardIp === updateData.wireguardIp || item.host === updateData.wireguardIp));
+        if (duplicate) {
+            throw new Error(`ไอพี WireGuard (${updateData.wireguardIp}) ถูกใช้งานแล้วโดยไซต์งาน "${duplicate.name}"`);
+        }
+    }
+
     if (updateData.name) s.name = updateData.name;
     if (updateData.host) s.host = updateData.host;
     if (updateData.port) s.port = parseInt(updateData.port) || 8728;
