@@ -339,7 +339,7 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 /ip/address/add address=${targetIp}/24 interface=wg-gatekeeper comment="WireGuard VPN IP"
 
 # 4. Add VPS Server Peer
-/interface/wireguard/peers/add interface=wg-gatekeeper endpoint-address="157.85.108.84" endpoint-port=51820 allowed-address=0.0.0.0/0 persistent-keepalive=25s comment="VPS Hub Server" public-key="${pubKey}"
+/interface/wireguard/peers/add interface=wg-gatekeeper endpoint-address="157.85.108.84" endpoint-port=51820 allowed-address=10.10.88.0/24 persistent-keepalive=25s comment="VPS Hub Server" public-key="${pubKey}"
 
 # 5. Display Result
 :put "--------------------------------------------------------"
