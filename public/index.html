@@ -1108,6 +1108,11 @@
                             <label for="site-wg-ip">WireGuard IP (วง 10.10.88.x)</label>
                             <input type="text" id="site-wg-ip" class="form-control" placeholder="เช่น 10.10.88.2">
                         </div>
+                        <div class="form-group">
+                            <label for="site-wg-pubkey">MikroTik Public Key (ระบุล่วงหน้าหากมี)</label>
+                            <input type="text" id="site-wg-pubkey" class="form-control" style="font-family:monospace; font-size:0.85rem;" placeholder="เช่น SL/ELo46KHq6KHenZkdc55Ve...">
+                            <span class="help-text">หากใส่คีย์นี้ไว้ ระบบจะลงทะเบียนบน VPS ให้อัตโนมัติทันทีเมื่อสร้างสคริปต์</span>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="site-host">IP Address / Hostname *</label>
@@ -1153,9 +1158,16 @@
                 <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
                     คัดลอกโค้ดสคริปต์ด้านล่างนี้ ไปวางใน <strong>WinBox ➔ Terminal</strong> บนเราท์เตอร์ MikroTik ของคุณ แล้วกด <strong>Enter</strong> เพื่อเชื่อมต่อแบบ WireGuard ทันที
                 </p>
+                <div class="form-group mb-12" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <span style="font-size:0.85rem; color:var(--text-muted);">เลือกประเภทสคริปต์:</span>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-primary" id="btn-show-install-script"><i class="fa-solid fa-download"></i> สคริปต์ติดตั้ง WireGuard</button>
+                        <button type="button" class="btn btn-sm btn-danger" id="btn-show-uninstall-script"><i class="fa-solid fa-trash"></i> สคริปต์ถอนการติดตั้งบน MikroTik</button>
+                    </div>
+                </div>
                 <div class="form-group mb-12">
-                    <label for="wg-vps-pubkey-input" style="font-size:0.85rem; font-weight:600;">VPS Public Key:</label>
-                    <div style="display:flex; gap:8px;">
+                    <label for="wg-vps-pubkey-input" id="lbl-vps-pubkey" style="font-size:0.85rem; font-weight:600;">VPS Public Key:</label>
+                    <div style="display:flex; gap:8px;" id="box-vps-pubkey">
                         <input type="text" id="wg-vps-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.85rem;" placeholder="ใส่ VPS Public Key เช่น 0TXQh5lCyrNP3d...">
                         <button type="button" class="btn btn-secondary btn-sm" id="btn-regen-wg-script" style="white-space:nowrap;"><i class="fa-solid fa-sync"></i> อัปเดตสคริปต์</button>
                     </div>
@@ -1163,13 +1175,14 @@
                 <div class="form-group mb-12">
                     <textarea id="wg-script-textarea" class="form-control" rows="10" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px;"></textarea>
                 </div>
-                <div class="form-group p-12" style="background:var(--bg-card-subtle); border-radius:8px; border:1px dashed var(--border-color);">
-                    <label for="wg-client-pubkey-input" style="font-size:0.85rem; font-weight:600; color:var(--text-main);"><i class="fa-solid fa-key text-success"></i> ลงทะเบียน MikroTik Public Key บน VPS อัตโนมัติ:</label>
-                    <div style="display:flex; gap:8px; margin-top:6px;">
-                        <input type="text" id="wg-client-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.8rem;" placeholder="วาง Public Key ของ MikroTik ที่นี่ (ดูจากผลลัพธ์สคริปต์ข้อ 5)">
+                <div class="form-group p-12" id="box-register-peer" style="background:var(--bg-card-subtle); border-radius:8px; border:1px dashed var(--border-color);">
+                    <label for="wg-client-pubkey-input" style="font-size:0.85rem; font-weight:600; color:var(--text-main);"><i class="fa-solid fa-key text-success"></i> จัดการ MikroTik Public Key บน VPS:</label>
+                    <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                        <input type="text" id="wg-client-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.8rem; flex:1; min-width:200px;" placeholder="วาง Public Key ของ MikroTik ที่นี่">
                         <button type="button" class="btn btn-success btn-sm" id="btn-register-peer" style="white-space:nowrap;"><i class="fa-solid fa-plus-circle"></i> บันทึก Peer บน VPS</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-vps-peer" style="white-space:nowrap;"><i class="fa-solid fa-broom"></i> ล้างค่า Peer บน VPS</button>
                     </div>
-                    <span class="help-text" style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:4px;">นำ Public Key ที่ได้จาก Winbox เมื่อรันสคริปต์เสร็จแล้วมาวาง แล้วกดบันทึก ระบบจะลงทะเบียนคีย์บน VPS ให้ทันทีโดยไม่ต้องเข้า Terminal</span>
+                    <span class="help-text" style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:4px;">ระบบจะล้างค่าคีย์เก่าของ IP นี้ให้อัตโนมัติเมื่อกดบันทึก หรือกดล้างค่าเพื่อยกเลิกการเชื่อมต่อฝั่ง VPS</span>
                 </div>
                 <div class="modal-footer mt-16">
                     <button type="button" class="btn btn-secondary modal-cancel">ปิดหน้าต่าง</button>

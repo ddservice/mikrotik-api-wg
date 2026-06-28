@@ -1541,6 +1541,8 @@ function openSiteModal(item = null) {
         document.getElementById('site-name').value = item.name;
         document.getElementById('site-conn-type').value = item.connectionType || 'wireguard';
         document.getElementById('site-wg-ip').value = item.wireguardIp || '10.10.88.2';
+        const pubKeyEl = document.getElementById('site-wg-pubkey');
+        if (pubKeyEl) pubKeyEl.value = item.wireguardPublicKey || '';
         document.getElementById('site-host').value = item.host;
         document.getElementById('site-port').value = item.port || 8728;
         document.getElementById('site-username').value = item.username;
@@ -1552,6 +1554,8 @@ function openSiteModal(item = null) {
         document.getElementById('site-name').value = '';
         document.getElementById('site-conn-type').value = 'wireguard';
         document.getElementById('site-wg-ip').value = '10.10.88.2';
+        const pubKeyEl = document.getElementById('site-wg-pubkey');
+        if (pubKeyEl) pubKeyEl.value = '';
         document.getElementById('site-host').value = '10.10.88.2';
         document.getElementById('site-port').value = '8728';
         document.getElementById('site-username').value = 'admin';
@@ -1600,12 +1604,13 @@ formSiteItem.addEventListener('submit', async (e) => {
     const name = document.getElementById('site-name').value;
     const connectionType = document.getElementById('site-conn-type').value;
     const wireguardIp = document.getElementById('site-wg-ip').value;
+    const wireguardPublicKey = document.getElementById('site-wg-pubkey') ? document.getElementById('site-wg-pubkey').value.trim() : '';
     const host = document.getElementById('site-host').value;
     const port = document.getElementById('site-port').value;
     const username = document.getElementById('site-username').value;
     const password = document.getElementById('site-password').value;
 
-    const body = { name, host, port, username, connectionType, wireguardIp };
+    const body = { name, host, port, username, connectionType, wireguardIp, wireguardPublicKey };
     if (password) body.password = password;
 
     const url = id ? `/api/sites/${id}` : '/api/sites';
@@ -1627,6 +1632,8 @@ formSiteItem.addEventListener('submit', async (e) => {
 const btnModalGenWg = document.getElementById('btn-modal-gen-wg');
 async function generateWgScript(customPubKey = null) {
     const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+    const wireguardPublicKey = document.getElementById('site-wg-pubkey') ? document.getElementById('site-wg-pubkey').value.trim() : '';
+    const clientPublicKey = wireguardPublicKey || (document.getElementById('wg-client-pubkey-input') ? document.getElementById('wg-client-pubkey-input').value.trim() : '');
     const vpsPublicKey = customPubKey !== null ? customPubKey : (document.getElementById('wg-vps-pubkey-input') ? document.getElementById('wg-vps-pubkey-input').value : '');
     try {
         if (btnModalGenWg) {
@@ -1635,7 +1642,7 @@ async function generateWgScript(customPubKey = null) {
         }
         const res = await apiFetch('/api/wireguard/generate-script', {
             method: 'POST',
-            body: JSON.stringify({ wireguardIp, vpsPublicKey })
+            body: JSON.stringify({ wireguardIp, vpsPublicKey, clientPublicKey })
         });
         document.getElementById('wg-script-textarea').value = res.script;
         const pubKeyInput = document.getElementById('wg-vps-pubkey-input');
@@ -1645,7 +1652,16 @@ async function generateWgScript(customPubKey = null) {
                 pubKeyInput.value = match[1];
             }
         }
+        const clientPubKeyInput = document.getElementById('wg-client-pubkey-input');
+        if (clientPubKeyInput && clientPublicKey) {
+            clientPubKeyInput.value = clientPublicKey;
+        }
         modalWgScript.classList.add('active');
+        if (res.autoRegistered) {
+            setTimeout(() => {
+                alert('ลงทะเบียน Peer บน VPS อัตโนมัติเรียบร้อยแล้ว! สามารถนำสคริปต์ไปวางบน MikroTik เพื่อเชื่อมต่อได้ทันที');
+            }, 300);
+        }
     } catch (err) {
         alert(err.message);
     } finally {
@@ -1679,6 +1695,53 @@ if (btnCopyWgScript) {
         textarea.select();
         document.execCommand('copy');
         alert('คัดลอกโค้ดสคริปต์ WireGuard เรียบร้อยแล้ว! นำไปวางใน WinBox Terminal ได้เลย');
+    });
+}
+
+const btnShowInstallScript = document.getElementById('btn-show-install-script');
+const btnShowUninstallScript = document.getElementById('btn-show-uninstall-script');
+
+if (btnShowInstallScript) {
+    btnShowInstallScript.addEventListener('click', () => {
+        btnShowInstallScript.className = 'btn btn-sm btn-primary';
+        if (btnShowUninstallScript) btnShowUninstallScript.className = 'btn btn-sm btn-outline-danger';
+        generateWgScript();
+    });
+}
+
+if (btnShowUninstallScript) {
+    btnShowUninstallScript.addEventListener('click', async () => {
+        if (btnShowInstallScript) btnShowInstallScript.className = 'btn btn-sm btn-outline-primary';
+        btnShowUninstallScript.className = 'btn btn-sm btn-danger';
+        try {
+            const res = await apiFetch('/api/wireguard/generate-uninstall-script', { method: 'POST' });
+            document.getElementById('wg-script-textarea').value = res.script;
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+}
+
+const btnClearVpsPeer = document.getElementById('btn-clear-vps-peer');
+if (btnClearVpsPeer) {
+    btnClearVpsPeer.addEventListener('click', async () => {
+        const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+        if (!confirm(`คุณต้องการล้างค่า WireGuard Peer ของ IP ${wireguardIp} บน VPS หรือไม่?`)) return;
+        try {
+            btnClearVpsPeer.disabled = true;
+            btnClearVpsPeer.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังล้างค่า...';
+            const res = await apiFetch('/api/wireguard/remove-peer', {
+                method: 'POST',
+                body: JSON.stringify({ wireguardIp })
+            });
+            alert(res.message || 'ล้างค่า Peer บน VPS เรียบร้อยแล้ว');
+            document.getElementById('wg-client-pubkey-input').value = '';
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btnClearVpsPeer.disabled = false;
+            btnClearVpsPeer.innerHTML = '<i class="fa-solid fa-broom"></i> ล้างค่า Peer บน VPS';
+        }
     });
 }
 

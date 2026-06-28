@@ -213,14 +213,50 @@ app.post('/api/sites/switch/:id', requireAuth(['admin', 'co-admin', 'user']), (r
 });
 
 
+// Helper for VPS WireGuard Peer Management
+function cleanupVpsPeerByIp(wireguardIp) {
+    if (!wireguardIp) return;
+    try {
+        const { execSync } = require('child_process');
+        const dump = execSync('sudo wg show wg0 dump 2>/dev/null', { encoding: 'utf8' });
+        const lines = dump.split('\n');
+        const targetIpStr = wireguardIp.trim() + '/32';
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 4) {
+                const pubKey = parts[0];
+                const allowedIps = parts[3];
+                if (allowedIps && allowedIps.includes(targetIpStr)) {
+                    execSync(`sudo wg set wg0 peer "${pubKey}" remove 2>/dev/null || true`, { encoding: 'utf8' });
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to cleanup VPS peer for IP:', wireguardIp, e.message);
+    }
+}
+
+function registerVpsPeer(wireguardIp, clientPublicKey) {
+    if (!wireguardIp || !clientPublicKey) return;
+    cleanupVpsPeerByIp(wireguardIp);
+    const { execSync } = require('child_process');
+    const cmd = `sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32 && sudo wg-quick save wg0 2>/dev/null || true`;
+    execSync(cmd, { encoding: 'utf8' });
+}
+
 // Add new site (Admin only)
 app.post('/api/sites', requireAuth(['admin']), (req, res) => {
-    const { name, host, port, username, password, connectionType, wireguardIp } = req.body;
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey } = req.body;
     if (!name) {
         return res.status(400).json({ error: 'Name is required' });
     }
     try {
-        const newSite = db.addSite({ name, host, port, username, password, connectionType, wireguardIp });
+        const newSite = db.addSite({ name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey });
+        if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
+            try {
+                registerVpsPeer(wireguardIp, wireguardPublicKey);
+            } catch (wgErr) {}
+        }
         db.addLog(req.user.username, 'เพิ่มไซต์งานใหม่', 'เพิ่มไซต์งาน ' + name + ' (IP: ' + newSite.host + ')');
         res.status(201).json(newSite);
     } catch (e) {
@@ -230,9 +266,14 @@ app.post('/api/sites', requireAuth(['admin']), (req, res) => {
 
 // Update site (Admin only)
 app.put('/api/sites/:id', requireAuth(['admin']), (req, res) => {
-    const { name, host, port, username, password, connectionType, wireguardIp } = req.body;
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey } = req.body;
     try {
-        const updated = db.updateSite(req.params.id, { name, host, port, username, password, connectionType, wireguardIp });
+        const updated = db.updateSite(req.params.id, { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey });
+        if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
+            try {
+                registerVpsPeer(wireguardIp, wireguardPublicKey);
+            } catch (wgErr) {}
+        }
         db.addLog(req.user.username, 'แก้ไขไซต์งาน', 'แก้ไขข้อมูลไซต์งาน: ' + updated.name);
         res.json(updated);
     } catch (e) {
@@ -242,8 +283,17 @@ app.put('/api/sites/:id', requireAuth(['admin']), (req, res) => {
 
 // Generate WireGuard Setup Script for MikroTik
 app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) => {
-    const { wireguardIp, vpsPublicKey } = req.body;
+    const { wireguardIp, vpsPublicKey, clientPublicKey } = req.body;
     const targetIp = wireguardIp || '10.10.88.2';
+    let autoRegistered = false;
+
+    if (clientPublicKey && clientPublicKey.trim()) {
+        try {
+            registerVpsPeer(targetIp, clientPublicKey);
+            autoRegistered = true;
+            db.addLog(req.user.username, 'ลงทะเบียน WireGuard Peer อัตโนมัติ', `ลงทะเบียนคีย์สำหรับ IP ${targetIp}`);
+        } catch (e) {}
+    }
     
     let pubKey = vpsPublicKey;
     if (!pubKey) {
@@ -299,7 +349,7 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 :put "--------------------------------------------------------"
 `;
 
-    res.json({ script, wireguardIp: targetIp });
+    res.json({ script, wireguardIp: targetIp, autoRegistered });
 });
 
 // Register MikroTik Peer into VPS WireGuard automatically
@@ -309,14 +359,46 @@ app.post('/api/wireguard/register-peer', requireAuth(['admin']), (req, res) => {
         return res.status(400).json({ error: 'Client Public Key and WireGuard IP are required' });
     }
     try {
-        const { execSync } = require('child_process');
-        const cmd = `sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32 && sudo wg-quick save wg0 2>/dev/null || true`;
-        execSync(cmd, { encoding: 'utf8' });
+        registerVpsPeer(wireguardIp, clientPublicKey);
         db.addLog(req.user.username, 'ลงทะเบียน WireGuard Peer', `ลงทะเบียนคีย์สำหรับ IP ${wireguardIp}`);
-        res.json({ success: true, message: 'ลงทะเบียน Peer บน VPS สำเร็จ' });
+        res.json({ success: true, message: 'ลงทะเบียน Peer บน VPS สำเร็จ (พร้อมล้างค่าคีย์เก่า)' });
     } catch (err) {
         res.status(500).json({ error: `ไม่สามารถลงทะเบียน Peer บน VPS ได้: ${err.message}` });
     }
+});
+
+// Remove Peer from VPS WireGuard manually
+app.post('/api/wireguard/remove-peer', requireAuth(['admin']), (req, res) => {
+    const { wireguardIp } = req.body;
+    if (!wireguardIp) {
+        return res.status(400).json({ error: 'WireGuard IP is required' });
+    }
+    try {
+        cleanupVpsPeerByIp(wireguardIp);
+        const { execSync } = require('child_process');
+        execSync('sudo wg-quick save wg0 2>/dev/null || true', { encoding: 'utf8' });
+        db.addLog(req.user.username, 'ลบ WireGuard Peer', `ลบ Peer สำหรับ IP ${wireguardIp} บน VPS`);
+        res.json({ success: true, message: `ล้างค่า WireGuard Peer สำหรับ IP ${wireguardIp} บน VPS เรียบร้อยแล้ว` });
+    } catch (err) {
+        res.status(500).json({ error: `ไม่สามารถล้างค่า Peer บน VPS ได้: ${err.message}` });
+    }
+});
+
+// Generate Uninstall Script for MikroTik
+app.post('/api/wireguard/generate-uninstall-script', requireAuth(['admin']), (req, res) => {
+    const script = `# ======================================================
+# MikroTik RouterOS WireGuard Clean-up / Uninstall Script
+# ======================================================
+
+# 1. Remove WireGuard Interface and associated IPs/Peers
+/interface/wireguard/remove [find name=wg-gatekeeper]
+/ip/address/remove [find comment="WireGuard VPN IP"]
+
+:put "--------------------------------------------------------"
+:put "WireGuard Interface & Configuration Removed Successfully!"
+:put "--------------------------------------------------------"
+`;
+    res.json({ script });
 });
 
 
@@ -436,14 +518,19 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
         const users = await executeOnRouter(async (client) => {
-            const list = await client.exec('/ip/hotspot/user/print', {
-                '.proplist': '.id,name,password,plain-password,pass,secret,profile,limit-uptime,limit-bytes-total,uptime,bytes-in,bytes-out,disabled,comment'
-            });
+            const list = await client.exec('/ip/hotspot/user/print');
             return list.map(item => {
-                const userPassword = (item.password !== undefined && item.password !== '') ? item.password :
-                                     (item['plain-password'] !== undefined && item['plain-password'] !== '') ? item['plain-password'] :
-                                     (item.pass !== undefined && item.pass !== '') ? item.pass :
-                                     (item.secret !== undefined && item.secret !== '') ? item.secret : '';
+                let userPassword = item.password || item['plain-password'] || item.pass || item.secret || '';
+                if (!userPassword) {
+                    for (const k of Object.keys(item)) {
+                        if (k.toLowerCase().includes('pass') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('pwd')) {
+                            if (item[k]) {
+                                userPassword = item[k];
+                                break;
+                            }
+                        }
+                    }
+                }
                 return {
                     id: item['.id'],
                     name: item.name,
