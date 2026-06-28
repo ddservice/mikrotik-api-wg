@@ -437,13 +437,13 @@ app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']
     try {
         const users = await executeOnRouter(async (client) => {
             const list = await client.exec('/ip/hotspot/user/print', {
-                '.proplist': '.id,name,password,plain-password,profile,uptime,bytes-in,bytes-out,limit-uptime,limit-bytes-total,disabled,comment'
+                '.proplist': '.id,name,password,profile,limit-uptime,limit-bytes-total,uptime,bytes-in,bytes-out,disabled,comment'
             });
             return list.map(item => {
-                const userPassword = item.password !== undefined && item.password !== '' ? item.password :
-                                     item['plain-password'] !== undefined && item['plain-password'] !== '' ? item['plain-password'] :
-                                     item.pass !== undefined && item.pass !== '' ? item.pass :
-                                     item.secret !== undefined && item.secret !== '' ? item.secret : '';
+                const userPassword = (item.password !== undefined && item.password !== '') ? item.password :
+                                     (item['plain-password'] !== undefined && item['plain-password'] !== '') ? item['plain-password'] :
+                                     (item.pass !== undefined && item.pass !== '') ? item.pass :
+                                     (item.secret !== undefined && item.secret !== '') ? item.secret : '';
                 return {
                     id: item['.id'],
                     name: item.name,

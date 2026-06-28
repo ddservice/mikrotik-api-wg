@@ -453,13 +453,16 @@ class RouterDashboardHandler(BaseHTTPRequestHandler):
                     sock = None
                     try:
                         sock = connect_and_login()
-                        res = execute_command(sock, "/ip/hotspot/user/print")
+                        res = execute_command(sock, "/ip/hotspot/user/print", {
+                            ".proplist": ".id,name,password,profile,limit-uptime,limit-bytes-total,uptime,bytes-in,bytes-out,disabled,comment"
+                        })
                         output = []
                         for item in res:
+                            pwd = item.get("password") or item.get("plain-password") or item.get("pass") or item.get("secret") or ""
                             output.append({
                                 "id": item.get(".id"),
                                 "name": item.get("name"),
-                                "password": item.get("password", ""),
+                                "password": pwd,
                                 "profile": item.get("profile", "default"),
                                 "uptime": item.get("uptime", "0s"),
                                 "bytesIn": int(item.get("bytes-in", 0)),
