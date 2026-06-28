@@ -248,15 +248,29 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
     let pubKey = vpsPublicKey;
     if (!pubKey) {
         try {
-            if (fs.existsSync('/etc/wireguard/publickey')) {
-                pubKey = fs.readFileSync('/etc/wireguard/publickey', 'utf8').trim();
+            const { execSync } = require('child_process');
+            pubKey = execSync('wg show wg0 public-key 2>/dev/null || sudo wg show wg0 public-key 2>/dev/null', { encoding: 'utf8' }).trim();
+        } catch (e) {}
+    }
+    if (!pubKey) {
+        try {
+            const candidatePaths = [
+                '/etc/wireguard/publickey',
+                path.join(__dirname, 'vps_publickey.txt'),
+                path.join(__dirname, 'publickey')
+            ];
+            for (const p of candidatePaths) {
+                if (fs.existsSync(p)) {
+                    pubKey = fs.readFileSync(p, 'utf8').trim();
+                    if (pubKey) break;
+                }
             }
         } catch (e) {
             console.error('Failed to read VPS public key:', e.message);
         }
     }
     if (!pubKey) {
-        pubKey = '<ใส่_PUBLIC_KEY_ของ_VPS>';
+        pubKey = 'RROe/+EO47I8EntyxINUgX8Q/LExWC9rzFBBgvdIICE=';
     }
 
     const script = `# ======================================================
@@ -286,6 +300,23 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 `;
 
     res.json({ script, wireguardIp: targetIp });
+});
+
+// Register MikroTik Peer into VPS WireGuard automatically
+app.post('/api/wireguard/register-peer', requireAuth(['admin']), (req, res) => {
+    const { clientPublicKey, wireguardIp } = req.body;
+    if (!clientPublicKey || !wireguardIp) {
+        return res.status(400).json({ error: 'Client Public Key and WireGuard IP are required' });
+    }
+    try {
+        const { execSync } = require('child_process');
+        const cmd = `sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32 && sudo wg-quick save wg0 2>/dev/null || true`;
+        execSync(cmd, { encoding: 'utf8' });
+        db.addLog(req.user.username, 'ลงทะเบียน WireGuard Peer', `ลงทะเบียนคีย์สำหรับ IP ${wireguardIp}`);
+        res.json({ success: true, message: 'ลงทะเบียน Peer บน VPS สำเร็จ' });
+    } catch (err) {
+        res.status(500).json({ error: `ไม่สามารถลงทะเบียน Peer บน VPS ได้: ${err.message}` });
+    }
 });
 
 
@@ -409,6 +440,7 @@ app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']
             return list.map(item => ({
                 id: item['.id'],
                 name: item.name,
+                password: item.password || item['plain-password'] || '',
                 profile: item.profile,
                 uptime: item.uptime || '0s',
                 bytesIn: parseInt(item['bytes-in']) || 0,
@@ -424,6 +456,7 @@ app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // Create Hotspot user
 app.post('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {

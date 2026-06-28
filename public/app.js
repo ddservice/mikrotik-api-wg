@@ -1625,24 +1625,46 @@ formSiteItem.addEventListener('submit', async (e) => {
 
 // WireGuard Script Generator Action
 const btnModalGenWg = document.getElementById('btn-modal-gen-wg');
-if (btnModalGenWg) {
-    btnModalGenWg.addEventListener('click', async () => {
-        const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
-        try {
+async function generateWgScript(customPubKey = null) {
+    const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+    const vpsPublicKey = customPubKey !== null ? customPubKey : (document.getElementById('wg-vps-pubkey-input') ? document.getElementById('wg-vps-pubkey-input').value : '');
+    try {
+        if (btnModalGenWg) {
             btnModalGenWg.disabled = true;
             btnModalGenWg.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสร้าง...';
-            const res = await apiFetch('/api/wireguard/generate-script', {
-                method: 'POST',
-                body: JSON.stringify({ wireguardIp })
-            });
-            document.getElementById('wg-script-textarea').value = res.script;
-            modalWgScript.classList.add('active');
-        } catch (err) {
-            alert(err.message);
-        } finally {
+        }
+        const res = await apiFetch('/api/wireguard/generate-script', {
+            method: 'POST',
+            body: JSON.stringify({ wireguardIp, vpsPublicKey })
+        });
+        document.getElementById('wg-script-textarea').value = res.script;
+        const pubKeyInput = document.getElementById('wg-vps-pubkey-input');
+        if (pubKeyInput && res.script) {
+            const match = res.script.match(/public-key="([^"]+)"/);
+            if (match && match[1] && !match[1].includes('<ใส่_PUBLIC_KEY')) {
+                pubKeyInput.value = match[1];
+            }
+        }
+        modalWgScript.classList.add('active');
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        if (btnModalGenWg) {
             btnModalGenWg.disabled = false;
             btnModalGenWg.innerHTML = '<i class="fa-solid fa-shield-halved"></i> สร้างสคริปต์ WireGuard';
         }
+    }
+}
+
+if (btnModalGenWg) {
+    btnModalGenWg.addEventListener('click', () => generateWgScript());
+}
+
+const btnRegenWg = document.getElementById('btn-regen-wg-script');
+if (btnRegenWg) {
+    btnRegenWg.addEventListener('click', () => {
+        const pubKey = document.getElementById('wg-vps-pubkey-input').value.trim();
+        generateWgScript(pubKey);
     });
 }
 
@@ -1657,6 +1679,33 @@ if (btnCopyWgScript) {
         textarea.select();
         document.execCommand('copy');
         alert('คัดลอกโค้ดสคริปต์ WireGuard เรียบร้อยแล้ว! นำไปวางใน WinBox Terminal ได้เลย');
+    });
+}
+
+const btnRegisterPeer = document.getElementById('btn-register-peer');
+if (btnRegisterPeer) {
+    btnRegisterPeer.addEventListener('click', async () => {
+        const clientPublicKey = document.getElementById('wg-client-pubkey-input').value.trim();
+        const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+        if (!clientPublicKey) {
+            alert('กรุณากรอกหรือวาง Public Key ของ MikroTik ก่อนกดบันทึก');
+            return;
+        }
+        try {
+            btnRegisterPeer.disabled = true;
+            btnRegisterPeer.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...';
+            const res = await apiFetch('/api/wireguard/register-peer', {
+                method: 'POST',
+                body: JSON.stringify({ clientPublicKey, wireguardIp })
+            });
+            alert(res.message || 'ลงทะเบียน Peer บน VPS สำเร็จแล้ว! MikroTik สามารถเชื่อมต่อและ ping เจอได้ทันที');
+            document.getElementById('wg-client-pubkey-input').value = '';
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btnRegisterPeer.disabled = false;
+            btnRegisterPeer.innerHTML = '<i class="fa-solid fa-plus-circle"></i> บันทึก Peer บน VPS';
+        }
     });
 }
 
