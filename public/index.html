@@ -1085,12 +1085,12 @@
     <!-- ========================================== -->
     <div id="modal-site" class="modal-wrapper">
         <div class="modal-card">
-            <div class="modal-header">
-                <h4 id="site-modal-title">เพิ่มไซต์งาน / เราท์เตอร์ใหม่</h4>
-                <button class="modal-close-btn">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="form-site-item">
+            <form id="form-site-item" class="modal-form-flex">
+                <div class="modal-header">
+                    <h4 id="site-modal-title">เพิ่มไซต์งาน / เราท์เตอร์ใหม่</h4>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
                     <input type="hidden" id="site-id">
                     <div class="form-group">
                         <label for="site-name">ชื่อไซต์งาน / สาขา *</label>
@@ -1134,14 +1134,14 @@
                         <span class="help-text" id="site-pwd-help" style="display: none;">ปล่อยว่างไว้หากไม่ต้องการเปลี่ยนรหัสผ่านเดิม</span>
                     </div>
                     <div id="site-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
-                    <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
-                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
-                        <button type="button" class="btn btn-warning" id="btn-modal-gen-wg"><i class="fa-solid fa-shield-halved"></i> สร้างสคริปต์ WireGuard</button>
-                        <button type="button" class="btn btn-info" id="btn-modal-test-site"><i class="fa-solid fa-plug"></i> ทดสอบเชื่อมต่อ</button>
-                        <button type="submit" class="btn btn-primary">บันทึกไซต์งาน</button>
-                    </div>
-                </form>
-            </div>
+                </div>
+                <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                    <button type="button" class="btn btn-warning" id="btn-modal-gen-wg"><i class="fa-solid fa-shield-halved"></i> สร้างสคริปต์ WireGuard</button>
+                    <button type="button" class="btn btn-info" id="btn-modal-test-site"><i class="fa-solid fa-plug"></i> ทดสอบเชื่อมต่อ</button>
+                    <button type="submit" class="btn btn-primary">บันทึกไซต์งาน</button>
+                </div>
+            </form>
         </div>
     </div>
 
