@@ -108,6 +108,9 @@ body {
     border-radius: var(--border-radius-lg);
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.02), 0 0 0 1px rgba(0, 0, 0, 0.02);
     transition: transform var(--transition-normal), border var(--transition-normal), box-shadow var(--transition-normal);
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .card:hover {
@@ -121,6 +124,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
 }
 
 .card-header-flex {
@@ -599,8 +604,11 @@ select.form-control {
 .main-content {
     margin-left: var(--sidebar-width);
     flex: 1;
-    padding: 40px;
+    min-width: 0;
+    max-width: calc(100vw - var(--sidebar-width));
+    padding: 32px 24px;
     min-height: 100vh;
+    overflow-x: hidden;
 }
 
 .content-header {
