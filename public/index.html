@@ -1149,45 +1149,53 @@
     <!-- MODAL: WIREGUARD SCRIPT DISPLAY -->
     <!-- ========================================== -->
     <div id="modal-wg-script" class="modal-wrapper">
-        <div class="modal-card" style="max-width: 650px;">
+        <div class="modal-card" style="max-width: 680px;">
             <div class="modal-header">
-                <h4><i class="fa-solid fa-shield-halved text-primary"></i> สคริปต์เชื่อมต่อ WireGuard อัตโนมัติ</h4>
+                <h4><i class="fa-solid fa-shield-halved text-primary"></i> ตั้งค่าการเชื่อมต่อ WireGuard VPN</h4>
                 <button class="modal-close-btn">&times;</button>
             </div>
             <div class="modal-body">
-                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
-                    คัดลอกโค้ดสคริปต์ด้านล่างนี้ ไปวางใน <strong>WinBox ➔ Terminal</strong> บนเราท์เตอร์ MikroTik ของคุณ แล้วกด <strong>Enter</strong> เพื่อเชื่อมต่อแบบ WireGuard ทันที
-                </p>
-                <div class="form-group mb-12" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                    <span style="font-size:0.85rem; color:var(--text-muted);">เลือกประเภทสคริปต์:</span>
-                    <div>
-                        <button type="button" class="btn btn-sm btn-primary" id="btn-show-install-script"><i class="fa-solid fa-download"></i> สคริปต์ติดตั้ง WireGuard</button>
-                        <button type="button" class="btn btn-sm btn-danger" id="btn-show-uninstall-script"><i class="fa-solid fa-trash"></i> สคริปต์ถอนการติดตั้งบน MikroTik</button>
+                <!-- TYPE SELECTOR -->
+                <div class="form-group mb-16" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:var(--bg-card-subtle); padding:10px 14px; border-radius:8px;">
+                    <span style="font-size:0.85rem; font-weight:600;"><i class="fa-solid fa-list-check text-primary"></i> เลือกประเภทสคริปต์:</span>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="btn btn-sm btn-primary" id="btn-show-install-script"><i class="fa-solid fa-download"></i> สคริปต์ติดตั้งใหม่</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="btn-show-uninstall-script"><i class="fa-solid fa-trash"></i> สคริปต์ถอนการติดตั้ง</button>
                     </div>
                 </div>
-                <div class="form-group mb-12">
-                    <label for="wg-vps-pubkey-input" id="lbl-vps-pubkey" style="font-size:0.85rem; font-weight:600;">VPS Public Key:</label>
-                    <div style="display:flex; gap:8px;" id="box-vps-pubkey">
-                        <input type="text" id="wg-vps-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.85rem;" placeholder="ใส่ VPS Public Key เช่น 0TXQh5lCyrNP3d...">
-                        <button type="button" class="btn btn-secondary btn-sm" id="btn-regen-wg-script" style="white-space:nowrap;"><i class="fa-solid fa-sync"></i> อัปเดตสคริปต์</button>
+
+                <!-- STEP 1 BOX -->
+                <div class="step-box mb-16" style="border:1px solid var(--border-color); border-radius:10px; padding:16px; background:#ffffff;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                        <h5 style="margin:0; font-size:0.95rem; font-weight:700; color:var(--primary-color);">
+                            <span style="background:var(--primary-color); color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; margin-right:6px;">ขั้นตอนที่ 1</span> คัดลอกสคริปต์ไปวางใน WinBox Terminal
+                        </h5>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-copy-wg-script"><i class="fa-solid fa-copy"></i> คัดลอกสคริปต์ทั้งหมด</button>
+                    </div>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
+                        คัดลอกสคริปต์ด้านล่างไปวางใน <strong>WinBox ➔ Terminal</strong> บน MikroTik ของคุณ เมื่อรันเสร็จระบบจะderรันและแสดง <strong>Public Key</strong> ในบรรทัดสุดท้าย
+                    </p>
+                    <textarea id="wg-script-textarea" class="form-control" rows="8" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px; border-radius:6px;"></textarea>
+                    <input type="hidden" id="wg-vps-pubkey-input">
+                </div>
+
+                <!-- STEP 2 BOX -->
+                <div class="step-box p-16" id="box-register-peer" style="border:1px solid #bbf7d0; border-radius:10px; padding:16px; background:#f0fdf4;">
+                    <h5 style="margin:0 0 6px 0; font-size:0.95rem; font-weight:700; color:#166534;">
+                        <span style="background:#166534; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; margin-right:6px;">ขั้นตอนที่ 2</span> อัปเดต MikroTik Public Key ไปยัง VPS
+                    </h5>
+                    <p style="font-size:0.8rem; color:#15803d; margin-bottom:10px;">
+                        นำ Public Key ที่ได้จาก WinBox Terminal ในข้อ 1 มาวางในช่องนี้แล้วกดอัปเดต เพื่อผูกการเชื่อมต่อและเปิดท่อ VPN ทันที
+                    </p>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <input type="text" id="wg-client-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.85rem; flex:1; min-width:220px; border-color:#86efac;" placeholder="วาง Public Key ของ MikroTik ที่นี่...">
+                        <button type="button" class="btn btn-success btn-sm" id="btn-register-peer" style="white-space:nowrap;"><i class="fa-solid fa-bolt"></i> อัปเดตคีย์ไปยัง VPS ทันที</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-vps-peer" style="white-space:nowrap;"><i class="fa-solid fa-broom"></i> ล้างคีย์บน VPS</button>
                     </div>
                 </div>
-                <div class="form-group mb-12">
-                    <textarea id="wg-script-textarea" class="form-control" rows="10" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px;"></textarea>
-                </div>
-                <div class="form-group p-12" id="box-register-peer" style="background:var(--bg-card-subtle); border-radius:8px; border:1px dashed var(--border-color);">
-                    <label for="wg-client-pubkey-input" style="font-size:0.85rem; font-weight:600; color:var(--text-main);"><i class="fa-solid fa-key text-success"></i> จัดการ MikroTik Public Key บน VPS:</label>
-                    <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
-                        <input type="text" id="wg-client-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.8rem; flex:1; min-width:200px;" placeholder="วาง Public Key ของ MikroTik ที่นี่">
-                        <button type="button" class="btn btn-success btn-sm" id="btn-register-peer" style="white-space:nowrap;"><i class="fa-solid fa-plus-circle"></i> บันทึก Peer บน VPS</button>
-                        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-vps-peer" style="white-space:nowrap;"><i class="fa-solid fa-broom"></i> ล้างค่า Peer บน VPS</button>
-                    </div>
-                    <span class="help-text" style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:4px;">ระบบจะล้างค่าคีย์เก่าของ IP นี้ให้อัตโนมัติเมื่อกดบันทึก หรือกดล้างค่าเพื่อยกเลิกการเชื่อมต่อฝั่ง VPS</span>
-                </div>
-                <div class="modal-footer mt-16">
-                    <button type="button" class="btn btn-secondary modal-cancel">ปิดหน้าต่าง</button>
-                    <button type="button" class="btn btn-primary" id="btn-copy-wg-script"><i class="fa-solid fa-copy"></i> คัดลอกสคริปต์ทั้งหมด</button>
-                </div>
+            </div>
+            <div class="modal-footer" style="padding:12px 24px;">
+                <button type="button" class="btn btn-secondary modal-cancel">ปิดหน้าต่าง</button>
             </div>
         </div>
     </div>
