@@ -1724,6 +1724,7 @@ formSiteItem.addEventListener('submit', async (e) => {
 const btnModalGenWg = document.getElementById('btn-modal-gen-wg');
 async function generateWgScript(customPubKey = null) {
     const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+    const port = document.getElementById('site-port') ? document.getElementById('site-port').value : '8728';
     const wireguardPublicKey = document.getElementById('site-wg-pubkey') ? document.getElementById('site-wg-pubkey').value.trim() : '';
     const clientPublicKey = wireguardPublicKey || (document.getElementById('wg-client-pubkey-input') ? document.getElementById('wg-client-pubkey-input').value.trim() : '');
     const vpsPublicKey = customPubKey !== null ? customPubKey : (document.getElementById('wg-vps-pubkey-input') ? document.getElementById('wg-vps-pubkey-input').value : '');
@@ -1734,7 +1735,7 @@ async function generateWgScript(customPubKey = null) {
         }
         const res = await apiFetch('/api/wireguard/generate-script', {
             method: 'POST',
-            body: JSON.stringify({ wireguardIp, vpsPublicKey, clientPublicKey })
+            body: JSON.stringify({ wireguardIp, port, vpsPublicKey, clientPublicKey })
         });
         document.getElementById('wg-script-textarea').value = res.script;
         const pubKeyInput = document.getElementById('wg-vps-pubkey-input');

@@ -283,8 +283,9 @@ app.put('/api/sites/:id', requireAuth(['admin']), (req, res) => {
 
 // Generate WireGuard Setup Script for MikroTik
 app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) => {
-    const { wireguardIp, vpsPublicKey, clientPublicKey } = req.body;
+    const { wireguardIp, vpsPublicKey, clientPublicKey, port } = req.body;
     const targetIp = wireguardIp || '10.10.88.2';
+    const targetPort = parseInt(port) || 8728;
     let autoRegistered = false;
 
     if (clientPublicKey && clientPublicKey.trim()) {
@@ -320,12 +321,13 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
         }
     }
     if (!pubKey) {
-        pubKey = 'RROe/+EO47I8EntyxINUgX8Q/LExWC9rzFBBgvdIICE=';
+        pubKey = '0TXQh5lCyrNP3d/8k9gcNni9pX6eARMo5yZBIgUHgDM=';
     }
 
     const script = `# ======================================================
 # MikroTik RouterOS WireGuard Setup Script (MT Management)
 # Targeted IP: ${targetIp}
+# API Port: ${targetPort}
 # VPS Endpoint: 157.85.108.84:51820
 # ======================================================
 
@@ -341,9 +343,13 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 # 4. Add VPS Server Peer
 /interface/wireguard/peers/add interface=wg-gatekeeper endpoint-address="157.85.108.84" endpoint-port=51820 allowed-address=10.10.88.0/24 persistent-keepalive=25s comment="VPS Hub Server" public-key="${pubKey}"
 
-# 5. Display Result
+# 5. Security Hardening (Lock API Service to VPN Subnet Only & Set Custom Port)
+/ip/service/set api address=10.10.88.0/24 port=${targetPort} disabled=no
+/ip/service/disable api-ssl
+
+# 6. Display Result
 :put "--------------------------------------------------------"
-:put "WireGuard Interface Setup Successfully!"
+:put "WireGuard Interface & Security Hardening Completed!"
 :put "Your Router WireGuard Public Key is:"
 :put [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
 :put "--------------------------------------------------------"
