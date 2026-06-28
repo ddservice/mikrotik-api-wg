@@ -1071,23 +1071,31 @@ formGenerator.addEventListener('submit', async (e) => {
             const card = document.createElement('div');
             card.className = 'voucher-card';
             card.innerHTML = `
+                <div class="voucher-scissors"><i class="fa-solid fa-scissors"></i></div>
                 <div class="voucher-header">
                     <div class="site-brand"><i class="fa-solid fa-wifi"></i> ${user.siteTitle || siteTitle}</div>
-                    ${(user.price || price) ? `<div class="price-badge">${user.price || price}</div>` : ''}
+                    ${(user.price || price) ? `<div class="price-badge">${user.price || price}</div>` : '<div class="price-badge free">VIP PASS</div>'}
+                </div>
+                <div class="voucher-pkg-bar">
+                    <span class="pkg-name"><i class="fa-solid fa-cube"></i> ${user.packageName || packageName}</span>
+                    <span class="pkg-limit">${limitText}</span>
                 </div>
                 <div class="voucher-body">
-                    <div class="voucher-field">
-                        <div class="voucher-label">Username</div>
-                        <div class="voucher-value">${user.username}</div>
-                    </div>
-                    <div class="voucher-field">
-                        <div class="voucher-label">Password</div>
-                        <div class="voucher-value pwd">${user.password}</div>
+                    <div class="voucher-credentials">
+                        <div class="voucher-field">
+                            <div class="voucher-label">USERNAME</div>
+                            <div class="voucher-value">${user.username}</div>
+                        </div>
+                        <div class="voucher-divider-v"></div>
+                        <div class="voucher-field">
+                            <div class="voucher-label">PASSWORD</div>
+                            <div class="voucher-value pwd">${user.password}</div>
+                        </div>
                     </div>
                 </div>
                 <div class="voucher-footer">
-                    <div class="pkg-name">${user.packageName || packageName} (${limitText})</div>
-                    ${(user.contact || contact) ? `<div class="contact-info">${user.contact || contact}</div>` : ''}
+                    <div class="instruction"><span>1. Connect Wi-Fi</span> <span>2. Enter Login Code</span></div>
+                    ${(user.contact || contact) ? `<div class="contact-info"><i class="fa-solid fa-headset"></i> ${user.contact || contact}</div>` : ''}
                 </div>
             `;
             voucherResultGrid.appendChild(card);
@@ -1114,7 +1122,7 @@ document.getElementById('btn-print-vouchers').addEventListener('click', () => {
 // FIREWALL CONTROLLERS & SCHEDULE MANAGEMENT
 // ==========================================
 
-const FW_SERVICES = ['youtube', 'line', 'games', 'ads', 'tiktok', 'facebook', 'adult'];
+const FW_SERVICES = ['youtube', 'line', 'games', 'ads', 'tiktok', 'facebook', 'adult', 'netflix', 'torrent', 'steam', 'crypto'];
 
 async function fetchFirewallStatus() {
     FW_SERVICES.forEach(svc => {
@@ -1169,6 +1177,7 @@ async function fetchFirewallStatus() {
                 });
             }
         });
+        fetchCustomFirewallRules();
     } catch (err) {
         FW_SERVICES.forEach(svc => {
             const status = document.getElementById(`status-${svc}`);
@@ -1179,6 +1188,53 @@ async function fetchFirewallStatus() {
         });
         console.error('Failed to fetch firewall status:', err);
     }
+}
+
+async function fetchCustomFirewallRules() {
+    const tbody = document.querySelector('#table-custom-rules tbody');
+    if (!tbody) return;
+    try {
+        const rules = await apiFetch('/api/mikrotik/firewall/custom-rules');
+        tbody.innerHTML = '';
+        if (rules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">ยังไม่มีกฎบล็อกกำหนดเอง สามารถระบุชื่อโดเมนด้านบนเพื่อสั่งบล็อกลงเราท์เตอร์ได้ทันที</td></tr>';
+            return;
+        }
+        rules.forEach(rule => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong class="text-danger"><i class="fa-solid fa-ban"></i> ${rule.address}</strong></td>
+                <td>${rule.comment || '-'}</td>
+                <td><span class="badge badge-danger">DROP (Blocked)</span></td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger btn-delete-custom-rule" data-id="${rule.id}"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+const formCustomRule = document.getElementById('form-custom-rule');
+if (formCustomRule) {
+    formCustomRule.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const domain = document.getElementById('custom-domain-input').value;
+        const note = document.getElementById('custom-note-input').value;
+        try {
+            await apiFetch('/api/mikrotik/firewall/custom-rules', {
+                method: 'POST',
+                body: JSON.stringify({ domain, note })
+            });
+            document.getElementById('custom-domain-input').value = '';
+            document.getElementById('custom-note-input').value = '';
+            fetchCustomFirewallRules();
+        } catch (err) {
+            alert('เกิดข้อผิดพลาด: ' + err.message);
+        }
+    });
 }
 
 async function handleFirewallToggle(service, block) {
@@ -1227,7 +1283,7 @@ async function handleFirewallToggle(service, block) {
     }
 }
 
-// Bind Schedule Checkbox Toggles & Save Buttons
+// Bind Schedule Checkbox Toggles & Save Buttons & Custom Rule Deletes
 document.addEventListener('change', (e) => {
     if (e.target.classList.contains('fw-sched-enable')) {
         const svc = e.target.getAttribute('data-service');
@@ -1244,13 +1300,25 @@ document.addEventListener('change', (e) => {
     }
 });
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
     const saveBtn = e.target.closest('.btn-save-schedule');
     if (saveBtn) {
         const svc = saveBtn.getAttribute('data-service');
         const toggleEl = document.getElementById(`toggle-${svc}`);
         if (svc && toggleEl) {
             handleFirewallToggle(svc, toggleEl.checked);
+        }
+    }
+    const delBtn = e.target.closest('.btn-delete-custom-rule');
+    if (delBtn) {
+        const id = delBtn.getAttribute('data-id');
+        if (confirm('คุณต้องการลบกฎบล็อกโดเมนนี้ใช่หรือไม่?')) {
+            try {
+                await apiFetch(`/api/mikrotik/firewall/custom-rules/${id}`, { method: 'DELETE' });
+                fetchCustomFirewallRules();
+            } catch (err) {
+                alert('เกิดข้อผิดพลาด: ' + err.message);
+            }
         }
     }
 });

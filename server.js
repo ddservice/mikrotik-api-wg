@@ -909,6 +909,26 @@ const FIREWALL_SERVICES = {
         comment: 'Block Adult Content (Dashboard)',
         listName: 'blocked_adult',
         domains: ['pornhub.com', 'xvideos.com', 'xnxx.com', 'stripchat.com', 'xhamster.com']
+    },
+    netflix: {
+        comment: 'Block Netflix & Streaming (Dashboard)',
+        listName: 'blocked_netflix',
+        domains: ['netflix.com', 'nflxext.com', 'nflxvideo.net', 'disneyplus.com', 'bamgrid.com', 'viu.com', 'wetv.vip']
+    },
+    torrent: {
+        comment: 'Block BitTorrent & P2P (Dashboard)',
+        listName: 'blocked_torrent',
+        domains: ['torrent.com', 'bittorrent.com', 'thepiratebay.org', '1337x.to', 'rarbg.to', 'yts.mx']
+    },
+    steam: {
+        comment: 'Block Steam & PC Gaming (Dashboard)',
+        listName: 'blocked_steam',
+        domains: ['steampowered.com', 'steamcommunity.com', 'steamgames.com', 'epicgames.com', 'unrealengine.com']
+    },
+    crypto: {
+        comment: 'Block Crypto Miners & Malware (Dashboard)',
+        listName: 'blocked_crypto',
+        domains: ['coinhive.com', 'coin-hive.com', 'crypto-loot.com', 'jsecoin.com', 'minr.pw', 'coin-have.com']
     }
 };
 
@@ -944,6 +964,78 @@ app.get('/api/mikrotik/firewall/status', requireAuth(['admin', 'co-admin', 'user
             return result;
         });
         res.json(status);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get custom address list rules
+app.get('/api/mikrotik/firewall/custom-rules', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const rules = await executeOnRouter(async (client) => {
+            const addrLists = await client.exec('/ip/firewall/address-list/print');
+            return addrLists.filter(item => item.list === 'blocked_custom').map(item => ({
+                id: item['.id'],
+                address: item.address,
+                comment: item.comment || '',
+                disabled: item.disabled === 'true'
+            }));
+        });
+        res.json(rules);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Add custom domain block rule
+app.post('/api/mikrotik/firewall/custom-rules', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { domain, note } = req.body;
+    if (!domain || !domain.trim()) {
+        return res.status(400).json({ error: 'Domain/IP is required' });
+    }
+    const cleanDomain = domain.trim().toLowerCase();
+    try {
+        await executeOnRouter(async (client) => {
+            const listName = 'blocked_custom';
+            const addrLists = await client.exec('/ip/firewall/address-list/print');
+            const exists = addrLists.some(item => item.list === listName && item.address === cleanDomain);
+            if (!exists) {
+                await client.exec('/ip/firewall/address-list/add', {
+                    list: listName,
+                    address: cleanDomain,
+                    comment: note ? `Custom: ${note}` : 'Custom Block (Dashboard)'
+                });
+            }
+            
+            // Ensure drop filter rule for custom list exists
+            const filterRules = await client.exec('/ip/firewall/filter/print');
+            const ruleComment = 'Block Custom Domains (Dashboard)';
+            const ruleExists = filterRules.some(r => r.comment === ruleComment);
+            if (!ruleExists) {
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'forward',
+                    action: 'drop',
+                    'dst-address-list': listName,
+                    comment: ruleComment,
+                    disabled: 'no'
+                });
+            }
+        });
+        db.addLog(req.user.username, 'เพิ่มกฎบล็อกกำหนดเอง', `บล็อกโดเมน: ${cleanDomain}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete custom domain block rule
+app.delete('/api/mikrotik/firewall/custom-rules/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        await executeOnRouter(async (client) => {
+            await client.exec('/ip/firewall/address-list/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบกฎบล็อกกำหนดเอง', `ลบกฎ ID: ${req.params.id}`);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

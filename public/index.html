@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="style.css?v=6.0">
 </head>
 <body>
 
@@ -858,8 +858,262 @@
                                     </div>
                                 </div>
                             </div>
+                        <!-- 8. Netflix Block Card -->
+                        <div class="firewall-card" id="card-block-netflix">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon netflix" style="background:rgba(229, 9, 20, 0.1); color:#e50914;"><i class="fa-solid fa-film"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Netflix & Streaming</h3>
+                                    <p>บล็อกวิดีโอสตรีมมิง (Netflix, Disney+, Viu, WeTV)</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-netflix">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-netflix" data-service="netflix" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="netflix">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="netflix"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-netflix" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="netflix" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="netflix" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="netflix">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
+                        <!-- 9. BitTorrent Block Card -->
+                        <div class="firewall-card" id="card-block-torrent">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon torrent" style="background:rgba(14, 165, 233, 0.1); color:#0ea5e9;"><i class="fa-solid fa-download"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block BitTorrent & P2P</h3>
+                                    <p>บล็อกการดาวน์โหลดไฟล์ขนาดใหญ่ผ่าน BitTorrent และ P2P</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-torrent">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-torrent" data-service="torrent" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="torrent">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="torrent"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-torrent" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="torrent" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="torrent" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="torrent">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 10. Steam & PC Gaming Block Card -->
+                        <div class="firewall-card" id="card-block-steam">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon steam" style="background:rgba(30, 41, 59, 0.1); color:#1e293b;"><i class="fa-brands fa-steam"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Steam & PC Gaming</h3>
+                                    <p>บล็อกร้านค้าและโปรแกรมเกม PC (Steam, Epic Games)</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-steam">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-steam" data-service="steam" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="steam">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="steam"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-steam" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="steam" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="steam" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="steam">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 11. Crypto Miners Block Card -->
+                        <div class="firewall-card" id="card-block-crypto">
+                            <div class="firewall-card-main">
+                                <div class="firewall-card-icon crypto" style="background:rgba(245, 158, 11, 0.1); color:#f59e0b;"><i class="fa-solid fa-microchip"></i></div>
+                                <div class="firewall-card-body">
+                                    <h3>Block Crypto Miners & Malware</h3>
+                                    <p>บล็อกเว็บขุดเหรียญคริปโต และโดเมนอันตรายแฝงมัลแวร์</p>
+                                    <div class="firewall-status-banner">
+                                        สถานะปัจจุบัน: <span class="status-label" id="status-crypto">กำลังโหลด...</span>
+                                    </div>
+                                </div>
+                                <div class="firewall-card-action">
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-crypto" data-service="crypto" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="firewall-schedule-box">
+                                <div class="schedule-header">
+                                    <label class="schedule-checkbox-label">
+                                        <input type="checkbox" class="fw-sched-enable" data-service="crypto">
+                                        <span><i class="fa-regular fa-clock"></i> กำหนดช่วงเวลาที่บล็อก (Schedule)</span>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-primary btn-save-schedule" data-service="crypto"><i class="fa-solid fa-floppy-disk"></i> บันทึกเวลา</button>
+                                </div>
+                                <div class="schedule-controls" id="sched-controls-crypto" style="display: none;">
+                                    <div class="schedule-time-row">
+                                        <div class="time-input-group">
+                                            <label>ตั้งแต่เวลา:</label>
+                                            <input type="time" class="form-control fw-sched-start" data-service="crypto" value="08:00">
+                                        </div>
+                                        <div class="time-input-group">
+                                            <label>ถึงเวลา:</label>
+                                            <input type="time" class="form-control fw-sched-end" data-service="crypto" value="17:00">
+                                        </div>
+                                    </div>
+                                    <div class="schedule-days-row">
+                                        <label>วันที่มีผล:</label>
+                                        <div class="day-pills" data-service="crypto">
+                                            <label class="day-pill"><input type="checkbox" value="sun"><span>อา.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="mon" checked><span>จ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="tue" checked><span>อ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="wed" checked><span>พ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="thu" checked><span>พฤ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="fri" checked><span>ศ.</span></label>
+                                            <label class="day-pill"><input type="checkbox" value="sat"><span>ส.</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- CUSTOM DOMAIN BLOCK BUILDER SECTION -->
+                    <div class="card mt-24">
+                        <div class="card-header card-header-flex">
+                            <div class="card-title">
+                                <i class="fa-solid fa-shield-virus text-danger"></i>
+                                <div>
+                                    <h4>เพิ่มกฎบล็อกโดเมน / เว็บไซต์ด้วยตัวเอง (Custom Security Rules)</h4>
+                                    <p>ระบุชื่อโดเมน หรือ IP Address ที่ต้องการบล็อกเพิ่มเติมนอกเหนือจากโปรไฟล์มาตรฐาน</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <form id="form-custom-rule" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;" class="mb-20">
+                                <div class="form-group mb-0" style="flex:2; min-width:220px;">
+                                    <label for="custom-domain-input">ชื่อโดเมน / IP Address ที่ต้องการบล็อก *</label>
+                                    <input type="text" id="custom-domain-input" class="form-control" placeholder="เช่น roblox.com, shopee.co.th, 192.168.1.50" required>
+                                </div>
+                                <div class="form-group mb-0" style="flex:1; min-width:180px;">
+                                    <label for="custom-note-input">หมายเหตุ / คำอธิบาย</label>
+                                    <input type="text" id="custom-note-input" class="form-control" placeholder="เช่น บล็อกเว็บช้อปปิ้ง">
+                                </div>
+                                <button type="submit" class="btn btn-danger" style="white-space:nowrap;"><i class="fa-solid fa-plus-circle"></i> บันทึกและบล็อกทันที</button>
+                            </form>
+
+                            <div class="table-responsive">
+                                <table class="table" id="table-custom-rules">
+                                    <thead>
+                                        <tr>
+                                            <th>โดเมน / IP Address</th>
+                                            <th>คำอธิบาย / หมายเหตุ</th>
+                                            <th>การกรอง (Action)</th>
+                                            <th class="text-center">ลบกฎ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted">กำลังโหลดข้อมูลกฎบล็อก...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1300,7 +1554,7 @@
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
     <!-- Script loading -->
-    <script src="app.js?v=3.0"></script>
+    <script src="app.js?v=6.0"></script>
 </body>
 </html>
 
