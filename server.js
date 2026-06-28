@@ -436,20 +436,28 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
         const users = await executeOnRouter(async (client) => {
-            const list = await client.exec('/ip/hotspot/user/print');
-            return list.map(item => ({
-                id: item['.id'],
-                name: item.name,
-                password: item.password || item['plain-password'] || '',
-                profile: item.profile,
-                uptime: item.uptime || '0s',
-                bytesIn: parseInt(item['bytes-in']) || 0,
-                bytesOut: parseInt(item['bytes-out']) || 0,
-                limitUptime: item['limit-uptime'] || 'Unlimited',
-                limitBytesTotal: parseInt(item['limit-bytes-total']) || 0,
-                disabled: item.disabled === 'true',
-                comment: item.comment || ''
-            }));
+            const list = await client.exec('/ip/hotspot/user/print', {
+                '.proplist': '.id,name,password,plain-password,profile,uptime,bytes-in,bytes-out,limit-uptime,limit-bytes-total,disabled,comment'
+            });
+            return list.map(item => {
+                const userPassword = item.password !== undefined && item.password !== '' ? item.password :
+                                     item['plain-password'] !== undefined && item['plain-password'] !== '' ? item['plain-password'] :
+                                     item.pass !== undefined && item.pass !== '' ? item.pass :
+                                     item.secret !== undefined && item.secret !== '' ? item.secret : '';
+                return {
+                    id: item['.id'],
+                    name: item.name,
+                    password: userPassword,
+                    profile: item.profile,
+                    uptime: item.uptime || '0s',
+                    bytesIn: parseInt(item['bytes-in']) || 0,
+                    bytesOut: parseInt(item['bytes-out']) || 0,
+                    limitUptime: item['limit-uptime'] || 'Unlimited',
+                    limitBytesTotal: parseInt(item['limit-bytes-total']) || 0,
+                    disabled: item.disabled === 'true',
+                    comment: item.comment || ''
+                };
+            });
         });
         res.json(users);
     } catch (err) {
