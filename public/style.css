@@ -1266,12 +1266,14 @@ input:disabled + .slider {
     background: rgba(15, 23, 42, 0.4);
     backdrop-filter: blur(8px);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     z-index: 200;
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--transition-fast);
+    overflow-y: auto;
+    padding: 20px 12px;
 }
 
 #modal-wg-script {
@@ -1287,15 +1289,15 @@ input:disabled + .slider {
     background: #ffffff;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    width: 95%;
-    max-width: 520px;
-    max-height: 90vh;
+    width: 100%;
+    max-width: 560px;
+    margin: auto;
     display: flex;
     flex-direction: column;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
     transform: translateY(20px);
     transition: transform var(--transition-normal);
-    overflow: hidden;
+    max-height: calc(100vh - 40px);
 }
 
 .modal-wrapper.active .modal-card {
