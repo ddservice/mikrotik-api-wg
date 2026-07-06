@@ -1,0 +1,94 @@
+# ============================================================
+# Nginx Config — Mikrotik API Dashboard (HTTPS + SSL)
+# วางไฟล์นี้ที่: /etc/nginx/sites-available/mikrotik
+# แล้วรัน: sudo ln -s /etc/nginx/sites-available/mikrotik /etc/nginx/sites-enabled/
+#
+# ก่อนใช้งาน:
+#   1. แก้ YOUR_DOMAIN.com เป็น domain จริง
+#   2. รัน: sudo certbot --nginx -d YOUR_DOMAIN.com
+#   3. certbot จะอัปเดต ssl_certificate ให้อัตโนมัติ
+# ============================================================
+
+# HTTP → HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name YOUR_DOMAIN.com;
+
+    # Certbot challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # Redirect ทุก HTTP → HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS main server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name YOUR_DOMAIN.com;
+
+    # ---- SSL Certificates (certbot จะใส่ให้อัตโนมัติ) ----
+    ssl_certificate /etc/letsencrypt/live/YOUR_DOMAIN.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # ---- Security Headers ----
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # ---- Proxy to Node.js ----
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # WebSocket support (สำหรับ real-time features)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+
+        # Forward ข้อมูล client จริง
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # Cache bypass
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # ---- Gzip compression ----
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript
+               application/javascript application/json application/xml;
+
+    # ---- Static file caching ----
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        proxy_pass http://127.0.0.1:3000;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # ---- Nginx access/error logs ----
+    access_log /var/log/nginx/mikrotik-access.log;
+    error_log  /var/log/nginx/mikrotik-error.log warn;
+
+    # ---- Block common attack paths ----
+    location ~ /\.git { deny all; return 404; }
+    location ~ /\.env { deny all; return 404; }
+    location ~ /db/   { deny all; return 404; }
+}
