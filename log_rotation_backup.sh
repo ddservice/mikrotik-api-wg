@@ -36,8 +36,8 @@ ARCHIVE_NAME="${LOG_PREFIX}-${YESTERDAY}.tar.gz"
 ARCHIVE_PATH="${LOG_DIR}/${ARCHIVE_NAME}"
 CLOUD_FOLDER="${RCLONE_DEST_DIR}/${CURRENT_MONTH}"
 
-# Log script execution
-SCRIPT_LOG="/var/log/log_rotation_backup.log"
+# Log script execution (saves log in the same folder as the script)
+SCRIPT_LOG="$(cd "$(dirname "$0")" && pwd)/log_rotation_backup.log"
 
 # Ensure script log file exists and is writable
 touch "$SCRIPT_LOG"
