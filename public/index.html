@@ -86,6 +86,9 @@
                 <a href="#" class="menu-item" data-target="page-settings" id="nav-settings" style="display: none;">
                     <i class="fa-solid fa-gears"></i> <span>ตั้งค่าเชื่อมต่อเราท์เตอร์</span>
                 </a>
+                <a href="#" class="menu-item" data-target="page-logs" id="nav-logs" style="display: none;">
+                    <i class="fa-solid fa-file-lines"></i> <span>ประวัติการใช้งาน (Log)</span>
+                </a>
             </nav>
             
             <div class="sidebar-footer">
@@ -230,16 +233,19 @@
                     <!-- Tabs Navigation -->
                     <div class="tab-nav">
                         <button class="tab-btn active" data-tab="tab-hotspot-active">
-                            <i class="fa-solid fa-circle-nodes"></i> ผู้ใช้งานที่กำลังเชื่อมต่อ (Active Users)
+                            <i class="fa-solid fa-circle-nodes"></i> ผู้ใช้งานที่กำลังเชื่อมต่อ <span class="tab-badge" id="badge-hotspot-active">(-)</span>
                         </button>
                         <button class="tab-btn" data-tab="tab-hotspot-accounts">
-                            <i class="fa-solid fa-users"></i> บัญชีผู้ใช้ Hotspot ทั้งหมด
+                            <i class="fa-solid fa-users"></i> บัญชีผู้ใช้ทั้งหมด <span class="tab-badge" id="badge-hotspot-accounts">(-)</span>
                         </button>
                         <button class="tab-btn" data-tab="tab-hotspot-profiles">
-                            <i class="fa-solid fa-sliders"></i> โปรไฟล์ Hotspot (User Profiles)
+                            <i class="fa-solid fa-sliders"></i> โปรไฟล์ Hotspot <span class="tab-badge" id="badge-hotspot-profiles">(-)</span>
                         </button>
                         <button class="tab-btn" data-tab="tab-hotspot-vouchers">
                             <i class="fa-solid fa-ticket"></i> สร้างคูปองแบบกลุ่ม (Voucher Generator)
+                        </button>
+                        <button class="tab-btn" data-tab="tab-hotspot-stats" id="tab-btn-hotspot-stats">
+                            <i class="fa-solid fa-chart-pie"></i> สถิติการใช้งาน (Statistics)
                         </button>
                     </div>
 
@@ -483,6 +489,90 @@
                                     </div>
                                     <div class="voucher-grid" id="voucher-result-grid">
                                         <!-- Voucher template inside will repeat here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab content 5: Usage Statistics -->
+                    <div id="tab-hotspot-stats" class="tab-content">
+                        <!-- Stats Grid -->
+                        <div class="stats-grid mb-24">
+                            <div class="stat-card">
+                                <div class="stat-icon cpu"><i class="fa-solid fa-circle-nodes"></i></div>
+                                <div class="stat-info">
+                                    <h3>ผู้ใช้งานปัจจุบัน</h3>
+                                    <p id="stat-hotspot-active">- คน</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon model"><i class="fa-solid fa-users"></i></div>
+                                <div class="stat-info">
+                                    <h3>บัญชีคูปองทั้งหมด</h3>
+                                    <p id="stat-hotspot-accounts">- บัญชี</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon ram"><i class="fa-solid fa-arrow-down-up-lock"></i></div>
+                                <div class="stat-info">
+                                    <h3>ปริมาณข้อมูลสะสมรวม</h3>
+                                    <p id="stat-hotspot-traffic">-</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon uptime"><i class="fa-solid fa-sliders"></i></div>
+                                <div class="stat-info">
+                                    <h3>โปรไฟล์ผู้ใช้</h3>
+                                    <p id="stat-hotspot-profiles">- โปรไฟล์</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Details Grid -->
+                        <div class="stats-detail-grid">
+                            <!-- Left: Profile & Login distribution -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-title">
+                                        <i class="fa-solid fa-chart-pie text-primary"></i>
+                                        <div>
+                                            <h4>สถิติจำแนกตามโปรไฟล์และช่องทาง</h4>
+                                            <p>สัดส่วนของผู้ใช้งานที่ล็อกอินเข้ามาในระบบคูปอง</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <h5 style="font-size:0.95rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                                        <i class="fa-solid fa-id-card text-primary"></i> สัดส่วนผู้ใช้งานแบ่งตามโปรไฟล์ (Active by Profile)
+                                    </h5>
+                                    <div class="distribution-list mb-24" id="stats-profile-distribution">
+                                        <div class="text-center text-muted">กำลังโหลดสถิติ...</div>
+                                    </div>
+                                    
+                                    <h5 style="font-size:0.95rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                                        <i class="fa-solid fa-arrow-right-to-bracket text-success"></i> ช่องทางการล็อกอิน (Login Methods)
+                                    </h5>
+                                    <div class="distribution-list" id="stats-login-distribution">
+                                        <div class="text-center text-muted">กำลังโหลดสถิติ...</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right: Top 5 Active Consumers -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-title">
+                                        <i class="fa-solid fa-award text-warning"></i>
+                                        <div>
+                                            <h4>ผู้ใช้งานที่ใช้รับ-ส่งข้อมูลสูงสุด (Top 5 Active Consumers)</h4>
+                                            <p>ปริมาณข้อมูลอัปโหลดและดาวน์โหลดสะสมในเซสชันนี้</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="top-users-list" id="stats-top-users">
+                                        <div class="text-center text-muted">กำลังโหลดสถิติ...</div>
                                     </div>
                                 </div>
                             </div>
@@ -1201,10 +1291,156 @@
                     </div>
                 </section>
                 
+                <!-- 6. LOG PAGE (ประวัติการใช้งาน) -->
+                <section id="page-logs" class="page-section" style="display: none;">
+                    
+                    <!-- Log Tabs -->
+                    <div class="tab-nav">
+                        <button class="tab-btn active" data-tab="tab-log-activity">
+                            <i class="fa-solid fa-shield-halved"></i> กิจกรรมระบบ (Activity Log)
+                        </button>
+                        <button class="tab-btn" data-tab="tab-log-traffic">
+                            <i class="fa-solid fa-database"></i> บันทึกการใช้งาน Hotspot <span class="tab-badge" style="background:var(--danger);color:#fff;">พรบ</span>
+                        </button>
+                    </div>
 
-                
+                    <!-- TAB 1: Activity Log -->
+                    <div id="tab-log-activity" class="tab-content active">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-shield-halved text-primary"></i>
+                                    <div>
+                                        <h4>บันทึกกิจกรรมระบบ (Activity Log)</h4>
+                                        <p>ประวัติการกระทำของผู้ดูแลระบบทั้งหมด</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <a id="btn-export-activity-log" href="/api/logs/export-csv" class="btn btn-secondary btn-sm" target="_blank">
+                                        <i class="fa-solid fa-file-csv"></i> Export CSV
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Filter bar -->
+                                <div class="filter-bar" id="filter-bar-activity">
+                                    <div class="filter-group">
+                                        <label>ค้นหา</label>
+                                        <div class="input-with-icon">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" id="activity-search" class="form-control" placeholder="ค้นหา user, การกระทำ, รายละเอียด...">
+                                        </div>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ตั้งแต่วันที่</label>
+                                        <input type="date" id="activity-from" class="form-control">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ถึงวันที่</label>
+                                        <input type="date" id="activity-to" class="form-control">
+                                    </div>
+                                    <div class="filter-group" style="align-self:flex-end;">
+                                        <button id="btn-filter-activity" class="btn btn-primary btn-sm"><i class="fa-solid fa-filter"></i> กรอง</button>
+                                        <button id="btn-clear-activity" class="btn btn-secondary btn-sm"><i class="fa-solid fa-xmark"></i> ล้าง</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive mt-16">
+                                    <table class="table" id="table-activity-log">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:180px;">วันเวลา</th>
+                                                <th style="width:140px;">ผู้ใช้งาน</th>
+                                                <th style="width:200px;">การกระทำ</th>
+                                                <th>รายละเอียด</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-activity-log">
+                                            <tr><td colspan="4" class="text-center text-muted">กำลังโหลด...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <!-- Pagination -->
+                                <div class="pagination-bar" id="pagination-activity"></div>
+                            </div>
+                        </div>
+                    </div>
 
-            </div>
+                    <!-- TAB 2: Traffic Log (พรบ) -->
+                    <div id="tab-log-traffic" class="tab-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-database" style="color:var(--danger);"></i>
+                                    <div>
+                                        <h4>บันทึกการใช้งาน Hotspot <span style="color:var(--danger);font-size:0.85rem;">(ตามพรบ คอมพิวเตอร์ มาตรา 26)</span></h4>
+                                        <p>ข้อมูลจราจรคอมพิวเตอร์ — บันทึก IP, MAC, เวลาเข้า-ออก ครบ 90 วัน</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <a id="btn-export-hotspot-log" href="/api/hotspot-logs/export-csv" class="btn btn-danger btn-sm" target="_blank">
+                                        <i class="fa-solid fa-file-csv"></i> Export CSV (พรบ)
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Info box -->
+                                <div class="info-box-law">
+                                    <i class="fa-solid fa-scale-balanced"></i>
+                                    <span>ระบบบันทึกข้อมูลจราจรคอมพิวเตอร์อัตโนมัติทุก 5 นาที ตาม <strong>พรบ ว่าด้วยการกระทำความผิดเกี่ยวกับคอมพิวเตอร์ พ.ศ.2560 มาตรา 26</strong> — เก็บรักษา 90 วัน</span>
+                                </div>
+                                <!-- Filter bar -->
+                                <div class="filter-bar mt-16" id="filter-bar-traffic">
+                                    <div class="filter-group">
+                                        <label>ค้นหา</label>
+                                        <div class="input-with-icon">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" id="traffic-search" class="form-control" placeholder="ค้นหา username, IP, MAC...">
+                                        </div>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ตั้งแต่วันที่</label>
+                                        <input type="date" id="traffic-from" class="form-control">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ถึงวันที่</label>
+                                        <input type="date" id="traffic-to" class="form-control">
+                                    </div>
+                                    <div class="filter-group" style="align-self:flex-end;">
+                                        <button id="btn-filter-traffic" class="btn btn-primary btn-sm"><i class="fa-solid fa-filter"></i> กรอง</button>
+                                        <button id="btn-clear-traffic" class="btn btn-secondary btn-sm"><i class="fa-solid fa-xmark"></i> ล้าง</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive mt-16">
+                                    <table class="table" id="table-traffic-log">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:160px;">เวลาเข้าใช้</th>
+                                                <th style="width:160px;">เวลาออก</th>
+                                                <th style="width:130px;">ชื่อผู้ใช้</th>
+                                                <th style="width:130px;">IP Address</th>
+                                                <th style="width:150px;">MAC Address</th>
+                                                <th style="width:80px;">วิธีล็อกอิน</th>
+                                                <th style="width:100px;">ระยะเวลา</th>
+                                                <th>ดาวน์โหลด</th>
+                                                <th>อัปโหลด</th>
+                                                <th style="width:80px;">สถานะ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-traffic-log">
+                                            <tr><td colspan="10" class="text-center text-muted">กำลังโหลด...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <!-- Pagination -->
+                                <div class="pagination-bar" id="pagination-traffic"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </section>
+
+
+</div>
         </main>
     </div>
 
@@ -1523,11 +1759,18 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
     <!-- Overlay for mobile sidebar -->
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
+    <!-- ========================================== -->
+    <!-- PAGE: LOGS (ประวัติการใช้งาน) -->
+    <!-- ========================================== -->
+    <!-- page-logs is rendered inside content-body in main content, need to add as page-section -->
+
+
     <!-- Script loading -->
-    <script src="app.js?v=13.0"></script>
+    <script src="app.js?v=14.0"></script>
 </body>
 </html>
 

@@ -383,30 +383,175 @@ function authenticateUser(username, password) {
 
 
 const LOGS_FILE = path.join(DB_DIR, 'logs.json');
+const HOTSPOT_LOGS_FILE = path.join(DB_DIR, 'hotspot_logs.json');
 
-function getLogs() {
+// Retention constants
+const MAX_ADMIN_LOGS = 5000;
+const HOTSPOT_LOG_RETENTION_DAYS = 90; // พรบ คอมพิวเตอร์ มาตรา 26
+
+// ==========================================
+// Admin Activity Logs
+// ==========================================
+function getLogs(options = {}) {
     try {
         if (!fs.existsSync(LOGS_FILE)) {
             fs.writeFileSync(LOGS_FILE, '[]', 'utf8');
         }
-        const data = fs.readFileSync(LOGS_FILE, 'utf8');
-        return JSON.parse(data);
+        let logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8'));
+
+        // Filter by search keyword
+        if (options.search) {
+            const q = options.search.toLowerCase();
+            logs = logs.filter(l =>
+                (l.username || '').toLowerCase().includes(q) ||
+                (l.action || '').toLowerCase().includes(q) ||
+                (l.details || '').toLowerCase().includes(q)
+            );
+        }
+        // Filter by date range
+        if (options.from) {
+            const from = new Date(options.from).getTime();
+            logs = logs.filter(l => new Date(l.timestamp).getTime() >= from);
+        }
+        if (options.to) {
+            const to = new Date(options.to).getTime();
+            logs = logs.filter(l => new Date(l.timestamp).getTime() <= to);
+        }
+
+        const total = logs.length;
+        // Pagination
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const offset = (page - 1) * limit;
+        const paginated = logs.slice(offset, offset + limit);
+
+        return { logs: paginated, total, page, limit, pages: Math.ceil(total / limit) };
+    } catch (e) {
+        return { logs: [], total: 0, page: 1, limit: 100, pages: 0 };
+    }
+}
+
+function getAllLogsRaw() {
+    try {
+        if (!fs.existsSync(LOGS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8'));
     } catch (e) {
         return [];
     }
 }
 
 function addLog(username, action, details) {
-    const logs = getLogs();
+    const logs = getAllLogsRaw();
     const newLog = {
         timestamp: new Date().toISOString(),
         username,
         action,
         details
     };
-    logs.unshift(newLog); // New logs first
-    if (logs.length > 1000) logs.pop(); // Keep max 1000 logs
+    logs.unshift(newLog);
+    if (logs.length > MAX_ADMIN_LOGS) logs.splice(MAX_ADMIN_LOGS);
     fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 4), 'utf8');
+}
+
+// ==========================================
+// Hotspot Traffic Logs (พรบ คอมพิวเตอร์ มาตรา 26)
+// บันทึก: username, IP, MAC, เวลาเข้า-ออก, traffic
+// ==========================================
+function getHotspotLogs(options = {}) {
+    try {
+        if (!fs.existsSync(HOTSPOT_LOGS_FILE)) {
+            fs.writeFileSync(HOTSPOT_LOGS_FILE, '[]', 'utf8');
+        }
+        let logs = JSON.parse(fs.readFileSync(HOTSPOT_LOGS_FILE, 'utf8'));
+
+        // Filter
+        if (options.search) {
+            const q = options.search.toLowerCase();
+            logs = logs.filter(l =>
+                (l.username || '').toLowerCase().includes(q) ||
+                (l.ipAddress || '').includes(q) ||
+                (l.macAddress || '').toLowerCase().includes(q)
+            );
+        }
+        if (options.from) {
+            const from = new Date(options.from).getTime();
+            logs = logs.filter(l => new Date(l.loginTime).getTime() >= from);
+        }
+        if (options.to) {
+            const to = new Date(options.to).getTime();
+            logs = logs.filter(l => new Date(l.loginTime).getTime() <= to);
+        }
+        if (options.username) {
+            logs = logs.filter(l => l.username === options.username);
+        }
+
+        const total = logs.length;
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const offset = (page - 1) * limit;
+        const paginated = logs.slice(offset, offset + limit);
+
+        return { logs: paginated, total, page, limit, pages: Math.ceil(total / limit) };
+    } catch (e) {
+        return { logs: [], total: 0, page: 1, limit: 100, pages: 0 };
+    }
+}
+
+function getAllHotspotLogsRaw() {
+    try {
+        if (!fs.existsSync(HOTSPOT_LOGS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(HOTSPOT_LOGS_FILE, 'utf8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+// เพิ่ม session log ใหม่ (เมื่อ user เชื่อมต่อ)
+function addHotspotSessionLog(entry) {
+    const logs = getAllHotspotLogsRaw();
+    const newEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        loginTime: entry.loginTime || new Date().toISOString(),
+        logoutTime: entry.logoutTime || null,
+        username: entry.username || '',
+        ipAddress: entry.ipAddress || '',
+        macAddress: entry.macAddress || '',
+        loginBy: entry.loginBy || '',
+        uptime: entry.uptime || '',
+        bytesIn: entry.bytesIn || 0,
+        bytesOut: entry.bytesOut || 0,
+        siteName: entry.siteName || '',
+        status: entry.status || 'connected' // connected | disconnected
+    };
+    logs.unshift(newEntry);
+    // Purge logs older than 90 days
+    const cutoff = Date.now() - (HOTSPOT_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const retained = logs.filter(l => new Date(l.loginTime).getTime() >= cutoff);
+    fs.writeFileSync(HOTSPOT_LOGS_FILE, JSON.stringify(retained, null, 4), 'utf8');
+    return newEntry;
+}
+
+// อัปเดต session เมื่อ user disconnect
+function updateHotspotSessionLog(sessionId, updateData) {
+    const logs = getAllHotspotLogsRaw();
+    const index = logs.findIndex(l => l.id === sessionId);
+    if (index !== -1) {
+        logs[index] = { ...logs[index], ...updateData };
+        fs.writeFileSync(HOTSPOT_LOGS_FILE, JSON.stringify(logs, null, 4), 'utf8');
+        return logs[index];
+    }
+    return null;
+}
+
+// ล้าง log เก่าเกิน 90 วัน (เรียกได้ตลอด)
+function purgeOldHotspotLogs() {
+    const logs = getAllHotspotLogsRaw();
+    const cutoff = Date.now() - (HOTSPOT_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const retained = logs.filter(l => new Date(l.loginTime).getTime() >= cutoff);
+    if (retained.length < logs.length) {
+        fs.writeFileSync(HOTSPOT_LOGS_FILE, JSON.stringify(retained, null, 4), 'utf8');
+    }
+    return logs.length - retained.length; // จำนวนที่ถูกลบ
 }
 
 const SETTINGS_FILE = path.join(DB_DIR, 'settings.json');
@@ -446,7 +591,13 @@ module.exports = {
     deleteUser,
     authenticateUser,
     getLogs,
+    getAllLogsRaw,
     addLog,
+    getHotspotLogs,
+    getAllHotspotLogsRaw,
+    addHotspotSessionLog,
+    updateHotspotSessionLog,
+    purgeOldHotspotLogs,
     getAutoCleanupConfig,
     saveAutoCleanupConfig
 };

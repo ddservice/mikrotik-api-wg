@@ -105,6 +105,85 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
 });
 
 
+// ==========================================
+// Log APIs (Admin only)
+// ==========================================
+
+// GET admin activity logs with search/filter/pagination
+app.get('/api/logs', requireAuth(['admin']), (req, res) => {
+    const { search, from, to, page, limit } = req.query;
+    const result = db.getLogs({ search, from, to, page, limit });
+    res.json(result);
+});
+
+// GET hotspot traffic logs (พรบ) with filter/pagination
+app.get('/api/hotspot-logs', requireAuth(['admin', 'co-admin']), (req, res) => {
+    const { search, from, to, username, page, limit } = req.query;
+    const result = db.getHotspotLogs({ search, from, to, username, page, limit });
+    res.json(result);
+});
+
+// Export admin activity logs as CSV
+app.get('/api/logs/export-csv', requireAuth(['admin']), (req, res) => {
+    const { search, from, to } = req.query;
+    const result = db.getLogs({ search, from, to, page: 1, limit: 99999 });
+    const rows = result.logs;
+
+    const headers = ['วันเวลา', 'ผู้ใช้งาน', 'การกระทำ', 'รายละเอียด'];
+    const csvLines = [
+        '\uFEFF' + headers.join(','),
+        ...rows.map(r => [
+            `"${r.timestamp || ''}"`,
+            `"${r.username || ''}"`,
+            `"${(r.action || '').replace(/"/g, '""')}"`,
+            `"${(r.details || '').replace(/"/g, '""')}"`
+        ].join(','))
+    ];
+
+    const filename = `activity_log_${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    db.addLog(req.user.username, 'Export Log CSV', `Export activity log จำนวน ${rows.length} รายการ`);
+    res.send(csvLines.join('\r\n'));
+});
+
+// Export hotspot traffic logs as CSV (พรบ)
+app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), (req, res) => {
+    const { search, from, to, username } = req.query;
+    const result = db.getHotspotLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const rows = result.logs;
+
+    const headers = [
+        'รหัส Log', 'เวลาเข้าใช้งาน', 'เวลาออก', 'ชื่อผู้ใช้',
+        'IP Address', 'MAC Address', 'วิธีล็อกอิน',
+        'ระยะเวลาใช้งาน', 'ดาวน์โหลด (bytes)', 'อัปโหลด (bytes)',
+        'ไซต์งาน', 'สถานะ'
+    ];
+    const csvLines = [
+        '\uFEFF' + headers.join(','),
+        ...rows.map(r => [
+            `"${r.id || ''}"`,
+            `"${r.loginTime || ''}"`,
+            `"${r.logoutTime || ''}"`,
+            `"${r.username || ''}"`,
+            `"${r.ipAddress || ''}"`,
+            `"${r.macAddress || ''}"`,
+            `"${r.loginBy || ''}"`,
+            `"${r.uptime || ''}"`,
+            `"${r.bytesIn || 0}"`,
+            `"${r.bytesOut || 0}"`,
+            `"${(r.siteName || '').replace(/"/g, '""')}"`,
+            `"${r.status || ''}"`
+        ].join(','))
+    ];
+
+    const filename = `hotspot_traffic_log_${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    db.addLog(req.user.username, 'Export Hotspot Log CSV', `Export traffic log จำนวน ${rows.length} รายการ`);
+    res.send(csvLines.join('\r\n'));
+});
+
 
 // ==========================================
 // Dashboard Users CRUD APIs (Admin only)
@@ -1131,3 +1210,106 @@ app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
 
+// ==========================================
+// Background: Snapshot Hotspot Sessions (พรบ Log)
+// ตรวจสอบทุก 5 นาที — บันทึก user ใหม่ / user ที่ออกจากระบบ
+// ==========================================
+let lastSnapshotSessions = new Map(); // key: session id, value: session object
+
+async function snapshotHotspotSessions() {
+    try {
+        const config = db.getConfig();
+        if (!config.host || !config.username) return; // Router ยังไม่ได้ตั้งค่า
+
+        const sitesData = db.getSites ? db.getSites() : { sites: [], activeSiteId: '' };
+        const activeSite = sitesData.sites.find(s => s.id === sitesData.activeSiteId) || sitesData.sites[0];
+        const siteName = activeSite ? activeSite.name : 'Main';
+
+        const currentSessions = await executeOnRouter(async (client) => {
+            const list = await client.exec('/ip/hotspot/active/print');
+            return list.map(item => ({
+                id: item['.id'],
+                user: item.user,
+                address: item.address,
+                macAddress: item['mac-address'] || '',
+                uptime: item.uptime || '0s',
+                bytesIn: parseInt(item['bytes-in']) || 0,
+                bytesOut: parseInt(item['bytes-out']) || 0,
+                loginBy: item['login-by'] || ''
+            }));
+        });
+
+        const currentMap = new Map(currentSessions.map(s => [s.id, s]));
+
+        // ตรวจหา session ใหม่ที่ยังไม่ได้บันทึก
+        for (const session of currentSessions) {
+            if (!lastSnapshotSessions.has(session.id)) {
+                // User เชื่อมต่อใหม่
+                db.addHotspotSessionLog({
+                    loginTime: new Date().toISOString(),
+                    username: session.user,
+                    ipAddress: session.address,
+                    macAddress: session.macAddress,
+                    loginBy: session.loginBy,
+                    uptime: session.uptime,
+                    bytesIn: session.bytesIn,
+                    bytesOut: session.bytesOut,
+                    siteName,
+                    status: 'connected',
+                    routerSessionId: session.id
+                });
+            }
+        }
+
+        // ตรวจหา session ที่หายไป (user disconnect)
+        for (const [id, prevSession] of lastSnapshotSessions.entries()) {
+            if (!currentMap.has(id)) {
+                // User ออกจากระบบแล้ว — บันทึก disconnect log
+                db.addHotspotSessionLog({
+                    loginTime: new Date(Date.now() - parseUptimeToMs(prevSession.uptime)).toISOString(),
+                    logoutTime: new Date().toISOString(),
+                    username: prevSession.user,
+                    ipAddress: prevSession.address,
+                    macAddress: prevSession.macAddress,
+                    loginBy: prevSession.loginBy,
+                    uptime: prevSession.uptime,
+                    bytesIn: prevSession.bytesIn,
+                    bytesOut: prevSession.bytesOut,
+                    siteName,
+                    status: 'disconnected',
+                    routerSessionId: id
+                });
+            }
+        }
+
+        lastSnapshotSessions = currentMap;
+
+    } catch (e) {
+        // Silent — Router อาจ offline ชั่วคราว
+    }
+}
+
+// แปลง RouterOS uptime string เป็น milliseconds
+function parseUptimeToMs(uptime) {
+    if (!uptime) return 0;
+    let ms = 0;
+    const wMatch = uptime.match(/(\d+)w/); if (wMatch) ms += parseInt(wMatch[1]) * 7 * 24 * 3600000;
+    const dMatch = uptime.match(/(\d+)d/); if (dMatch) ms += parseInt(dMatch[1]) * 24 * 3600000;
+    const hMatch = uptime.match(/(\d+)h/); if (hMatch) ms += parseInt(hMatch[1]) * 3600000;
+    const mMatch = uptime.match(/(\d+)m/); if (mMatch) ms += parseInt(mMatch[1]) * 60000;
+    const sMatch = uptime.match(/(\d+)s/); if (sMatch) ms += parseInt(sMatch[1]) * 1000;
+    return ms;
+}
+
+// Snapshot ทุก 5 นาที
+setInterval(snapshotHotspotSessions, 5 * 60 * 1000);
+// รัน snapshot แรกหลัง server เริ่ม 30 วินาที
+setTimeout(snapshotHotspotSessions, 30 * 1000);
+
+// Daily purge log เก่าเกิน 90 วัน (ทุก 24 ชั่วโมง)
+setInterval(() => {
+    const purged = db.purgeOldHotspotLogs();
+    if (purged > 0) {
+        db.addLog('System Auto', 'Purge Log เก่า', `ลบ hotspot log เก่าเกิน 90 วัน จำนวน ${purged} รายการ`);
+    }
+}, 24 * 60 * 60 * 1000);

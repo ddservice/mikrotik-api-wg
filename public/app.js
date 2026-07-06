@@ -209,13 +209,19 @@ function configureMenuRoles(role) {
     document.getElementById('nav-firewall').style.display = 'none';
     document.getElementById('nav-admins').style.display = 'none';
     document.getElementById('nav-settings').style.display = 'none';
+    document.getElementById('nav-logs').style.display = 'none';
     
     if (role === 'admin') {
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-admins').style.display = 'flex';
         document.getElementById('nav-settings').style.display = 'flex';
-    } else if (role === 'co-admin' || role === 'user') {
+        document.getElementById('nav-logs').style.display = 'flex';
+    } else if (role === 'co-admin') {
+        document.getElementById('nav-hotspot').style.display = 'flex';
+        document.getElementById('nav-firewall').style.display = 'flex';
+        document.getElementById('nav-logs').style.display = 'flex';
+    } else if (role === 'user') {
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
     }
@@ -254,6 +260,11 @@ function switchPage(targetPageId) {
             targetPageId = 'page-overview';
         }
     }
+    if (role === 'user') {
+        if (targetPageId === 'page-logs') {
+            targetPageId = 'page-overview';
+        }
+    }
     
     currentActivePage = targetPageId;
     
@@ -281,7 +292,8 @@ function switchPage(targetPageId) {
         'page-hotspot': { title: 'จัดการ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
-        'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' }
+        'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
+        'page-logs': { title: 'ประวัติการใช้งาน (Log)', desc: 'บันทึกกิจกรรมระบบและข้อมูลจราจรคอมพิวเตอร์ตามพรบ คอมพิวเตอร์ มาตรา 26' }
     };
     
     const info = titleMap[targetPageId] || { title: 'แดชบอร์ด', desc: '' };
@@ -303,12 +315,243 @@ function loadPageData(pageId) {
         fetchDashboardUsers();
     } else if (pageId === 'page-settings') {
         fetchSitesManagement();
+    } else if (pageId === 'page-logs') {
+        loadLogTab('tab-log-activity');
     }
 }
 
 // ==========================================
-// OVERVIEW - SYSTEM & TRAFFIC LOGIC
+// LOG SYSTEM CONTROLLERS
 // ==========================================
+let activeLogTab = 'tab-log-activity';
+let activityLogPage = 1;
+let trafficLogPage = 1;
+
+function loadLogTab(tabId) {
+    activeLogTab = tabId;
+
+    // Switch tab UI
+    document.querySelectorAll('#page-logs .tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('data-tab') === tabId) btn.classList.add('active');
+    });
+    document.querySelectorAll('#page-logs .tab-content').forEach(c => c.classList.remove('active'));
+    const tabEl = document.getElementById(tabId);
+    if (tabEl) tabEl.classList.add('active');
+
+    if (tabId === 'tab-log-activity') {
+        activityLogPage = 1;
+        fetchActivityLogs();
+    } else if (tabId === 'tab-log-traffic') {
+        trafficLogPage = 1;
+        fetchHotspotTrafficLogs();
+    }
+}
+
+// Bind Log tab buttons
+document.querySelectorAll('#page-logs .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadLogTab(btn.getAttribute('data-tab')));
+});
+
+// ---- ACTIVITY LOG ----
+async function fetchActivityLogs(page = activityLogPage) {
+    activityLogPage = page;
+    const search = (document.getElementById('activity-search')?.value || '').trim();
+    const from = document.getElementById('activity-from')?.value || '';
+    const to = document.getElementById('activity-to')?.value || '';
+
+    const tbody = document.getElementById('tbody-activity-log');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>';
+
+    try {
+        const params = new URLSearchParams({ page, limit: 50 });
+        if (search) params.set('search', search);
+        if (from) params.set('from', from);
+        if (to) params.set('to', to + 'T23:59:59');
+
+        const result = await apiFetch(`/api/logs?${params}`);
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!result.logs || result.logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">ไม่พบรายการ</td></tr>';
+        } else {
+            result.logs.forEach(log => {
+                const tr = document.createElement('tr');
+                const dt = log.timestamp ? new Date(log.timestamp).toLocaleString('th-TH') : '-';
+                tr.innerHTML = `
+                    <td style="font-size:0.8rem;color:var(--text-muted);">${dt}</td>
+                    <td><strong>${log.username || '-'}</strong></td>
+                    <td><span class="log-action-badge">${log.action || '-'}</span></td>
+                    <td style="font-size:0.85rem;">${log.details || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Update export link with current filters
+        const exportLink = document.getElementById('btn-export-activity-log');
+        if (exportLink) {
+            const exportParams = new URLSearchParams();
+            if (search) exportParams.set('search', search);
+            if (from) exportParams.set('from', from);
+            if (to) exportParams.set('to', to + 'T23:59:59');
+            exportLink.href = `/api/logs/export-csv?${exportParams}`;
+        }
+
+        // Render pagination
+        renderPagination('pagination-activity', result, (p) => fetchActivityLogs(p));
+
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+// Filter / Clear buttons for Activity Log
+document.getElementById('btn-filter-activity')?.addEventListener('click', () => { activityLogPage = 1; fetchActivityLogs(1); });
+document.getElementById('btn-clear-activity')?.addEventListener('click', () => {
+    document.getElementById('activity-search').value = '';
+    document.getElementById('activity-from').value = '';
+    document.getElementById('activity-to').value = '';
+    fetchActivityLogs(1);
+});
+document.getElementById('activity-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { activityLogPage = 1; fetchActivityLogs(1); } });
+
+// ---- TRAFFIC LOG (พรบ) ----
+async function fetchHotspotTrafficLogs(page = trafficLogPage) {
+    trafficLogPage = page;
+    const search = (document.getElementById('traffic-search')?.value || '').trim();
+    const from = document.getElementById('traffic-from')?.value || '';
+    const to = document.getElementById('traffic-to')?.value || '';
+
+    const tbody = document.getElementById('tbody-traffic-log');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>';
+
+    try {
+        const params = new URLSearchParams({ page, limit: 50 });
+        if (search) params.set('search', search);
+        if (from) params.set('from', from);
+        if (to) params.set('to', to + 'T23:59:59');
+
+        const result = await apiFetch(`/api/hotspot-logs?${params}`);
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!result.logs || result.logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">ยังไม่มีข้อมูล — ระบบจะเริ่มบันทึกอัตโนมัติทุก 5 นาที เมื่อมีผู้ใช้ Hotspot</td></tr>';
+        } else {
+            result.logs.forEach(log => {
+                const tr = document.createElement('tr');
+                const loginDt = log.loginTime ? new Date(log.loginTime).toLocaleString('th-TH') : '-';
+                const logoutDt = log.logoutTime ? new Date(log.logoutTime).toLocaleString('th-TH') : '<span style="color:var(--text-muted);">กำลังใช้งาน</span>';
+                const statusBadge = log.status === 'connected'
+                    ? '<span class="status-badge-connected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> ออนไลน์</span>'
+                    : '<span class="status-badge-disconnected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> ออกแล้ว</span>';
+
+                tr.innerHTML = `
+                    <td style="font-size:0.79rem;">${loginDt}</td>
+                    <td style="font-size:0.79rem;">${logoutDt}</td>
+                    <td><strong>${log.username || '-'}</strong></td>
+                    <td><code style="font-size:0.8rem;">${log.ipAddress || '-'}</code></td>
+                    <td><code style="font-size:0.75rem;color:var(--text-muted);">${log.macAddress || '-'}</code></td>
+                    <td><span class="badge badge-profile" style="font-size:0.72rem;">${log.loginBy || '-'}</span></td>
+                    <td style="font-size:0.8rem;">${log.uptime || '-'}</td>
+                    <td style="font-size:0.8rem;">${formatBytes(log.bytesOut || 0)}</td>
+                    <td style="font-size:0.8rem;">${formatBytes(log.bytesIn || 0)}</td>
+                    <td>${statusBadge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Update export link with current filters
+        const exportLink = document.getElementById('btn-export-hotspot-log');
+        if (exportLink) {
+            const exportParams = new URLSearchParams();
+            if (search) exportParams.set('search', search);
+            if (from) exportParams.set('from', from);
+            if (to) exportParams.set('to', to + 'T23:59:59');
+            exportLink.href = `/api/hotspot-logs/export-csv?${exportParams}`;
+        }
+
+        // Render pagination
+        renderPagination('pagination-traffic', result, (p) => fetchHotspotTrafficLogs(p));
+
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+// Filter / Clear buttons for Traffic Log
+document.getElementById('btn-filter-traffic')?.addEventListener('click', () => { trafficLogPage = 1; fetchHotspotTrafficLogs(1); });
+document.getElementById('btn-clear-traffic')?.addEventListener('click', () => {
+    document.getElementById('traffic-search').value = '';
+    document.getElementById('traffic-from').value = '';
+    document.getElementById('traffic-to').value = '';
+    fetchHotspotTrafficLogs(1);
+});
+document.getElementById('traffic-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { trafficLogPage = 1; fetchHotspotTrafficLogs(1); } });
+
+// ---- SHARED: Pagination Renderer ----
+function renderPagination(containerId, result, onPageChange) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!result || result.pages <= 1) return;
+
+    const { page, pages, total, limit } = result;
+
+    const addBtn = (label, pageNum, isActive = false, disabled = false) => {
+        const btn = document.createElement('button');
+        btn.innerHTML = label;
+        if (isActive) btn.classList.add('active-page');
+        btn.disabled = disabled;
+        btn.addEventListener('click', () => onPageChange(pageNum));
+        container.appendChild(btn);
+    };
+
+    addBtn('<i class="fa-solid fa-chevron-left"></i>', page - 1, false, page <= 1);
+
+    // Show page numbers with ellipsis
+    const delta = 2;
+    let range = [];
+    for (let i = Math.max(1, page - delta); i <= Math.min(pages, page + delta); i++) {
+        range.push(i);
+    }
+    if (range[0] > 1) {
+        addBtn('1', 1);
+        if (range[0] > 2) {
+            const dots = document.createElement('span');
+            dots.textContent = '...';
+            dots.style.cssText = 'padding: 0 4px; color: var(--text-muted); font-size:0.85rem;';
+            container.appendChild(dots);
+        }
+    }
+    range.forEach(p => addBtn(p, p, p === page));
+    if (range[range.length - 1] < pages) {
+        if (range[range.length - 1] < pages - 1) {
+            const dots = document.createElement('span');
+            dots.textContent = '...';
+            dots.style.cssText = 'padding: 0 4px; color: var(--text-muted); font-size:0.85rem;';
+            container.appendChild(dots);
+        }
+        addBtn(pages, pages);
+    }
+
+    addBtn('<i class="fa-solid fa-chevron-right"></i>', page + 1, false, page >= pages);
+
+    const info = document.createElement('span');
+    info.className = 'page-info';
+    const start = (page - 1) * limit + 1;
+    const end = Math.min(page * limit, total);
+    info.textContent = `แสดง ${start}–${end} จาก ${total} รายการ`;
+    container.appendChild(info);
+}
+
+
 async function fetchSystemStatus() {
     try {
         const status = await apiFetch('/api/mikrotik/status');
@@ -545,6 +788,9 @@ function loadHotspotTab(tabId) {
     });
     document.getElementById(tabId).classList.add('active');
     
+    // Update tab badges in the background
+    updateHotspotTabBadges();
+    
     // Fetch tab-specific data
     if (tabId === 'tab-hotspot-active') {
         fetchActiveHotspotUsers();
@@ -555,6 +801,8 @@ function loadHotspotTab(tabId) {
         fetchHotspotProfiles();
     } else if (tabId === 'tab-hotspot-vouchers') {
         fetchProfilesToDropdown();
+    } else if (tabId === 'tab-hotspot-stats') {
+        fetchHotspotStats();
     }
 }
 
@@ -1998,6 +2246,222 @@ if (btnTriggerSinglePrint) {
         voucherPrintArea.style.display = 'block';
         window.print();
     });
+}
+
+
+// ==========================================
+// HOTSPOT HEADERS & STATISTICS LOGIC
+// ==========================================
+
+async function updateHotspotTabBadges() {
+    try {
+        const [active, users, profiles] = await Promise.all([
+            apiFetch('/api/mikrotik/hotspot/active'),
+            apiFetch('/api/mikrotik/hotspot/users'),
+            apiFetch('/api/mikrotik/hotspot/profiles')
+        ]);
+        
+        const badgeActive = document.getElementById('badge-hotspot-active');
+        if (badgeActive) badgeActive.textContent = active.length;
+        
+        const badgeAccounts = document.getElementById('badge-hotspot-accounts');
+        if (badgeAccounts) badgeAccounts.textContent = users.length;
+        
+        const badgeProfiles = document.getElementById('badge-hotspot-profiles');
+        if (badgeProfiles) badgeProfiles.textContent = profiles.length;
+    } catch (err) {
+        console.error('Failed to update tab badges:', err);
+    }
+}
+
+async function fetchHotspotStats() {
+    const activeEl = document.getElementById('stat-hotspot-active');
+    const accountsEl = document.getElementById('stat-hotspot-accounts');
+    const trafficEl = document.getElementById('stat-hotspot-traffic');
+    const profilesEl = document.getElementById('stat-hotspot-profiles');
+    
+    const profileDistEl = document.getElementById('stats-profile-distribution');
+    const loginDistEl = document.getElementById('stats-login-distribution');
+    const topUsersEl = document.getElementById('stats-top-users');
+    
+    // Set loading
+    if (activeEl) activeEl.textContent = '...';
+    if (accountsEl) accountsEl.textContent = '...';
+    if (trafficEl) trafficEl.textContent = '...';
+    if (profilesEl) profilesEl.textContent = '...';
+    
+    if (profileDistEl) profileDistEl.innerHTML = '<div class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</div>';
+    if (loginDistEl) loginDistEl.innerHTML = '<div class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</div>';
+    if (topUsersEl) topUsersEl.innerHTML = '<div class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</div>';
+    
+    try {
+        const [active, users, profiles] = await Promise.all([
+            apiFetch('/api/mikrotik/hotspot/active'),
+            apiFetch('/api/mikrotik/hotspot/users'),
+            apiFetch('/api/mikrotik/hotspot/profiles')
+        ]);
+        
+        // 1. Update summary cards
+        if (activeEl) activeEl.textContent = `${active.length} คน`;
+        if (accountsEl) accountsEl.textContent = `${users.length} บัญชี`;
+        if (profilesEl) profilesEl.textContent = `${profiles.length} โปรไฟล์`;
+        
+        // Sum traffic of active users
+        let totalBytesIn = 0;
+        let totalBytesOut = 0;
+        active.forEach(item => {
+            totalBytesIn += item.bytesIn || 0;
+            totalBytesOut += item.bytesOut || 0;
+        });
+        const totalTrafficBytes = totalBytesIn + totalBytesOut;
+        if (trafficEl) trafficEl.textContent = formatBytes(totalTrafficBytes);
+        
+        // Map user list to access profiles easily
+        const userProfilesMap = {};
+        users.forEach(u => {
+            userProfilesMap[u.name] = u.profile;
+        });
+        
+        // 2. Profile distribution (Active users by Profile)
+        const profileCounts = {};
+        active.forEach(item => {
+            const profileName = userProfilesMap[item.user] || 'default';
+            profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
+        });
+        
+        if (profileDistEl) {
+            profileDistEl.innerHTML = '';
+            const profileKeys = Object.keys(profileCounts);
+            if (profileKeys.length === 0) {
+                profileDistEl.innerHTML = '<div class="text-center text-muted">ไม่มีข้อมูลผู้ใช้งานที่กำลังเชื่อมต่อ</div>';
+            } else {
+                profileKeys.sort((a, b) => profileCounts[b] - profileCounts[a]);
+                
+                profileKeys.forEach(profileName => {
+                    const count = profileCounts[profileName];
+                    const percent = Math.round((count / active.length) * 100);
+                    
+                    const itemHTML = `
+                        <div class="distribution-item">
+                            <div class="distribution-header">
+                                <div class="distribution-label">
+                                    <i class="fa-solid fa-id-card text-primary"></i>
+                                    <strong>${profileName}</strong>
+                                </div>
+                                <div class="distribution-value">${count} คน (${percent}%)</div>
+                            </div>
+                            <div class="distribution-bar-bg">
+                                <div class="distribution-bar-fill" style="width: ${percent}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                    profileDistEl.insertAdjacentHTML('beforeend', itemHTML);
+                });
+            }
+        }
+        
+        // 3. Login methods distribution
+        const loginCounts = {};
+        active.forEach(item => {
+            const method = item.loginBy || 'Unknown';
+            loginCounts[method] = (loginCounts[method] || 0) + 1;
+        });
+        
+        if (loginDistEl) {
+            loginDistEl.innerHTML = '';
+            const loginKeys = Object.keys(loginCounts);
+            if (loginKeys.length === 0) {
+                loginDistEl.innerHTML = '<div class="text-center text-muted">ไม่มีข้อมูลช่องทางการล็อกอิน</div>';
+            } else {
+                loginKeys.sort((a, b) => loginCounts[b] - loginCounts[a]);
+                
+                loginKeys.forEach(method => {
+                    const count = loginCounts[method];
+                    const percent = Math.round((count / active.length) * 100);
+                    
+                    let barClass = '';
+                    if (method.toLowerCase().includes('cookie')) {
+                        barClass = 'success';
+                    } else if (method.toLowerCase().includes('chap') || method.toLowerCase().includes('http')) {
+                        barClass = 'warning';
+                    }
+                    
+                    const itemHTML = `
+                        <div class="distribution-item">
+                            <div class="distribution-header">
+                                <div class="distribution-label">
+                                    <i class="fa-solid fa-key text-success"></i>
+                                    <strong>${method}</strong>
+                                </div>
+                                <div class="distribution-value">${count} คน (${percent}%)</div>
+                            </div>
+                            <div class="distribution-bar-bg">
+                                <div class="distribution-bar-fill ${barClass}" style="width: ${percent}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                    loginDistEl.insertAdjacentHTML('beforeend', itemHTML);
+                });
+            }
+        }
+        
+        // 4. Top 5 active consumers by bytes (bytesIn + bytesOut)
+        if (topUsersEl) {
+            topUsersEl.innerHTML = '';
+            if (active.length === 0) {
+                topUsersEl.innerHTML = '<div class="text-center text-muted">ไม่มีข้อมูลผู้ใช้งานที่กำลังเชื่อมต่อ</div>';
+            } else {
+                const activeSorted = [...active].sort((a, b) => {
+                    const totalA = (a.bytesIn || 0) + (a.bytesOut || 0);
+                    const totalB = (b.bytesIn || 0) + (b.bytesOut || 0);
+                    return totalB - totalA;
+                });
+                
+                const top5 = activeSorted.slice(0, 5);
+                const maxUserBytes = (top5[0].bytesIn || 0) + (top5[0].bytesOut || 0) || 1;
+                
+                top5.forEach((item, index) => {
+                    const userBytesTotal = (item.bytesIn || 0) + (item.bytesOut || 0);
+                    const percentOfMax = Math.round((userBytesTotal / maxUserBytes) * 100);
+                    const userProfile = userProfilesMap[item.user] || 'default';
+                    
+                    let rankBadge = '';
+                    if (index === 0) rankBadge = '<i class="fa-solid fa-trophy" style="color: #eab308;"></i>';
+                    else if (index === 1) rankBadge = '<i class="fa-solid fa-medal" style="color: #cbd5e1;"></i>';
+                    else if (index === 2) rankBadge = '<i class="fa-solid fa-medal" style="color: #b45309;"></i>';
+                    else rankBadge = `<span style="font-weight: 700; color: var(--text-muted); width:16px; display:inline-block; text-align:center;">${index + 1}</span>`;
+                    
+                    const itemHTML = `
+                        <div class="top-user-item">
+                            <div class="top-user-info">
+                                <div class="top-user-name">
+                                    ${rankBadge}
+                                    <strong>${item.user}</strong>
+                                    <span class="badge badge-profile" style="font-size: 0.7rem; padding: 2px 6px;">${userProfile}</span>
+                                </div>
+                                <div class="top-user-bytes">${formatBytes(userBytesTotal)}</div>
+                            </div>
+                            <div class="distribution-bar-bg" style="margin-bottom: 8px;">
+                                <div class="distribution-bar-fill success" style="width: ${percentOfMax}%;"></div>
+                            </div>
+                            <div class="top-user-breakdown">
+                                <span class="dl"><i class="fa-solid fa-circle-arrow-down"></i> ดาวน์โหลด: ${formatBytes(item.bytesOut)}</span>
+                                <span class="ul"><i class="fa-solid fa-circle-arrow-up"></i> อัปโหลด: ${formatBytes(item.bytesIn)}</span>
+                                <span class="time"><i class="fa-solid fa-clock"></i> เวลาล็อกอิน: ${item.uptime}</span>
+                            </div>
+                        </div>
+                    `;
+                    topUsersEl.insertAdjacentHTML('beforeend', itemHTML);
+                });
+            }
+        }
+        
+    } catch (err) {
+        console.error('Failed to load hotspot stats data:', err);
+        if (profileDistEl) profileDistEl.innerHTML = `<div class="text-center text-danger">เกิดข้อผิดพลาด: ${err.message}</div>`;
+        if (loginDistEl) loginDistEl.innerHTML = `<div class="text-center text-danger">เกิดข้อผิดพลาด: ${err.message}</div>`;
+        if (topUsersEl) topUsersEl.innerHTML = `<div class="text-center text-danger">เกิดข้อผิดพลาด: ${err.message}</div>`;
+    }
 }
 
 
