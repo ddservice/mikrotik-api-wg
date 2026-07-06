@@ -209,14 +209,12 @@ function configureMenuRoles(role) {
     document.getElementById('nav-firewall').style.display = 'none';
     document.getElementById('nav-admins').style.display = 'none';
     document.getElementById('nav-settings').style.display = 'none';
-    document.getElementById('nav-logs').style.display = 'none';
     
     if (role === 'admin') {
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-admins').style.display = 'flex';
         document.getElementById('nav-settings').style.display = 'flex';
-        document.getElementById('nav-logs').style.display = 'flex';
     } else if (role === 'co-admin' || role === 'user') {
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
@@ -252,7 +250,7 @@ function switchPage(targetPageId) {
     // Role protection guards
     const role = CURRENT_USER ? CURRENT_USER.role : 'user';
     if (role !== 'admin') {
-        if (['page-admins', 'page-settings', 'page-logs'].includes(targetPageId)) {
+        if (['page-admins', 'page-settings'].includes(targetPageId)) {
             targetPageId = 'page-overview';
         }
     }
@@ -283,8 +281,7 @@ function switchPage(targetPageId) {
         'page-hotspot': { title: 'จัดการ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
-        'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
-        'page-logs': { title: 'ประวัติการทำงาน (Logs)', desc: 'แสดงบันทึกประวัติการเข้าใช้งานและจัดการระบบ' }
+        'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' }
     };
     
     const info = titleMap[targetPageId] || { title: 'แดชบอร์ด', desc: '' };
@@ -306,8 +303,6 @@ function loadPageData(pageId) {
         fetchDashboardUsers();
     } else if (pageId === 'page-settings') {
         fetchSitesManagement();
-    } else if (pageId === 'page-logs') {
-        fetchSystemLogs();
     }
 }
 
@@ -625,6 +620,21 @@ async function fetchHotspotAccounts() {
         
         const chkSelectAll = document.getElementById('chk-select-all-users');
         if (chkSelectAll) chkSelectAll.checked = false;
+
+        // Toggle sensitive warning alert if passwords are masked with asterisks
+        const warningContainer = document.getElementById('hotspot-sensitive-warning');
+        if (warningContainer) warningContainer.style.display = 'none';
+
+        let hasMaskedPassword = false;
+        users.forEach(item => {
+            if (item.password && (item.password.includes('*') || /^\*+$/.test(item.password))) {
+                hasMaskedPassword = true;
+            }
+        });
+
+        if (hasMaskedPassword && warningContainer) {
+            warningContainer.style.display = 'flex';
+        }
 
         if (users.length === 0) {
             tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">ไม่พบข้อมูลบัญชี Hotspot</td></tr>';
@@ -1990,56 +2000,6 @@ if (btnTriggerSinglePrint) {
     });
 }
 
-// Fetch and render system audit logs (Admin only)
-async function fetchSystemLogs() {
-    const tableBody = document.querySelector('#table-logs tbody');
-    if (!tableBody) return;
-    
-    tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">กำลังโหลดข้อมูลประวัติ...</td></tr>`;
-    try {
-        const logs = await apiFetch('/api/logs');
-        if (logs.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">ไม่มีข้อมูลบันทึกประวัติในระบบ</td></tr>`;
-            return;
-        }
-        tableBody.innerHTML = '';
-        logs.forEach(log => {
-            const tr = document.createElement('tr');
-            
-            // Format time nicely in user locale
-            const dt = new Date(log.timestamp);
-            const formattedTime = isNaN(dt) ? log.timestamp : dt.toLocaleString('th-TH');
-            
-            // Format actions with badges or styles
-            let actionBadge = `<span class="badge badge-profile">${log.action}</span>`;
-            if (log.action.includes('เพิ่ม')) {
-                actionBadge = `<span class="badge" style="background-color: rgba(5, 150, 105, 0.1); color: var(--success); border: 1px solid rgba(5, 150, 105, 0.2);">${log.action}</span>`;
-            } else if (log.action.includes('ลบ') || log.action.includes('เตะ')) {
-                actionBadge = `<span class="badge" style="background-color: rgba(220, 38, 38, 0.1); color: var(--danger); border: 1px solid rgba(220, 38, 38, 0.2);">${log.action}</span>`;
-            } else if (log.action.includes('บล็อก') || log.action.includes('ปิด') || log.action.includes('เปิด')) {
-                actionBadge = `<span class="badge" style="background-color: rgba(217, 119, 6, 0.1); color: var(--warning); border: 1px solid rgba(217, 119, 6, 0.2);">${log.action}</span>`;
-            } else if (log.action.includes('ระบบ') || log.action.includes('ตั้งค่า') || log.action.includes('เราท์เตอร์')) {
-                actionBadge = `<span class="badge" style="background-color: rgba(79, 70, 229, 0.1); color: var(--primary); border: 1px solid rgba(79, 70, 229, 0.2);">${log.action}</span>`;
-            }
-            
-            tr.innerHTML = `
-                <td><strong>${formattedTime}</strong></td>
-                <td><span class="badge badge-co-admin"><i class="fa-solid fa-user-shield"></i> ${log.username}</span></td>
-                <td>${actionBadge}</td>
-                <td>${log.details}</td>
-            `;
-            tableBody.appendChild(tr);
-        });
-    } catch (err) {
-        tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">ไม่สามารถโหลดข้อมูลประวัติได้: ${err.message}</td></tr>`;
-    }
-}
-
-// Logs refresh button click
-const btnRefreshLogs = document.getElementById('btn-refresh-logs');
-if (btnRefreshLogs) {
-    btnRefreshLogs.addEventListener('click', fetchSystemLogs);
-}
 
 // ==========================================
 // CORE BINDINGS & NAV CLICK EVENT HANDLERS
@@ -2100,7 +2060,7 @@ document.querySelectorAll('.menu-item').forEach(item => {
     });
 });
 
-// Hotspot tabs clicks
+// Tab buttons click handler (Hotspot tabs)
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
         e.preventDefault();

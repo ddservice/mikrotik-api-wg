@@ -104,9 +104,7 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
     res.json({ user: req.user });
 });
 
-app.get('/api/logs', requireAuth(['admin']), (req, res) => {
-    res.json(db.getLogs());
-});
+
 
 // ==========================================
 // Dashboard Users CRUD APIs (Admin only)

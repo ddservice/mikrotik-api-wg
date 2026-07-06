@@ -360,12 +360,7 @@ class RouterDashboardHandler(BaseHTTPRequestHandler):
                     self.send_json(sanitized)
                 return
                 
-            # Read audit logs (Admin only)
-            elif path == "/api/logs":
-                if self.check_auth(["admin"]):
-                    self.send_json(get_logs())
-                return
-                
+
             # Manage Connection configurations (Admin only)
             elif path == "/api/config":
                 if self.check_auth(["admin"]):

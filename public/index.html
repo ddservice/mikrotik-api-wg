@@ -86,9 +86,6 @@
                 <a href="#" class="menu-item" data-target="page-settings" id="nav-settings" style="display: none;">
                     <i class="fa-solid fa-gears"></i> <span>ตั้งค่าเชื่อมต่อเราท์เตอร์</span>
                 </a>
-                <a href="#" class="menu-item" data-target="page-logs" id="nav-logs" style="display: none;">
-                    <i class="fa-solid fa-list-check"></i> <span>ประวัติการทำงาน (Logs)</span>
-                </a>
             </nav>
             
             <div class="sidebar-footer">
@@ -284,6 +281,8 @@
                         </div>
                     </div>
 
+
+
                     <!-- Tab content 2: Hotspot Accounts -->
                     <div id="tab-hotspot-accounts" class="tab-content">
                         <div class="card">
@@ -312,6 +311,12 @@
                                         <input type="checkbox" id="toggle-auto-cleanup">
                                         <span class="slider"></span>
                                     </label>
+                                </div>
+
+                                <!-- Warning for missing sensitive permission -->
+                                <div id="hotspot-sensitive-warning" class="warning-status-bar mb-16" style="display: none;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <span><strong>คำเตือน:</strong> รหัสผ่านแสดงเป็นเครื่องหมายดอกจันทร์ (*) หรือไม่แสดง เนื่องจากบัญชี API ใน MikroTik ยังไม่ได้เปิดสิทธิ์ <code>sensitive</code> กรุณาตรวจสอบการตั้งค่ากลุ่มผู้ใช้งาน (System -> Users -> Groups) ใน MikroTik และเปิดสิทธิ์ <code>sensitive</code> เพื่อความสะดวกในการแสดงผลและพิมพ์คูปอง</span>
                                 </div>
 
                                 <div class="table-responsive">
@@ -1196,43 +1201,9 @@
                     </div>
                 </section>
                 
-                <!-- 6. AUDIT LOGS PAGE (Admin only) -->
-                <section id="page-logs" class="page-section" style="display: none;">
-                    <div class="card">
-                        <div class="card-header card-header-flex">
-                            <div class="card-title">
-                                <i class="fa-solid fa-list-check text-primary"></i>
-                                <div>
-                                    <h4>ประวัติการทำงานระบบ (Audit Logs)</h4>
-                                    <p>แสดงประวัติการทำงานผู้ใช้ การเปลี่ยนการตั้งค่า และรายการจัดทำ Hotspot / Firewall</p>
-                                </div>
-                            </div>
-                            <div class="card-actions">
-                                <button class="btn btn-secondary" id="btn-refresh-logs"><i class="fa-solid fa-arrows-rotate"></i> รีเฟรช</button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table" id="table-logs">
-                                    <thead>
-                                        <tr>
-                                            <th>วัน-เวลา</th>
-                                            <th>ผู้ดำเนินการ</th>
-                                            <th>การกระทำ</th>
-                                            <th>รายละเอียดเพิ่มเติม</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td colspan="4" class="text-center text-muted">กำลังโหลดข้อมูลประวัติ...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+
                 
+
             </div>
         </main>
     </div>
