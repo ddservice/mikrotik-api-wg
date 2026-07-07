@@ -3,7 +3,14 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
-const db = require('./db');
+
+// Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
+const db = process.env.SUPABASE_URL
+    ? require('./db-supabase')
+    : require('./db');
+
+console.log(`[DB] Using: ${process.env.SUPABASE_URL ? 'Supabase (PostgreSQL)' : 'Local JSON files'}`);
+
 const RouterOSClient = require('./routeros');
 
 // ==========================================

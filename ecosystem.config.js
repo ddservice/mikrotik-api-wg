@@ -36,7 +36,17 @@ module.exports = {
             // Environment variables
             env: {
                 NODE_ENV: 'production',
-                PORT: 3000
+                PORT: 3000,
+
+                // ==========================================
+                // Supabase — เปลี่ยนค่าด้านล่างนี้ด้วยของจริง
+                // หาได้ที่: Supabase Dashboard → Settings → API
+                // ==========================================
+                SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co',
+                SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_SERVICE_ROLE_KEY',
+
+                // CORS origins (ถ้ามี domain)
+                // ALLOWED_ORIGINS: 'https://yourdomain.com'
             },
 
             // Log files
