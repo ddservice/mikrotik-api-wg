@@ -6,11 +6,99 @@ const fs = require('fs');
 const db = require('./db');
 const RouterOSClient = require('./routeros');
 
+// ==========================================
+// P2 SECURITY: Rate Limiting
+// ==========================================
+let rateLimit;
+try {
+    rateLimit = require('express-rate-limit');
+} catch (e) {
+    // Fallback: ถ้ายังไม่ได้ติดตั้ง package ให้รัน: npm install express-rate-limit
+    console.warn('[Security] express-rate-limit not installed — rate limiting disabled');
+    rateLimit = () => (req, res, next) => next(); // no-op middleware
+}
+
+// Rate limit สำหรับ Login: 5 ครั้ง ใน 15 นาที (ป้องกัน brute-force)
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,  // 15 นาที
+    max: 5,                     // สูงสุด 5 ครั้ง
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        error: 'พยายามเข้าระบบมากเกินไป โปรดรอ 15 นาทีแล้วลองใหม่ (Too many login attempts)',
+        retryAfter: 900
+    },
+    handler: (req, res, next, options) => {
+        const ip = req.ip || req.connection.remoteAddress;
+        db.addLog('System Security', 'Rate Limit ล็อก Login', `IP ${ip} พยายาม login เกินสิทธิ์`);
+        res.status(429).json(options.message);
+    },
+    skip: (req) => {
+        // ไม่นับ localhost ใน development
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    }
+});
+
+// Rate limit ทั่วไปสำหรับ API: 200 ครั้ง ใน 1 นาที
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,       // 1 นาที
+    max: 200,                  // สูงสุด 200 request
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'ส่ง request มากเกินไป โปรดรอสักครู่ (Rate limit exceeded)' },
+    skip: (req) => {
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    }
+});
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// ==========================================
+// P2 SECURITY: CORS — ล็อก origin ที่อนุญาต
+// ตั้งค่าผ่าน env: ALLOWED_ORIGINS=https://yourdomain.com,https://other.com
+// ==========================================
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+// เพิ่ม localhost เสมอเพื่อ development
+const devOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost',
+    'http://127.0.0.1'
+];
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        // อนุญาต same-origin requests (ไม่มี origin header = curl, mobile app)
+        if (!origin) return callback(null, true);
+
+        const allowedList = ALLOWED_ORIGINS.length > 0
+            ? [...devOrigins, ...ALLOWED_ORIGINS]
+            : devOrigins;  // ถ้าไม่ตั้ง env ให้ dev origins อย่างเดียว
+
+        if (allowedList.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn(`[CORS] Blocked origin: ${origin}`);
+            callback(new Error(`CORS: Origin '${origin}' not allowed`));
+        }
+    },
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+// Apply ทั่วไป API rate limiter
+app.use('/api/', apiLimiter);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -70,14 +158,17 @@ async function executeOnRouter(fn, siteId) {
 // Authentication APIs
 // ==========================================
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', loginLimiter, (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
     }
-    
+
     const user = db.authenticateUser(username, password);
     if (!user) {
+        // บันทึก login ล้มเพื่อตรวจสอบภายหลัง
+        const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+        db.addLog('System Security', 'Login ล้มเหลว', `username: "${username}" | IP: ${ip}`);
         return res.status(400).json({ error: 'Invalid username or password' });
     }
     

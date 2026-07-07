@@ -77,6 +77,14 @@ async function apiFetch(endpoint, options = {}) {
         logout();
         throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
     }
+
+    // P2 Security: ดัก status code เพื่อให้ handler ตรวจ 429 ได้
+    if (response.status === 429) {
+        const data429 = await response.json().catch(() => ({}));
+        const err429 = new Error(data429.error || 'พยายามเข้าระบบมากเกินไป');
+        err429.status = 429;
+        throw err429;
+    }
     
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
@@ -91,7 +99,9 @@ async function apiFetch(endpoint, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(data.error || 'เกิดข้อผิดพลาดในการเรียกข้อมูล');
+        const err = new Error(data.error || 'เกิดข้อผิดพลาดในการเรียกข้อมูล');
+        err.status = response.status;
+        throw err;
     }
     
     return data;
@@ -2491,12 +2501,40 @@ loginForm.addEventListener('submit', async (e) => {
         
         showDashboard();
     } catch (err) {
-        loginError.textContent = err.message;
-        loginError.style.display = 'block';
+        // ตรวจสอบ Rate Limit (429 Too Many Requests)
+        if (err.status === 429 || (err.message && err.message.includes('มากเกินไป'))) {
+            // แสดง countdown timer
+            let remaining = 900; // 15 นาที
+            loginError.innerHTML = `<i class="fa-solid fa-lock"></i> บัญชีถูกล็อกชั่วคราว — โปรดรอ <strong id="lockout-timer">15:00</strong> นาที`;
+            loginError.style.display = 'block';
+            submitBtn.disabled = true;
+
+            const countdownInterval = setInterval(() => {
+                remaining--;
+                const min = String(Math.floor(remaining / 60)).padStart(2, '0');
+                const sec = String(remaining % 60).padStart(2, '0');
+                const timerEl = document.getElementById('lockout-timer');
+                if (timerEl) timerEl.textContent = `${min}:${sec}`;
+                if (remaining <= 0) {
+                    clearInterval(countdownInterval);
+                    loginError.style.display = 'none';
+                    submitBtn.disabled = false;
+                }
+            }, 1000);
+        } else {
+            loginError.textContent = err.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+            loginError.style.display = 'block';
+            // Shake animation
+            loginForm.style.animation = 'none';
+            setTimeout(() => { loginForm.style.animation = 'shake 0.4s ease'; }, 10);
+        }
     } finally {
-        submitBtn.disabled = false;
+        if (!submitBtn.disabled || !document.getElementById('lockout-timer')) {
+            submitBtn.disabled = false;
+        }
     }
 });
+
 
 // Refresh button on top right header
 document.getElementById('btn-refresh').addEventListener('click', () => {

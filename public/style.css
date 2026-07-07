@@ -2340,3 +2340,25 @@ input:disabled + .slider {
     color: var(--text-muted);
 }
 
+
+/* ==========================================
+   P2 SECURITY STYLES
+   ========================================== */
+
+/* Shake animation เมื่อ login ผิด */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    15%       { transform: translateX(-8px); }
+    30%       { transform: translateX(8px); }
+    45%       { transform: translateX(-6px); }
+    60%       { transform: translateX(6px); }
+    75%       { transform: translateX(-3px); }
+    90%       { transform: translateX(3px); }
+}
+
+/* Lockout countdown badge */
+#login-error strong#lockout-timer {
+    font-family: monospace;
+    font-size: 1.05em;
+    color: var(--danger);
+}
