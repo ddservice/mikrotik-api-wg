@@ -166,6 +166,15 @@
                                 <p id="stat-model">-</p>
                             </div>
                         </div>
+                        <!-- P3: Hotspot Online Card -->
+                        <div class="stat-card stat-card-hotspot" id="stat-card-online" style="cursor:pointer;" title="คลิกเพื่อดูผู้ใช้งาน Hotspot">
+                            <div class="stat-icon hotspot-online"><i class="fa-solid fa-users"></i></div>
+                            <div class="stat-info">
+                                <h3>ผู้ใช้ Hotspot ออนไลน์</h3>
+                                <p id="stat-hotspot-online"><span class="online-count">-</span> <span class="online-label">คน</span></p>
+                            </div>
+                            <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
+                        </div>
                     </div>
 
                     <!-- Chart Card -->
@@ -260,8 +269,26 @@
                                         <p>ผู้ใช้อินเตอร์เน็ตที่ทำการล็อกอินผ่านหน้า Hotspot ในปัจจุบัน</p>
                                     </div>
                                 </div>
+                                <div class="card-actions">
+                                    <!-- P3: Auto-refresh toggle -->
+                                    <div class="refresh-status" id="active-refresh-status">
+                                        <span class="live-indicator"><i class="fa-solid fa-circle"></i> Live</span>
+                                        <span id="active-refresh-countdown" style="font-size:0.78rem;color:var(--text-muted);">รีเฟรชใน 30s</span>
+                                    </div>
+                                    <button id="btn-refresh-active" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-arrows-rotate"></i> รีเฟรช
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
+                                <!-- P3: Search bar for active users -->
+                                <div class="search-bar-inline mb-16">
+                                    <div class="input-with-icon" style="max-width:320px;">
+                                        <i class="fa-solid fa-magnifying-glass"></i>
+                                        <input type="text" id="search-active-users" class="form-control" placeholder="ค้นหา username, IP, MAC...">
+                                    </div>
+                                    <span id="active-users-count" class="count-badge"></span>
+                                </div>
                                 <div class="table-responsive">
                                     <table class="table" id="table-active-users">
                                         <thead>
@@ -307,6 +334,17 @@
                                 </div>
                             </div>
                             <div class="card-body">
+                                <!-- P3: Search bar for accounts -->
+                                <div class="search-bar-inline mb-12">
+                                    <div class="input-with-icon" style="max-width:300px;">
+                                        <i class="fa-solid fa-magnifying-glass"></i>
+                                        <input type="text" id="search-hotspot-accounts" class="form-control" placeholder="ค้นหา username, โปรไฟล์, หมายเหตุ...">
+                                    </div>
+                                    <select id="filter-hotspot-profile" class="form-control select-sm" style="max-width:180px;">
+                                        <option value="">-- ทุกโปรไฟล์ --</option>
+                                    </select>
+                                    <span id="accounts-count" class="count-badge"></span>
+                                </div>
                                 <!-- Expired Auto Cleanup Status Bar -->
                                 <div class="cleanup-status-bar mb-16">
                                     <div class="cleanup-info">

@@ -801,9 +801,13 @@ function loadHotspotTab(tabId) {
     // Update tab badges in the background
     updateHotspotTabBadges();
     
+    // P3: หยุด auto-refresh ก่อนเสมอ แล้วเริ่มใหม่ถ้าอยู่หน้า active
+    stopActiveUsersAutoRefresh();
+
     // Fetch tab-specific data
     if (tabId === 'tab-hotspot-active') {
         fetchActiveHotspotUsers();
+        startActiveUsersAutoRefresh();
     } else if (tabId === 'tab-hotspot-accounts') {
         fetchHotspotAccounts();
         fetchAutoCleanupConfig();
@@ -817,164 +821,271 @@ function loadHotspotTab(tabId) {
 }
 
 // Tab: Active Hotspot Sessions
+let _allActiveUsers = []; // cache สำหรับ client-side search
+let _activeRefreshTimer = null;
+let _activeRefreshCountdown = null;
+
 async function fetchActiveHotspotUsers() {
     try {
         const active = await apiFetch('/api/mikrotik/hotspot/active');
-        const tbody = document.querySelector('#table-active-users tbody');
-        tbody.innerHTML = '';
-        
-        if (active.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">ไม่มีผู้ใช้งานเชื่อมต่ออยู่ในขณะนี้</td></tr>';
-            return;
+        _allActiveUsers = active;
+        renderActiveUsers(_allActiveUsers);
+
+        // อัปเดต overview stat card
+        const statEl = document.getElementById('stat-hotspot-online');
+        if (statEl) {
+            statEl.innerHTML = `<span class="online-count" style="font-size:1.6rem;font-weight:700;color:var(--success);">${active.length}</span> <span class="online-label">คน</span>`;
         }
-        
-        active.forEach(item => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>${item.user}</strong></td>
-                <td>${item.address}</td>
-                <td><code style="color:var(--text-muted);">${item.macAddress}</code></td>
-                <td><span class="badge badge-profile">${item.loginBy}</span></td>
-                <td>${item.uptime}</td>
-                <td>${formatBytes(item.bytesOut)}</td> <!-- Bytes Out = Bytes Downloaded by Client -->
-                <td>${formatBytes(item.bytesIn)}</td>  <!-- Bytes In = Bytes Uploaded by Client -->
-                <td class="text-center">
-                    <button class="btn btn-danger btn-sm btn-kick" data-id="${item.id}" data-user="${item.user}">
-                        <i class="fa-solid fa-arrow-right-from-bracket"></i> เตะออก
-                    </button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-        
-        // Bind kick events
-        document.querySelectorAll('.btn-kick').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const id = btn.getAttribute('data-id');
-                const user = btn.getAttribute('data-user');
-                if (confirm(`คุณต้องการเตะผู้ใช้งาน "${user}" ออกจากการเชื่อมต่อใช่หรือไม่?`)) {
-                    try {
-                        btn.disabled = true;
-                        await apiFetch(`/api/mikrotik/hotspot/active/${id}`, { method: 'DELETE' });
-                        fetchActiveHotspotUsers();
-                    } catch (err) {
-                        alert(err.message);
-                        btn.disabled = false;
-                    }
-                }
-            });
-        });
+
+        // อัปเดต badge
+        const badge = document.getElementById('badge-hotspot-active');
+        if (badge) badge.textContent = `(${active.length})`;
+
     } catch (err) {
-        document.querySelector('#table-active-users tbody').innerHTML = `<tr><td colspan="8" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+        const tbody = document.querySelector('#table-active-users tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
 }
 
+function renderActiveUsers(list) {
+    const searchVal = (document.getElementById('search-active-users')?.value || '').toLowerCase().trim();
+    const filtered = searchVal
+        ? list.filter(item =>
+            (item.user || '').toLowerCase().includes(searchVal) ||
+            (item.address || '').includes(searchVal) ||
+            (item.macAddress || '').toLowerCase().includes(searchVal)
+          )
+        : list;
+
+    const tbody = document.querySelector('#table-active-users tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    // อัปเดต count badge
+    const countEl = document.getElementById('active-users-count');
+    if (countEl) {
+        countEl.textContent = searchVal
+            ? `พบ ${filtered.length} จาก ${list.length} คน`
+            : `ออนไลน์อยู่ ${list.length} คน`;
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">${searchVal ? 'ไม่พบผู้ใช้ที่ค้นหา' : 'ไม่มีผู้ใช้งานเชื่อมต่ออยู่ในขณะนี้'}</td></tr>`;
+        return;
+    }
+
+    filtered.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${item.user}</strong></td>
+            <td>${item.address}</td>
+            <td><code style="color:var(--text-muted);">${item.macAddress}</code></td>
+            <td><span class="badge badge-profile">${item.loginBy}</span></td>
+            <td>${item.uptime}</td>
+            <td>${formatBytes(item.bytesOut)}</td>
+            <td>${formatBytes(item.bytesIn)}</td>
+            <td class="text-center">
+                <button class="btn btn-danger btn-sm btn-kick" data-id="${item.id}" data-user="${item.user}">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i> เตะออก
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Bind kick events
+    document.querySelectorAll('.btn-kick').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const user = btn.getAttribute('data-user');
+            if (confirm(`คุณต้องการเตะผู้ใช้งาน "${user}" ออกจากการเชื่อมต่อใช่หรือไม่?`)) {
+                try {
+                    btn.disabled = true;
+                    await apiFetch(`/api/mikrotik/hotspot/active/${id}`, { method: 'DELETE' });
+                    fetchActiveHotspotUsers();
+                } catch (err) {
+                    alert(err.message);
+                    btn.disabled = false;
+                }
+            }
+        });
+    });
+}
+
+// P3: Search filter for Active Users
+document.getElementById('search-active-users')?.addEventListener('input', () => {
+    renderActiveUsers(_allActiveUsers);
+});
+
+// P3: Auto-refresh Active Users ทุก 30 วินาที
+const ACTIVE_REFRESH_INTERVAL = 30;
+
+function startActiveUsersAutoRefresh() {
+    stopActiveUsersAutoRefresh();
+    let remaining = ACTIVE_REFRESH_INTERVAL;
+
+    const updateCountdown = () => {
+        const el = document.getElementById('active-refresh-countdown');
+        if (el) el.textContent = `รีเฟรชใน ${remaining}s`;
+        remaining--;
+        if (remaining < 0) {
+            remaining = ACTIVE_REFRESH_INTERVAL;
+            fetchActiveHotspotUsers();
+        }
+    };
+
+    updateCountdown();
+    _activeRefreshCountdown = setInterval(updateCountdown, 1000);
+}
+
+function stopActiveUsersAutoRefresh() {
+    if (_activeRefreshCountdown) { clearInterval(_activeRefreshCountdown); _activeRefreshCountdown = null; }
+    if (_activeRefreshTimer) { clearInterval(_activeRefreshTimer); _activeRefreshTimer = null; }
+}
+
+// Manual refresh button
+document.getElementById('btn-refresh-active')?.addEventListener('click', () => {
+    fetchActiveHotspotUsers();
+    startActiveUsersAutoRefresh(); // reset countdown
+});
+
+// Click on Overview card → ไปหน้า Hotspot Active
+document.getElementById('stat-card-online')?.addEventListener('click', () => {
+    switchPage('page-hotspot');
+    setTimeout(() => loadHotspotTab('tab-hotspot-active'), 100);
+});
+
 // Tab: Registered Hotspot Accounts
+let _allHotspotAccounts = []; // P3: cache
+
 async function fetchHotspotAccounts() {
     try {
         const users = await apiFetch('/api/mikrotik/hotspot/users');
-        const tbody = document.querySelector('#table-hotspot-users tbody');
-        tbody.innerHTML = '';
-        
-        const chkSelectAll = document.getElementById('chk-select-all-users');
-        if (chkSelectAll) chkSelectAll.checked = false;
+        _allHotspotAccounts = users;
 
-        // Toggle sensitive warning alert if passwords are masked with asterisks
-        const warningContainer = document.getElementById('hotspot-sensitive-warning');
-        if (warningContainer) warningContainer.style.display = 'none';
-
-        let hasMaskedPassword = false;
-        users.forEach(item => {
-            if (item.password && (item.password.includes('*') || /^\*+$/.test(item.password))) {
-                hasMaskedPassword = true;
-            }
-        });
-
-        if (hasMaskedPassword && warningContainer) {
-            warningContainer.style.display = 'flex';
-        }
-
-        if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">ไม่พบข้อมูลบัญชี Hotspot</td></tr>';
-            return;
-        }
-        
-        users.forEach(item => {
-            const limitTimeText = item.limitUptime === '00:00:00' ? 'ไม่จำกัด' : item.limitUptime;
-            const limitBytesText = item.limitBytesTotal === 0 ? 'ไม่จำกัด' : formatBytes(item.limitBytesTotal);
-            
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td style="text-align:center;"><input type="checkbox" class="chk-user-select" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}'></td>
-                <td><strong>${item.name}</strong></td>
-                <td><code>${item.password || '(ไม่มี)'}</code></td>
-                <td><span class="badge badge-profile">${item.profile}</span></td>
-                <td>${limitTimeText}</td>
-                <td>${limitBytesText}</td>
-                <td>${item.uptime}</td>
-                <td>${formatBytes(item.bytesOut + item.bytesIn)}</td>
-                <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
-                <td class="text-center">
-                    <div style="display:flex; gap:6px; justify-content:center;">
-                        <button class="btn btn-primary btn-sm btn-print-single-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="พิมพ์คูปอง">
-                            <i class="fa-solid fa-print"></i> พิมพ์
-                        </button>
-                        <button class="btn btn-secondary btn-sm btn-edit-hotspot" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข">
-                            <i class="fa-solid fa-pen-to-square"></i>
-                        </button>
-                        <button class="btn btn-danger btn-sm btn-del-hotspot" data-id="${item.id}" data-user="${item.name}" title="ลบ">
-                            <i class="fa-solid fa-trash-can"></i>
-                        </button>
-                    </div>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-        
-        // Bind Select All Checkbox
-        if (chkSelectAll) {
-            chkSelectAll.addEventListener('change', (e) => {
-                document.querySelectorAll('.chk-user-select').forEach(chk => {
-                    chk.checked = e.target.checked;
-                });
+        // เติม Profile filter dropdown
+        const profileFilter = document.getElementById('filter-hotspot-profile');
+        if (profileFilter) {
+            const profiles = [...new Set(users.map(u => u.profile).filter(Boolean))];
+            profileFilter.innerHTML = '<option value="">-- ทุกโปรไฟล์ --</option>';
+            profiles.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p; opt.textContent = p;
+                profileFilter.appendChild(opt);
             });
         }
 
-        // Bind Print Single buttons
-        document.querySelectorAll('.btn-print-single-user').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const item = JSON.parse(btn.getAttribute('data-item'));
-                openSinglePrintModal(item);
-            });
-        });
-
-        // Bind Edit buttons
-        document.querySelectorAll('.btn-edit-hotspot').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const item = JSON.parse(btn.getAttribute('data-item'));
-                openHotspotModal(item);
-            });
-        });
-        
-        // Bind Delete buttons
-        document.querySelectorAll('.btn-del-hotspot').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const id = btn.getAttribute('data-id');
-                const username = btn.getAttribute('data-user');
-                if (confirm(`คุณยืนยันต้องการลบบัญชีผู้ใช้ "${username}" ใช่หรือไม่?`)) {
-                    try {
-                        await apiFetch(`/api/mikrotik/hotspot/users/${id}`, { method: 'DELETE' });
-                        fetchHotspotAccounts();
-                    } catch (err) {
-                        alert(err.message);
-                    }
-                }
-            });
-        });
+        renderHotspotAccounts(_allHotspotAccounts);
     } catch (err) {
         document.querySelector('#table-hotspot-users tbody').innerHTML = `<tr><td colspan="10" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
 }
+
+function renderHotspotAccounts(users) {
+    const searchVal = (document.getElementById('search-hotspot-accounts')?.value || '').toLowerCase().trim();
+    const profileVal = document.getElementById('filter-hotspot-profile')?.value || '';
+
+    let filtered = users;
+    if (searchVal) {
+        filtered = filtered.filter(u =>
+            (u.name || '').toLowerCase().includes(searchVal) ||
+            (u.comment || '').toLowerCase().includes(searchVal)
+        );
+    }
+    if (profileVal) {
+        filtered = filtered.filter(u => u.profile === profileVal);
+    }
+
+    const tbody = document.querySelector('#table-hotspot-users tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    // count badge
+    const countEl = document.getElementById('accounts-count');
+    if (countEl) {
+        countEl.textContent = (searchVal || profileVal)
+            ? `พบ ${filtered.length} จาก ${users.length} บัญชี`
+            : `${users.length} บัญชีทั้งหมด`;
+    }
+
+    const chkSelectAll = document.getElementById('chk-select-all-users');
+    if (chkSelectAll) chkSelectAll.checked = false;
+
+    const warningContainer = document.getElementById('hotspot-sensitive-warning');
+    if (warningContainer) warningContainer.style.display = 'none';
+
+    let hasMaskedPassword = false;
+    users.forEach(item => {
+        if (item.password && (item.password.includes('*') || /^\*+$/.test(item.password))) {
+            hasMaskedPassword = true;
+        }
+    });
+    if (hasMaskedPassword && warningContainer) warningContainer.style.display = 'flex';
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">${(searchVal || profileVal) ? 'ไม่พบบัญชีที่ค้นหา' : 'ไม่พบข้อมูลบัญชี Hotspot'}</td></tr>`;
+        return;
+    }
+
+    filtered.forEach(item => {
+        const limitTimeText = item.limitUptime === '00:00:00' ? 'ไม่จำกัด' : item.limitUptime;
+        const limitBytesText = item.limitBytesTotal === 0 ? 'ไม่จำกัด' : formatBytes(item.limitBytesTotal);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="text-align:center;"><input type="checkbox" class="chk-user-select" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' ></td>
+            <td><strong>${item.name}</strong></td>
+            <td><code>${item.password || '(ไม่มี)'}</code></td>
+            <td><span class="badge badge-profile">${item.profile}</span></td>
+            <td>${limitTimeText}</td>
+            <td>${limitBytesText}</td>
+            <td>${item.uptime}</td>
+            <td>${formatBytes(item.bytesOut + item.bytesIn)}</td>
+            <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
+            <td class="text-center">
+                <div style="display:flex; gap:6px; justify-content:center;">
+                    <button class="btn btn-primary btn-sm btn-print-single-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="พิมพ์คูปอง">
+                        <i class="fa-solid fa-print"></i>
+                    </button>
+                    <button class="btn btn-secondary btn-sm btn-edit-hotspot" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm btn-del-hotspot" data-id="${item.id}" data-user="${item.name}" title="ลบ">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    if (chkSelectAll) {
+        chkSelectAll.addEventListener('change', (e) => {
+            document.querySelectorAll('.chk-user-select').forEach(chk => { chk.checked = e.target.checked; });
+        });
+    }
+    document.querySelectorAll('.btn-print-single-user').forEach(btn => {
+        btn.addEventListener('click', () => { openSinglePrintModal(JSON.parse(btn.getAttribute('data-item'))); });
+    });
+    document.querySelectorAll('.btn-edit-hotspot').forEach(btn => {
+        btn.addEventListener('click', () => { openHotspotModal(JSON.parse(btn.getAttribute('data-item'))); });
+    });
+    document.querySelectorAll('.btn-del-hotspot').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const username = btn.getAttribute('data-user');
+            if (confirm(`คุณยืนยันต้องการลบบัญชีผู้ใช้ "${username}" ใช่หรือไม่?`)) {
+                try {
+                    await apiFetch(`/api/mikrotik/hotspot/users/${id}`, { method: 'DELETE' });
+                    fetchHotspotAccounts();
+                } catch (err) { alert(err.message); }
+            }
+        });
+    });
+}
+
+// P3: Search/filter listeners for Hotspot Accounts
+document.getElementById('search-hotspot-accounts')?.addEventListener('input', () => renderHotspotAccounts(_allHotspotAccounts));
+document.getElementById('filter-hotspot-profile')?.addEventListener('change', () => renderHotspotAccounts(_allHotspotAccounts));
 
 // Batch Reprint Selected Vouchers
 const btnPrintSelected = document.getElementById('btn-print-selected-vouchers');
