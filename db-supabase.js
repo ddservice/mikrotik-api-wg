@@ -1,11 +1,15 @@
-﻿// ============================================================
-// db-supabase.js — Supabase database layer
-// แทน db.js เดิม ใช้ PostgreSQL ผ่าน @supabase/supabase-js
-// API เหมือนเดิมทุก function — drop-in replacement
+// ============================================================
+// db-supabase.js - Supabase database layer
+// Drop-in replacement for db.js using PostgreSQL via Supabase
 // ============================================================
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+
+// Node.js 20 WebSocket polyfill (required by @supabase/supabase-js)
+if (typeof WebSocket === 'undefined') {
+    global.WebSocket = require('ws');
+}
 
 // ==========================================
 // Supabase Client Init
@@ -18,8 +22,10 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false }
+    auth: { persistSession: false },
+    realtime: { transport: require('ws') }
 });
+
 
 // ==========================================
 // Password Hashing

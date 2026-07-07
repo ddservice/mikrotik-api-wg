@@ -8,6 +8,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+if (typeof WebSocket === 'undefined') { global.WebSocket = require('ws'); }
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -131,3 +132,4 @@ async function migrate() {
 }
 
 migrate().catch(function(e) { console.error('FAILED:', e.message); process.exit(1); });
+
