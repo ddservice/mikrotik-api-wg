@@ -720,6 +720,23 @@ ${callbackScriptBlock}
 // script (inline interpolation, then string concatenation) both silently
 // produced empty/malformed output, confirmed live via diagnostic logging.
 // A raw header value sidesteps RouterOS's string-escaping quirks entirely.
+// TEMPORARY diagnostic route — echoes back everything received (method,
+// headers, raw body) so we can see exactly what RouterOS's /tool/fetch
+// actually transmits, instead of continuing to guess blind. Point a
+// standalone /tool/fetch test at this URL directly (not through the full
+// generated script) to isolate the transport layer from script logic.
+// Safe to remove once the real callback-register issue is resolved.
+app.all('/api/wireguard/debug-echo', express.text({ type: () => true }), (req, res) => {
+    const info = {
+        method: req.method,
+        query: req.query,
+        headers: req.headers,
+        rawBody: req.body
+    };
+    console.log('[wg-debug-echo]', JSON.stringify(info, null, 2));
+    res.json({ received: info });
+});
+
 app.post('/api/wireguard/callback-register', async (req, res) => {
     const token = req.query.token;
     const publicKey = req.headers['x-public-key'];
