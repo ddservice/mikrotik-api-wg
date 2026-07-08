@@ -2111,6 +2111,17 @@
                         <input type="password" id="site-password" class="form-control" placeholder="••••••••" autocomplete="new-password">
                         <span class="help-text" id="site-pwd-help" style="display: none;">ปล่อยว่างไว้หากไม่ต้องการเปลี่ยนรหัสผ่านเดิม</span>
                     </div>
+                    <div class="cleanup-status-bar mb-16">
+                        <div class="cleanup-info">
+                            <i class="fa-solid fa-toggle-on text-primary"></i>
+                            <span>เก็บประวัติเว็บไซต์ที่เข้าชม (DNS Visit History)</span>
+                        </div>
+                        <label class="switch switch-sm">
+                            <input type="checkbox" id="site-dns-logging-enabled" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <span class="help-text mb-16" style="display:block; margin-top:-12px;">ปิดเพื่อหยุดดึงและบันทึกประวัติเว็บไซต์ของไซต์งานนี้ทั้งหมด (ลดภาระ router/web/database) — ไม่กระทบ log การเชื่อมต่อ Hotspot</span>
                     <div id="site-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
                 </div>
                 <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
@@ -2304,7 +2315,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=20.0"></script>
+    <script src="app.js?v=21.0"></script>
 </body>
 </html>
 

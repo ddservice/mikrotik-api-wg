@@ -2685,6 +2685,7 @@ function openSiteModal(item = null) {
         document.getElementById('site-username').value = item.username;
         document.getElementById('site-password').value = '';
         document.getElementById('site-pwd-help').style.display = item.hasPassword ? 'block' : 'none';
+        document.getElementById('site-dns-logging-enabled').checked = item.dnsLoggingEnabled !== false;
     } else {
         const nextIp = getNextWireguardIp();
         document.getElementById('site-modal-title').textContent = 'เพิ่มไซต์งาน / เราท์เตอร์ใหม่';
@@ -2697,6 +2698,7 @@ function openSiteModal(item = null) {
         document.getElementById('site-username').value = 'admin';
         document.getElementById('site-password').value = '';
         document.getElementById('site-pwd-help').style.display = 'none';
+        document.getElementById('site-dns-logging-enabled').checked = true;
     }
     siteError.style.display = 'none';
     modalSite.classList.add('active');
@@ -2744,8 +2746,9 @@ formSiteItem.addEventListener('submit', async (e) => {
     const port = document.getElementById('site-port').value;
     const username = document.getElementById('site-username').value;
     const password = document.getElementById('site-password').value;
+    const dnsLoggingEnabled = document.getElementById('site-dns-logging-enabled').checked;
 
-    const body = { name, host, port, username, connectionType, wireguardIp };
+    const body = { name, host, port, username, connectionType, wireguardIp, dnsLoggingEnabled };
     if (password) body.password = password;
 
     const url = id ? `/api/sites/${id}` : '/api/sites';

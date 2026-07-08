@@ -128,7 +128,11 @@ async function getSites() {
                      username: s.username, hasPassword: !!s.password,
                      connectionType: s.connection_type || 'wireguard',
                      wireguardIp: s.wireguard_ip || s.host || '10.10.88.2',
-                     wireguardPublicKey: s.wireguard_public_key || '' };
+                     wireguardPublicKey: s.wireguard_public_key || '',
+                     // Missing/null column (older rows, or column not yet
+                     // migrated) defaults to enabled — only an explicit
+                     // false turns it off.
+                     dnsLoggingEnabled: s.dns_logging_enabled !== false };
         })
     };
 }
@@ -189,6 +193,7 @@ async function addSite(siteData) {
                 connection_type: siteData.connectionType || 'wireguard',
                 wireguard_ip: wireguardIp,
                 wireguard_public_key: siteData.wireguardPublicKey || '',
+                dns_logging_enabled: siteData.dnsLoggingEnabled !== false,
                 is_active: sites.length === 0 };
     var res = await supabase.from('sites').insert(row).select().single();
     if (res.error) throw new Error(res.error.message);
@@ -214,6 +219,7 @@ async function updateSite(id, updateData) {
     if (updateData.connectionType) u.connection_type = updateData.connectionType;
     if (updateData.wireguardIp) u.wireguard_ip = updateData.wireguardIp;
     if (updateData.wireguardPublicKey) u.wireguard_public_key = updateData.wireguardPublicKey;
+    if (updateData.dnsLoggingEnabled !== undefined) u.dns_logging_enabled = !!updateData.dnsLoggingEnabled;
     var res = await supabase.from('sites').update(u).eq('id', id).select().single();
     if (res.error) throw new Error(res.error.message);
     return res.data;

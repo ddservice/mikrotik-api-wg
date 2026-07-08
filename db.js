@@ -168,7 +168,8 @@ function getSites() {
             hasPassword: !!s.password,
             connectionType: s.connectionType || 'wireguard',
             wireguardIp: s.wireguardIp || s.host || '10.10.88.2',
-            wireguardPublicKey: s.wireguardPublicKey || ''
+            wireguardPublicKey: s.wireguardPublicKey || '',
+            dnsLoggingEnabled: s.dnsLoggingEnabled !== false
         }))
     };
 }
@@ -203,7 +204,8 @@ function addSite(siteData) {
         password: siteData.password || '',
         connectionType: siteData.connectionType || 'wireguard',
         wireguardIp: wireguardIp,
-        wireguardPublicKey: siteData.wireguardPublicKey || ''
+        wireguardPublicKey: siteData.wireguardPublicKey || '',
+        dnsLoggingEnabled: siteData.dnsLoggingEnabled !== false
     };
     data.sites.push(newSite);
     saveSitesData(data);
@@ -234,6 +236,7 @@ function updateSite(id, updateData) {
     if (updateData.connectionType) s.connectionType = updateData.connectionType;
     if (updateData.wireguardIp) s.wireguardIp = updateData.wireguardIp;
     if (updateData.wireguardPublicKey) s.wireguardPublicKey = updateData.wireguardPublicKey;
+    if (updateData.dnsLoggingEnabled !== undefined) s.dnsLoggingEnabled = !!updateData.dnsLoggingEnabled;
 
     data.sites[index] = s;
     saveSitesData(data);

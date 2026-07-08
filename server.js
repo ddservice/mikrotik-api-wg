@@ -547,12 +547,12 @@ function registerVpsPeer(wireguardIp, clientPublicKey) {
 
 // Add new site (Admin only)
 app.post('/api/sites', requireAuth(['admin']), async (req, res) => {
-    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey } = req.body;
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled } = req.body;
     if (!name) {
         return res.status(400).json({ error: 'Name is required' });
     }
     try {
-        const newSite = await db.addSite({ name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey });
+        const newSite = await db.addSite({ name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled });
         if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
             try {
                 registerVpsPeer(wireguardIp, wireguardPublicKey);
@@ -570,9 +570,9 @@ app.post('/api/sites', requireAuth(['admin']), async (req, res) => {
 
 // Update site (Admin only)
 app.put('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
-    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey } = req.body;
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled } = req.body;
     try {
-        const updated = await db.updateSite(req.params.id, { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey });
+        const updated = await db.updateSite(req.params.id, { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled });
         if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
             try {
                 registerVpsPeer(wireguardIp, wireguardPublicKey);
@@ -1907,13 +1907,19 @@ async function snapshotSiteSessions(site) {
             // Fetch full log buffer and filter client-side for dns topic entries
             // (same "fetch all, filter in JS" convention used for firewall rules
             // below) — fail-open if DNS logging isn't configured on the router yet.
-            let logs = [];
-            try {
-                logs = await client.exec('/log/print');
-            } catch (e) {
-                logs = [];
+            // Skipped entirely (no /log/print call, no parsing) when the site has
+            // DNS visit-history logging turned off, so a disabled site adds no
+            // extra load to the router, web server, or database.
+            let dns = [];
+            if (site.dnsLoggingEnabled !== false) {
+                let logs = [];
+                try {
+                    logs = await client.exec('/log/print');
+                } catch (e) {
+                    logs = [];
+                }
+                dns = logs.filter(l => (l.topics || '').includes('dns'));
             }
-            const dns = logs.filter(l => (l.topics || '').includes('dns'));
 
             // PPPoE room sessions — fail-open if PPPoE server isn't set up on
             // this site yet (not every site necessarily has room accounts).

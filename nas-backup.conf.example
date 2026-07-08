@@ -1,0 +1,33 @@
+# ============================================================
+# nas-backup.conf - config for nas-backup.sh
+#
+# Copy this file to nas-backup.conf (same folder) and fill in your
+# values. nas-backup.conf is meant to stay local to the NAS/device
+# running the script - do NOT commit your copy with real credentials.
+# ============================================================
+
+# Dashboard URL (the same one you open in a browser)
+APP_URL=https://api.ddserviceth.com
+
+# Dedicated backup account - create this under Settings > User
+# Management first. Use role "admin" to back up all 4 exports
+# (activity log requires admin), or "co-admin" if you only need
+# hotspot/dns/pppoe exports.
+APP_USERNAME=nas-backup
+APP_PASSWORD=change-me
+
+# Where CSVs are written on the NAS, e.g. a Synology shared folder
+# path like /volume1/Backups/mikrotik-logs
+BACKUP_DIR=/volume1/Backups/mikrotik-logs
+
+# How many days of local backup folders to keep before auto-pruning
+RETENTION_DAYS=90
+
+# Optional: only back up logs for one site (leave empty for all sites)
+SITE_FILTER=
+
+# Optional: encrypt each CSV at rest with gpg (AES256, password-based).
+# Requires gpg to be installed (Synology: install "GNU Privacy Guard"
+# from Package Center or via Entware; QNAP: via Entware/opkg).
+ENCRYPT_BACKUPS=false
+GPG_PASSPHRASE=
