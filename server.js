@@ -658,9 +658,11 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
         wgRegistrationTokens.set(token, { wireguardIp: targetIp, siteId: siteId || null, expiresAt: Date.now() + WG_TOKEN_TTL_MS });
         callbackScriptBlock = `
 # 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
+# Sent as a plain HTTP header, not a JSON body — RouterOS's string
+# concatenation/escaping inside http-data proved unreliable across
+# attempts (empty values), a raw header value has no such quoting to trip over.
 :local pubkey [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
-:local wgBody ("{\\"publicKey\\":\\"" . $pubkey . "\\"}")
-/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="Content-Type: application/json" http-data=$wgBody output=none
+/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="X-Public-Key: $pubkey" output=none
 :put "Public Key auto-registered to dashboard!"`;
     } else {
         console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
@@ -673,7 +675,13 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
 # VPS Endpoint: 157.85.108.84:51820
 # ======================================================
 
-# 1. Clear existing interface if any
+# 1. Clear existing interface, peers, and IP if any — removing the interface
+# does NOT cascade-delete its peers/addresses on this RouterOS version, so
+# they'd otherwise accumulate as orphaned "unknown"-interface entries on every
+# re-run of this script. This router only ever has the one VPS Hub Server
+# peer, so it's safe to clear all WireGuard peers/addresses unconditionally.
+/interface/wireguard/peers/remove [find]
+/ip/address/remove [find comment="WireGuard VPN IP"]
 /interface/wireguard/remove [find name=wg-gatekeeper]
 
 # 2. Add WireGuard interface
@@ -707,23 +715,15 @@ ${callbackScriptBlock}
 // single-use, and only created moments earlier by an authenticated admin
 // action (see generate-script above). Still covered by the global apiLimiter.
 //
-// This route is excluded from the global express.json() (see app.use above)
-// and reads+parses its own raw body instead, because if RouterOS's /tool/fetch
-// sends a body that isn't valid JSON (under a Content-Type that happens to say
-// application/json), the global parser throws and Express's default error
-// handler returns a generic 400 before this handler ever runs — silently
-// masking whatever RouterOS actually sent. Reading raw text ourselves lets us
-// log exactly what arrived and respond with a real error instead of guessing.
-app.post('/api/wireguard/callback-register', express.text({ type: () => true }), async (req, res) => {
+// The public key arrives as a plain X-Public-Key header, not a JSON body —
+// two earlier attempts at building a JSON body string inside the RouterOS
+// script (inline interpolation, then string concatenation) both silently
+// produced empty/malformed output, confirmed live via diagnostic logging.
+// A raw header value sidesteps RouterOS's string-escaping quirks entirely.
+app.post('/api/wireguard/callback-register', async (req, res) => {
     const token = req.query.token;
-    let publicKey;
-    try {
-        const parsed = typeof req.body === 'string' && req.body ? JSON.parse(req.body) : {};
-        publicKey = parsed.publicKey;
-    } catch (e) {
-        publicKey = undefined;
-    }
-    console.log('[wg-callback] content-type:', req.headers['content-type'], '| raw body:', JSON.stringify(req.body), '| parsed publicKey:', publicKey ? '(present)' : '(missing)');
+    const publicKey = req.headers['x-public-key'];
+    console.log('[wg-callback] X-Public-Key header:', publicKey ? '(present, len=' + publicKey.length + ')' : '(missing)');
     if (!token || !publicKey) {
         return res.status(400).json({ error: 'token and publicKey are required' });
     }
