@@ -581,11 +581,28 @@ app.put('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
 });
 
 // Generate WireGuard Setup Script for MikroTik
-app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) => {
+app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, res) => {
     const { wireguardIp, vpsPublicKey, clientPublicKey, port, siteId } = req.body;
     const targetIp = wireguardIp || '10.10.88.2';
     const targetPort = parseInt(port) || 8728;
     let autoRegistered = false;
+
+    // Guard against generating a script for an IP another site already owns —
+    // the site-save validation (addSite/updateSite) catches this too, but only
+    // if the admin actually saves before generating; this route is reachable
+    // (and the script copyable to a real router) independently of saving, so
+    // it needs its own check. Root-caused a real IP collision this session
+    // (two different routers both configured for 10.10.88.2).
+    try {
+        const sitesData = await db.getSites();
+        const dup = (sitesData.sites || []).find(s => s.id !== siteId && (s.wireguardIp === targetIp || s.host === targetIp));
+        if (dup) {
+            return res.status(400).json({ error: `WireGuard IP ${targetIp} ถูกใช้อยู่แล้วโดยไซต์ "${dup.name}" กรุณาเลือก IP อื่น` });
+        }
+    } catch (e) {
+        // Fail-open on the check itself (e.g. DB hiccup) — don't block script
+        // generation over a transient error unrelated to the actual collision.
+    }
 
     if (clientPublicKey && clientPublicKey.trim()) {
         try {
