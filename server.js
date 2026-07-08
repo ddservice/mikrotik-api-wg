@@ -106,7 +106,15 @@ app.use(cors(corsOptions));
 // Apply ทั่วไป API rate limiter
 app.use('/api/', apiLimiter);
 
-app.use(express.json());
+// Exclude /api/wireguard/callback-register from the global JSON parser: if
+// RouterOS's /tool/fetch sends a malformed body under Content-Type: application/json,
+// this middleware would throw a SyntaxError and Express's default error handler
+// returns a generic 400 *before the route handler ever runs* — which is almost
+// certainly why an earlier route-specific-parser fix had no effect. That route
+// reads and parses its body manually instead (see below).
+app.use(express.json({
+    type: (req) => req.path !== '/api/wireguard/callback-register' && (req.headers['content-type'] || '').includes('json')
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory sessions store (token -> { user, expires })
@@ -697,13 +705,24 @@ ${callbackScriptBlock}
 // session auth), security instead comes from the token being random,
 // single-use, and only created moments earlier by an authenticated admin
 // action (see generate-script above). Still covered by the global apiLimiter.
-// RouterOS's /tool/fetch doesn't reliably send a Content-Type header that
-// matches what the global express.json() expects, which made it silently
-// skip parsing the body (leaving publicKey undefined -> 400). This route
-// gets its own JSON parser that accepts the body regardless of Content-Type.
-app.post('/api/wireguard/callback-register', express.json({ type: () => true }), async (req, res) => {
+//
+// This route is excluded from the global express.json() (see app.use above)
+// and reads+parses its own raw body instead, because if RouterOS's /tool/fetch
+// sends a body that isn't valid JSON (under a Content-Type that happens to say
+// application/json), the global parser throws and Express's default error
+// handler returns a generic 400 before this handler ever runs — silently
+// masking whatever RouterOS actually sent. Reading raw text ourselves lets us
+// log exactly what arrived and respond with a real error instead of guessing.
+app.post('/api/wireguard/callback-register', express.text({ type: () => true }), async (req, res) => {
     const token = req.query.token;
-    const { publicKey } = req.body || {};
+    let publicKey;
+    try {
+        const parsed = typeof req.body === 'string' && req.body ? JSON.parse(req.body) : {};
+        publicKey = parsed.publicKey;
+    } catch (e) {
+        publicKey = undefined;
+    }
+    console.log('[wg-callback] content-type:', req.headers['content-type'], '| raw body:', JSON.stringify(req.body), '| parsed publicKey:', publicKey ? '(present)' : '(missing)');
     if (!token || !publicKey) {
         return res.status(400).json({ error: 'token and publicKey are required' });
     }
