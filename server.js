@@ -785,13 +785,44 @@ app.get('/api/wireguard/peer-status', requireAuth(['admin']), (req, res) => {
                 const handshake = parseInt(parts[4]) || 0; // unix epoch seconds, 0 = never
                 return res.json({
                     connected: handshake > 0,
+                    endpoint: parts[2] && parts[2] !== '(none)' ? parts[2] : null,
                     lastHandshakeSecondsAgo: handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null,
                     transferRx: parseInt(parts[5]) || 0,
                     transferTx: parseInt(parts[6]) || 0
                 });
             }
         }
-        res.json({ connected: false, lastHandshakeSecondsAgo: null, transferRx: 0, transferTx: 0 });
+        res.json({ connected: false, endpoint: null, lastHandshakeSecondsAgo: null, transferRx: 0, transferTx: 0 });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Bulk version of the above — one wg0 read, returns every WireGuard peer's
+// real endpoint IP (the router's actual public IP:port it's connecting
+// from) keyed by its tunnel IP, so the Sites Management page can show the
+// real source IP for every site in one call instead of one request per site.
+app.get('/api/wireguard/all-peers-status', requireAuth(['admin']), (req, res) => {
+    try {
+        const { execSync } = require('child_process');
+        const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+        const lines = dump.trim().split('\n').slice(1); // skip interface line
+        const peers = {};
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 8) continue;
+            const ipMatch = (parts[3] || '').match(/^(\d{1,3}(?:\.\d{1,3}){3})\/32/);
+            if (!ipMatch) continue;
+            const handshake = parseInt(parts[4]) || 0;
+            peers[ipMatch[1]] = {
+                endpoint: parts[2] && parts[2] !== '(none)' ? parts[2] : null,
+                connected: handshake > 0,
+                lastHandshakeSecondsAgo: handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null,
+                transferRx: parseInt(parts[5]) || 0,
+                transferTx: parseInt(parts[6]) || 0
+            };
+        }
+        res.json(peers);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

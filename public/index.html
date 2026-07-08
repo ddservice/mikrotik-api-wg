@@ -1552,12 +1552,13 @@
                                             <th>IP Address / Hostname</th>
                                             <th>API Port</th>
                                             <th>Username</th>
+                                            <th>IP จริงของ Router (WireGuard)</th>
                                             <th class="text-center">จัดการ</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <tr>
-                                            <td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td>
+                                            <td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -1745,7 +1746,9 @@
                                         <strong>ต้องเปิดใช้งานบนราวเตอร์ก่อนถึงจะเริ่มบันทึกได้</strong> (ทำครั้งเดียวต่อไซต์งาน) — รันคำสั่งนี้ใน WinBox &rarr; Terminal:
                                         <code style="display:block;background:#0f172a;color:#38bdf8;padding:8px 10px;border-radius:6px;margin-top:6px;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;">/system logging action add name=dnsmem target=memory memory-lines=3000
 /system logging add topics=dns,!packet action=dnsmem</code>
-                                        (ใช้ <code>target=</code> ไม่ใช่ <code>type=</code>/<code>action=</code> — พารามิเตอร์อาจต่างกันตาม RouterOS แต่ละเวอร์ชัน ถ้า error ให้ลองพิมพ์ <code>/system logging action add name=dnsmem </code> แล้วกด <code>?</code> เพื่อดูชื่อ parameter จริงของเครื่องคุณ &mdash; <code>topics=dns,!packet</code> สำคัญมาก ถ้าใส่แค่ <code>dns</code> เฉยๆ จะได้ log ละเอียดยิบจนล้น buffer เร็วเกินไป)
+                                        <strong>เวอร์ชัน RouterOS ที่แนะนำ/ทดสอบแล้ว: 7.2.2</strong> (ทดสอบ end-to-end จริงกับฟีเจอร์นี้และ WireGuard auto-register บนเวอร์ชันนี้) เวอร์ชันอื่นอาจมีชื่อ parameter ต่างกันเล็กน้อย
+                                        — ถ้า error ให้ลองพิมพ์ <code>/system logging action add name=dnsmem </code> แล้วกด <code>?</code> เพื่อดูชื่อ parameter จริงของเครื่องคุณ (พารามิเตอร์นี้เคยพบว่าเป็น <code>target=</code> ไม่ใช่ <code>type=</code>/<code>action=</code> ในบางเวอร์ชัน)
+                                        &mdash; <code>topics=dns,!packet</code> สำคัญมาก ถ้าใส่แค่ <code>dns</code> เฉยๆ จะได้ log ละเอียดยิบจนล้น buffer เร็วเกินไป
                                     </span>
                                 </div>
                                 <!-- Filter bar -->
@@ -2301,7 +2304,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=19.0"></script>
+    <script src="app.js?v=20.0"></script>
 </body>
 </html>
 

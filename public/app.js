@@ -2522,31 +2522,48 @@ formAdminUser.addEventListener('submit', async (e) => {
 async function fetchSitesManagement() {
     const tableBody = document.querySelector('#table-sites tbody');
     if (!tableBody) return;
-    
-    tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td></tr>`;
+
+    tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td></tr>`;
     try {
         const data = await apiFetch('/api/sites');
         currentSitesData = data;
-        
+
+        // Real WireGuard endpoint IP per site (best-effort — only meaningful
+        // for admin + WireGuard-connected sites; silently empty otherwise).
+        let peersByIp = {};
+        try {
+            peersByIp = await apiFetch('/api/wireguard/all-peers-status');
+        } catch (e) {
+            peersByIp = {};
+        }
+
         if (!data.sites || data.sites.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">ยังไม่มีไซต์งานในระบบ</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">ยังไม่มีไซต์งานในระบบ</td></tr>`;
             return;
         }
-        
+
         tableBody.innerHTML = '';
         data.sites.forEach(site => {
             const isActive = site.id === data.activeSiteId;
+            const peer = site.wireguardIp ? peersByIp[site.wireguardIp] : null;
+            let realIpCell = '<span class="text-muted">-</span>';
+            if (site.connectionType === 'wireguard') {
+                realIpCell = peer && peer.endpoint
+                    ? `<code>${peer.endpoint}</code> ${peer.connected ? '<span style="color:var(--success);font-size:0.75rem;">● เชื่อมต่ออยู่</span>' : '<span style="color:var(--text-muted);font-size:0.75rem;">ไม่มี handshake</span>'}`
+                    : '<span class="text-muted">ยังไม่เคยเชื่อมต่อ</span>';
+            }
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
-                    ${isActive 
-                        ? `<span class="site-status-badge site-status-active"><i class="fa-solid fa-circle-check"></i> กำลังใช้งาน</span>` 
+                    ${isActive
+                        ? `<span class="site-status-badge site-status-active"><i class="fa-solid fa-circle-check"></i> กำลังใช้งาน</span>`
                         : `<span class="site-status-badge site-status-normal"><i class="fa-regular fa-circle"></i> ปิดใช้งาน</span>`}
                 </td>
                 <td><strong>${site.name}</strong></td>
                 <td><code>${site.host}</code></td>
                 <td>${site.port}</td>
                 <td>${site.username}</td>
+                <td style="font-size:0.82rem;">${realIpCell}</td>
                 <td class="text-center">
                     <div style="display:flex; gap:6px; justify-content:center;">
                         ${!isActive ? `<button class="btn btn-primary btn-sm btn-switch-site" data-id="${site.id}" title="เลือกใช้งานไซต์นี้"><i class="fa-solid fa-right-to-bracket"></i> เลือกใช้งาน</button>` : ''}
