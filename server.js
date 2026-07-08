@@ -680,7 +680,11 @@ ${callbackScriptBlock}
 // session auth), security instead comes from the token being random,
 // single-use, and only created moments earlier by an authenticated admin
 // action (see generate-script above). Still covered by the global apiLimiter.
-app.post('/api/wireguard/callback-register', async (req, res) => {
+// RouterOS's /tool/fetch doesn't reliably send a Content-Type header that
+// matches what the global express.json() expects, which made it silently
+// skip parsing the body (leaving publicKey undefined -> 400). This route
+// gets its own JSON parser that accepts the body regardless of Content-Type.
+app.post('/api/wireguard/callback-register', express.json({ type: () => true }), async (req, res) => {
     const token = req.query.token;
     const { publicKey } = req.body || {};
     if (!token || !publicKey) {
