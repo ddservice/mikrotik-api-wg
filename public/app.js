@@ -2183,9 +2183,10 @@ async function generateWgScript(customPubKey = null) {
             btnModalGenWg.disabled = true;
             btnModalGenWg.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสร้าง...';
         }
+        const siteId = document.getElementById('site-id') ? document.getElementById('site-id').value : '';
         const res = await apiFetch('/api/wireguard/generate-script', {
             method: 'POST',
-            body: JSON.stringify({ wireguardIp, port, vpsPublicKey, clientPublicKey })
+            body: JSON.stringify({ wireguardIp, port, vpsPublicKey, clientPublicKey, siteId: siteId || null })
         });
         document.getElementById('wg-script-textarea').value = res.script;
         const pubKeyInput = document.getElementById('wg-vps-pubkey-input');
@@ -2311,6 +2312,50 @@ if (btnRegisterPeer) {
         } finally {
             btnRegisterPeer.disabled = false;
             btnRegisterPeer.innerHTML = '<i class="fa-solid fa-plus-circle"></i> บันทึก Peer บน VPS';
+        }
+    });
+}
+
+// WireGuard public key format check — catches truncated/mis-pasted keys
+// (a real base64 key is always 44 chars ending in '='). Doesn't block
+// submit since it's just a typo-catcher, not a full validity guarantee.
+function isValidWgPublicKey(key) {
+    return /^[A-Za-z0-9+/]{43}=$/.test((key || '').trim());
+}
+
+const wgClientPubkeyInputEl = document.getElementById('wg-client-pubkey-input');
+const wgPubkeyFormatHintEl = document.getElementById('wg-pubkey-format-hint');
+if (wgClientPubkeyInputEl && wgPubkeyFormatHintEl) {
+    wgClientPubkeyInputEl.addEventListener('input', () => {
+        const val = wgClientPubkeyInputEl.value.trim();
+        const showHint = val.length > 0 && !isValidWgPublicKey(val);
+        wgPubkeyFormatHintEl.style.display = showHint ? 'block' : 'none';
+        wgClientPubkeyInputEl.style.borderColor = showHint ? 'var(--danger)' : '#86efac';
+    });
+}
+
+// Connection status check — reads live handshake state from the VPS wg0 peer
+const btnCheckWgStatus = document.getElementById('btn-check-wg-status');
+if (btnCheckWgStatus) {
+    btnCheckWgStatus.addEventListener('click', async () => {
+        const wireguardIp = document.getElementById('site-wg-ip').value || '10.10.88.2';
+        const badge = document.getElementById('wg-status-badge');
+        try {
+            btnCheckWgStatus.disabled = true;
+            btnCheckWgStatus.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังเช็ค...';
+            const res = await apiFetch(`/api/wireguard/peer-status?wireguardIp=${encodeURIComponent(wireguardIp)}`);
+            if (badge) {
+                if (res.connected) {
+                    badge.innerHTML = `<span style="color:#166534;"><i class="fa-solid fa-circle-check"></i> เชื่อมต่อแล้ว (handshake ${res.lastHandshakeSecondsAgo}s ที่แล้ว)</span>`;
+                } else {
+                    badge.innerHTML = '<span style="color:var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> ยังไม่เชื่อมต่อ / ไม่พบ peer</span>';
+                }
+            }
+        } catch (err) {
+            if (badge) badge.innerHTML = `<span style="color:var(--danger);">ผิดพลาด: ${err.message}</span>`;
+        } finally {
+            btnCheckWgStatus.disabled = false;
+            btnCheckWgStatus.innerHTML = '<i class="fa-solid fa-rotate"></i> เช็คสถานะการเชื่อมต่อ';
         }
     });
 }

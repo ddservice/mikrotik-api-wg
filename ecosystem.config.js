@@ -47,6 +47,14 @@ module.exports = {
 
                 // CORS origins (ถ้ามี domain)
                 // ALLOWED_ORIGINS: 'https://yourdomain.com'
+
+                // Public HTTPS URL of this dashboard (no trailing slash) —
+                // used to embed an auto-registration callback in generated
+                // WireGuard setup scripts so MikroTik routers can self-register
+                // their public key without manual copy-paste. Optional: if
+                // unset, WireGuard scripts still work, just fall back to the
+                // fully-manual paste-back flow.
+                // PUBLIC_APP_URL: 'https://yourdomain.com'
             },
 
             // Log files

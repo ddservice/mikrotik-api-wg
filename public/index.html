@@ -1740,24 +1740,38 @@
                         <button type="button" class="btn btn-primary btn-sm" id="btn-copy-wg-script"><i class="fa-solid fa-copy"></i> คัดลอกสคริปต์ทั้งหมด</button>
                     </div>
                     <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
-                        คัดลอกสคริปต์ด้านล่างไปวางใน <strong>WinBox ➔ Terminal</strong> บน MikroTik ของคุณ เมื่อรันเสร็จระบบจะderรันและแสดง <strong>Public Key</strong> ในบรรทัดสุดท้าย
+                        คัดลอกสคริปต์ด้านล่างไปวางใน <strong>WinBox ➔ Terminal</strong> บน MikroTik ของคุณ — ถ้าตั้งค่า PUBLIC_APP_URL บนเซิร์ฟเวอร์ไว้แล้ว สคริปต์จะ<strong>ลงทะเบียน Public Key กลับมาให้อัตโนมัติ</strong> ไม่ต้อง copy กลับมาวางเอง (ขั้นตอนที่ 2 ด้านล่างเป็น fallback กรณีอัตโนมัติไม่สำเร็จ)
                     </p>
                     <textarea id="wg-script-textarea" class="form-control" rows="8" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px; border-radius:6px;"></textarea>
                     <input type="hidden" id="wg-vps-pubkey-input">
                 </div>
 
-                <!-- STEP 2 BOX -->
+                <!-- STEP 2 BOX (fallback if auto-registration via /tool/fetch didn't fire) -->
                 <div class="step-box p-16" id="box-register-peer" style="border:1px solid #bbf7d0; border-radius:10px; padding:16px; background:#f0fdf4;">
                     <h5 style="margin:0 0 6px 0; font-size:0.95rem; font-weight:700; color:#166534;">
-                        <span style="background:#166534; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; margin-right:6px;">ขั้นตอนที่ 2</span> อัปเดต MikroTik Public Key ไปยัง VPS
+                        <span style="background:#166534; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; margin-right:6px;">ขั้นตอนที่ 2 (สำรอง)</span> อัปเดต MikroTik Public Key ไปยัง VPS ด้วยมือ
                     </h5>
                     <p style="font-size:0.8rem; color:#15803d; margin-bottom:10px;">
-                        นำ Public Key ที่ได้จาก WinBox Terminal ในข้อ 1 มาวางในช่องนี้แล้วกดอัปเดต เพื่อผูกการเชื่อมต่อและเปิดท่อ VPN ทันที
+                        ใช้เฉพาะกรณีระบบลงทะเบียนอัตโนมัติไม่สำเร็จ — นำ Public Key ที่ได้จาก WinBox Terminal ในข้อ 1 มาวางในช่องนี้แล้วกดอัปเดต
                     </p>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
                         <input type="text" id="wg-client-pubkey-input" class="form-control" style="font-family:monospace; font-size:0.85rem; flex:1; min-width:220px; border-color:#86efac;" placeholder="วาง Public Key ของ MikroTik ที่นี่...">
                         <button type="button" class="btn btn-success btn-sm" id="btn-register-peer" style="white-space:nowrap;"><i class="fa-solid fa-bolt"></i> อัปเดตคีย์ไปยัง VPS ทันที</button>
                         <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-vps-peer" style="white-space:nowrap;"><i class="fa-solid fa-broom"></i> ล้างคีย์บน VPS</button>
+                    </div>
+                    <div id="wg-pubkey-format-hint" style="display:none; font-size:0.75rem; color:var(--danger); margin-top:6px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> รูปแบบ Key ไม่ถูกต้อง — ควรยาว 44 ตัวอักษร ลงท้ายด้วย =
+                    </div>
+                </div>
+
+                <!-- STEP 3 BOX: connection status check -->
+                <div class="step-box p-16 mt-16" style="border:1px solid var(--border-color); border-radius:10px; padding:16px; background:#ffffff;">
+                    <h5 style="margin:0 0 6px 0; font-size:0.95rem; font-weight:700; color:var(--primary-color);">
+                        <span style="background:var(--primary-color); color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; margin-right:6px;">ขั้นตอนที่ 3</span> เช็คสถานะการเชื่อมต่อ
+                    </h5>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-check-wg-status"><i class="fa-solid fa-rotate"></i> เช็คสถานะการเชื่อมต่อ</button>
+                        <span id="wg-status-badge" style="font-size:0.85rem;"></span>
                     </div>
                 </div>
             </div>
@@ -1879,7 +1893,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=15.0"></script>
+    <script src="app.js?v=16.0"></script>
 </body>
 </html>
 

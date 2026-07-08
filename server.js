@@ -113,6 +113,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 const activeSessions = new Map();
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Single-use tokens for the RouterOS auto-callback registration flow
+// (token -> { wireguardIp, siteId, expiresAt }) — see /api/wireguard/generate-script
+// and /api/wireguard/callback-register
+const wgRegistrationTokens = new Map();
+const WG_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min, single-use
+
 // Middleware: Authentication
 function requireAuth(allowedRoles = []) {
     return (req, res, next) => {
@@ -509,7 +515,7 @@ app.put('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
 
 // Generate WireGuard Setup Script for MikroTik
 app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) => {
-    const { wireguardIp, vpsPublicKey, clientPublicKey, port } = req.body;
+    const { wireguardIp, vpsPublicKey, clientPublicKey, port, siteId } = req.body;
     const targetIp = wireguardIp || '10.10.88.2';
     const targetPort = parseInt(port) || 8728;
     let autoRegistered = false;
@@ -547,7 +553,24 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
         }
     }
     if (!pubKey) {
-        pubKey = '0TXQh5lCyrNP3d/8k9gcNni9pX6eARMo5yZBIgUHgDM=';
+        return res.status(500).json({ error: 'ไม่สามารถอ่าน VPS WireGuard Public Key ได้ — ตรวจสอบว่า wg0 ทำงานอยู่และ sudoers ตั้งค่าถูกต้อง (ลองรัน: sudo -n wg show wg0 public-key)' });
+    }
+
+    // Auto-registration callback: if PUBLIC_APP_URL is configured, embed a
+    // /tool/fetch call in the script that POSTs the router's freshly-generated
+    // public key straight back to us — no manual copy-paste needed. Falls back
+    // to the existing fully-manual Step 2 flow if not configured.
+    let callbackScriptBlock = '';
+    if (process.env.PUBLIC_APP_URL) {
+        const token = crypto.randomBytes(24).toString('hex');
+        wgRegistrationTokens.set(token, { wireguardIp: targetIp, siteId: siteId || null, expiresAt: Date.now() + WG_TOKEN_TTL_MS });
+        callbackScriptBlock = `
+# 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
+:local pubkey [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
+/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="Content-Type: application/json" http-data="{\\"publicKey\\":\\"$pubkey\\"}" output=none
+:put "Public Key auto-registered to dashboard!"`;
+    } else {
+        console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
     }
 
     const script = `# ======================================================
@@ -579,9 +602,73 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), (req, res) =>
 :put "Your Router WireGuard Public Key is:"
 :put [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
 :put "--------------------------------------------------------"
+${callbackScriptBlock}
 `;
 
     res.json({ script, wireguardIp: targetIp, autoRegistered });
+});
+
+// Callback endpoint the generated RouterOS script hits via /tool/fetch to
+// self-register its public key — no requireAuth (the router can't do our
+// session auth), security instead comes from the token being random,
+// single-use, and only created moments earlier by an authenticated admin
+// action (see generate-script above). Still covered by the global apiLimiter.
+app.post('/api/wireguard/callback-register', async (req, res) => {
+    const token = req.query.token;
+    const { publicKey } = req.body || {};
+    if (!token || !publicKey) {
+        return res.status(400).json({ error: 'token and publicKey are required' });
+    }
+    const entry = wgRegistrationTokens.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+        return res.status(401).json({ error: 'Token invalid or expired' });
+    }
+    wgRegistrationTokens.delete(token); // single-use
+    try {
+        registerVpsPeer(entry.wireguardIp, publicKey);
+        if (entry.siteId) {
+            // Best-effort — db.updateSite is sync in JSON mode, async in Supabase
+            // mode, and either can throw/reject (e.g. unknown siteId); don't let
+            // that fail the whole registration.
+            try {
+                const maybePromise = db.updateSite(entry.siteId, { wireguardPublicKey: publicKey });
+                if (maybePromise && typeof maybePromise.catch === 'function') maybePromise.catch(() => {});
+            } catch (e) {}
+        }
+        db.addLog('MikroTik Auto-Callback', 'ลงทะเบียน WireGuard Peer อัตโนมัติ', `IP ${entry.wireguardIp}`);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Check live connection status of a site's WireGuard peer (handshake/traffic)
+app.get('/api/wireguard/peer-status', requireAuth(['admin']), (req, res) => {
+    const wireguardIp = req.query.wireguardIp;
+    if (!wireguardIp) {
+        return res.status(400).json({ error: 'wireguardIp is required' });
+    }
+    try {
+        const { execSync } = require('child_process');
+        const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+        const targetIpStr = wireguardIp.trim() + '/32';
+        const lines = dump.trim().split('\n').slice(1); // skip interface line (only 4 fields)
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 8 && parts[3] && parts[3].includes(targetIpStr)) {
+                const handshake = parseInt(parts[4]) || 0; // unix epoch seconds, 0 = never
+                return res.json({
+                    connected: handshake > 0,
+                    lastHandshakeSecondsAgo: handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null,
+                    transferRx: parseInt(parts[5]) || 0,
+                    transferTx: parseInt(parts[6]) || 0
+                });
+            }
+        }
+        res.json({ connected: false, lastHandshakeSecondsAgo: null, transferRx: 0, transferTx: 0 });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Register MikroTik Peer into VPS WireGuard automatically
