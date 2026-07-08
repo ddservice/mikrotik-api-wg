@@ -2105,6 +2105,21 @@
                 <button class="modal-close-btn">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- PREREQUISITES: fields the script generator actually reads live on
+                     the Site edit form behind this modal (site-wg-ip, site-port) — if
+                     those are wrong/blank, the generated script below will be wrong too. -->
+                <div class="info-box-law mb-16" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <span>
+                        <strong>ก่อนกดสร้างสคริปต์ ต้องตั้งค่าในฟอร์ม "แก้ไขไซต์งาน" ให้ครบก่อน:</strong>
+                        (1) <strong>ประเภทการเชื่อมต่อ</strong> = WireGuard,
+                        (2) <strong>WireGuard IP</strong> เป็นวง 10.10.88.x ที่ไม่ซ้ำกับไซต์อื่น,
+                        (3) <strong>Port</strong> (ค่าเริ่มต้น 8728) — สคริปต์จะดึงค่าทั้งหมดนี้จากฟอร์มไซต์ตอนกดสร้างสคริปต์อัตโนมัติ
+                        นอกจากนี้ราวเตอร์ต้องมีอินเทอร์เน็ตออกได้ (ต่อไปยัง VPS endpoint 157.85.108.84:51820)
+                        และถ้าต้องการให้ลงทะเบียนคีย์อัตโนมัติ (ขั้นตอนที่ 1 ด้านล่าง) เซิร์ฟเวอร์ต้องตั้งค่า <code>PUBLIC_APP_URL</code> ไว้แล้ว — ถ้ายังไม่ได้ตั้ง ให้ใช้ขั้นตอนที่ 2 (วาง key เอง) แทน
+                    </span>
+                </div>
+
                 <!-- TYPE SELECTOR -->
                 <div class="form-group mb-16" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:var(--bg-card-subtle); padding:10px 14px; border-radius:8px;">
                     <span style="font-size:0.85rem; font-weight:600;"><i class="fa-solid fa-list-check text-primary"></i> เลือกประเภทสคริปต์:</span>
