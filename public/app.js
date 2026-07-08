@@ -8,6 +8,14 @@ let activeHotspotTab = 'tab-hotspot-active';
 let currentSitesData = { activeSiteId: '', sites: [] };
 let currentSinglePrintUser = null;
 
+// Name of the currently active site — hotspot/DNS/PPPoE log tables are
+// tagged with this string per-row, so log views filter by it to avoid
+// showing every site's data mixed together.
+function getCurrentSiteName() {
+    const site = currentSitesData.sites ? currentSitesData.sites.find(s => s.id === currentSitesData.activeSiteId) : null;
+    return site ? site.name : '';
+}
+
 // Polling intervals
 let statsInterval = null;
 let trafficInterval = null;
@@ -189,7 +197,11 @@ if (selectActiveSiteEl) {
         if (!siteId) return;
         try {
             await apiFetch(`/api/sites/switch/${siteId}`, { method: 'POST' });
-            fetchSites();
+            // Must await before loadPageData: log-tab fetches (hotspot/DNS/PPPoE)
+            // read currentSitesData synchronously to filter by the active site's
+            // name, so it needs to be refreshed first or they'd filter by the
+            // stale (pre-switch) site for this one call.
+            await fetchSites();
             loadPageData(currentActivePage);
             startPolling();
         } catch (err) {
@@ -363,7 +375,7 @@ function loadPageData(pageId) {
     } else if (pageId === 'page-settings') {
         fetchSitesManagement();
     } else if (pageId === 'page-logs') {
-        loadLogTab('tab-log-activity');
+        loadLogTab(activeLogTab);
     }
 }
 
@@ -484,6 +496,8 @@ async function fetchHotspotTrafficLogs(page = trafficLogPage) {
         if (search) params.set('search', search);
         if (from) params.set('from', from);
         if (to) params.set('to', to + 'T23:59:59');
+        const siteName = getCurrentSiteName();
+        if (siteName) params.set('site', siteName);
 
         const result = await apiFetch(`/api/hotspot-logs?${params}`);
 
@@ -524,6 +538,7 @@ async function fetchHotspotTrafficLogs(page = trafficLogPage) {
             if (search) exportParams.set('search', search);
             if (from) exportParams.set('from', from);
             if (to) exportParams.set('to', to + 'T23:59:59');
+            if (siteName) exportParams.set('site', siteName);
             exportLink.href = `/api/hotspot-logs/export-csv?${exportParams}`;
         }
 
@@ -560,6 +575,8 @@ async function fetchDnsQueryLogs(page = dnsLogPage) {
         if (search) params.set('search', search);
         if (from) params.set('from', from);
         if (to) params.set('to', to + 'T23:59:59');
+        const siteName = getCurrentSiteName();
+        if (siteName) params.set('site', siteName);
 
         const result = await apiFetch(`/api/dns-logs?${params}`);
 
@@ -591,6 +608,7 @@ async function fetchDnsQueryLogs(page = dnsLogPage) {
             if (search) exportParams.set('search', search);
             if (from) exportParams.set('from', from);
             if (to) exportParams.set('to', to + 'T23:59:59');
+            if (siteName) exportParams.set('site', siteName);
             exportLink.href = `/api/dns-logs/export-csv?${exportParams}`;
         }
 
@@ -1837,8 +1855,18 @@ async function fetchPppoeBilling(month) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>';
 
     try {
-        const result = await apiFetch(`/api/pppoe-usage?month=${month}`);
+        const siteParams = new URLSearchParams({ month });
+        const siteName = getCurrentSiteName();
+        if (siteName) siteParams.set('site', siteName);
+        const result = await apiFetch(`/api/pppoe-usage?${siteParams}`);
         if (!tbody) return;
+
+        const exportLink = document.getElementById('btn-export-pppoe-log');
+        if (exportLink) {
+            const exportParams = new URLSearchParams();
+            if (siteName) exportParams.set('site', siteName);
+            exportLink.href = `/api/pppoe-usage/export-csv?${exportParams}`;
+        }
         tbody.innerHTML = '';
         const rooms = (result.rooms || []).sort((a, b) => (b.bytesIn + b.bytesOut) - (a.bytesIn + a.bytesOut));
         if (rooms.length === 0) {

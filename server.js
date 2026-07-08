@@ -252,8 +252,8 @@ app.get('/api/logs', requireAuth(['admin']), async (req, res) => {
 
 // GET hotspot traffic logs (พรบ) with filter/pagination
 app.get('/api/hotspot-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username, page, limit } = req.query;
-    const result = await db.getHotspotLogs({ search, from, to, username, page, limit });
+    const { search, from, to, username, page, limit, site } = req.query;
+    const result = await db.getHotspotLogs({ search, from, to, username, page, limit, siteName: site });
     res.json(result);
 });
 
@@ -283,8 +283,8 @@ app.get('/api/logs/export-csv', requireAuth(['admin']), async (req, res) => {
 
 // Export hotspot traffic logs as CSV (พรบ)
 app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username } = req.query;
-    const result = await db.getHotspotLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const { search, from, to, username, site } = req.query;
+    const result = await db.getHotspotLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = [
@@ -320,15 +320,15 @@ app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), asyn
 
 // GET DNS query (domain visit history) logs with search/filter/pagination
 app.get('/api/dns-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username, page, limit } = req.query;
-    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit });
+    const { search, from, to, username, page, limit, site } = req.query;
+    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit, siteName: site });
     res.json(result);
 });
 
 // Export DNS query (domain visit history) logs as CSV
 app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username } = req.query;
-    const result = await db.getDnsQueryLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const { search, from, to, username, site } = req.query;
+    const result = await db.getDnsQueryLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = ['เวลา', 'ชื่อผู้ใช้', 'IP Address', 'MAC Address', 'โดเมนที่เข้าชม', 'ไซต์งาน'];
@@ -354,7 +354,7 @@ app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (r
 // PPPoE room usage — monthly billing summary
 app.get('/api/pppoe-usage', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const summary = await db.getPppoeUsageSummary(req.query.month);
+        const summary = await db.getPppoeUsageSummary(req.query.month, req.query.site);
         res.json(summary);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -363,15 +363,15 @@ app.get('/api/pppoe-usage', requireAuth(['admin', 'co-admin']), async (req, res)
 
 // PPPoE room usage — raw session log (audit trail), paginated
 app.get('/api/pppoe-usage/logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username, page, limit } = req.query;
-    const result = await db.getPppoeUsageLogs({ search, from, to, username, page, limit });
+    const { search, from, to, username, page, limit, site } = req.query;
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, page, limit, siteName: site });
     res.json(result);
 });
 
 // PPPoE room usage — export raw session log as CSV
 app.get('/api/pppoe-usage/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { search, from, to, username } = req.query;
-    const result = await db.getPppoeUsageLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const { search, from, to, username, site } = req.query;
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = ['เวลาเข้าใช้', 'เวลาออก', 'ห้อง', 'IP Address', 'ไซต์งาน', 'สถานะ', 'ดาวน์โหลด (bytes)', 'อัปโหลด (bytes)'];

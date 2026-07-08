@@ -484,6 +484,9 @@ function getHotspotLogs(options = {}) {
         if (options.username) {
             logs = logs.filter(l => l.username === options.username);
         }
+        if (options.siteName) {
+            logs = logs.filter(l => l.siteName === options.siteName);
+        }
 
         const total = logs.length;
         const page = parseInt(options.page) || 1;
@@ -589,6 +592,9 @@ function getPppoeUsageLogs(options = {}) {
         if (options.username) {
             logs = logs.filter(l => l.username === options.username);
         }
+        if (options.siteName) {
+            logs = logs.filter(l => l.siteName === options.siteName);
+        }
         const total = logs.length;
         const page = parseInt(options.page) || 1;
         const limit = parseInt(options.limit) || 100;
@@ -619,14 +625,14 @@ function addPppoeUsageLog(entry) {
     return newEntry;
 }
 
-function getPppoeUsageSummary(month) {
+function getPppoeUsageSummary(month, siteName) {
     const m = /^\d{4}-\d{2}$/.test(month) ? month : new Date().toISOString().slice(0, 7);
     const start = new Date(m + '-01T00:00:00.000Z').getTime();
     const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
     const endTime = end.getTime();
     const logs = getAllPppoeUsageLogsRaw().filter(l => {
         const t = new Date(l.loginTime).getTime();
-        return t >= start && t < endTime;
+        return t >= start && t < endTime && (!siteName || l.siteName === siteName);
     });
     const byRoom = {};
     for (const l of logs) {
@@ -675,6 +681,9 @@ function getDnsQueryLogs(options = {}) {
         }
         if (options.username) {
             logs = logs.filter(l => l.username === options.username);
+        }
+        if (options.siteName) {
+            logs = logs.filter(l => l.siteName === options.siteName);
         }
 
         const total = logs.length;

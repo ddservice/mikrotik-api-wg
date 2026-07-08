@@ -1738,6 +1738,16 @@
                                     <i class="fa-solid fa-scale-balanced"></i>
                                     <span>ระบบบันทึกโดเมนที่เข้าชมอัตโนมัติทุก 5 นาที ตาม <strong>พรบ ว่าด้วยการกระทำความผิดเกี่ยวกับคอมพิวเตอร์ พ.ศ.2560 มาตรา 26</strong> — เก็บรักษา 90 วัน</span>
                                 </div>
+                                <!-- Prerequisite: router-side setup, must be done once before data will appear -->
+                                <div class="info-box-law mt-8" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">
+                                    <i class="fa-solid fa-circle-info"></i>
+                                    <span>
+                                        <strong>ต้องเปิดใช้งานบนราวเตอร์ก่อนถึงจะเริ่มบันทึกได้</strong> (ทำครั้งเดียวต่อไซต์งาน) — รันคำสั่งนี้ใน WinBox &rarr; Terminal:
+                                        <code style="display:block;background:#0f172a;color:#38bdf8;padding:8px 10px;border-radius:6px;margin-top:6px;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;">/system logging action add name=dnsmem target=memory memory-lines=3000
+/system logging add topics=dns,!packet action=dnsmem</code>
+                                        (ใช้ <code>target=</code> ไม่ใช่ <code>type=</code>/<code>action=</code> — พารามิเตอร์อาจต่างกันตาม RouterOS แต่ละเวอร์ชัน ถ้า error ให้ลองพิมพ์ <code>/system logging action add name=dnsmem </code> แล้วกด <code>?</code> เพื่อดูชื่อ parameter จริงของเครื่องคุณ &mdash; <code>topics=dns,!packet</code> สำคัญมาก ถ้าใส่แค่ <code>dns</code> เฉยๆ จะได้ log ละเอียดยิบจนล้น buffer เร็วเกินไป)
+                                    </span>
+                                </div>
                                 <!-- Filter bar -->
                                 <div class="filter-bar mt-16" id="filter-bar-dns">
                                     <div class="filter-group">
@@ -2291,7 +2301,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=18.0"></script>
+    <script src="app.js?v=19.0"></script>
 </body>
 </html>
 

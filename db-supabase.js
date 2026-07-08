@@ -310,6 +310,7 @@ async function getHotspotLogs(options) {
         if (options.from) query = query.gte('login_time', new Date(options.from).toISOString());
         if (options.to) query = query.lte('login_time', new Date(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
+        if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
         var limit = parseInt(options.limit) || 100;
         var res = await query.range((page - 1) * limit, page * limit - 1);
@@ -384,6 +385,7 @@ async function getPppoeUsageLogs(options) {
         if (options.from) query = query.gte('login_time', new Date(options.from).toISOString());
         if (options.to) query = query.lte('login_time', new Date(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
+        if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
         var limit = parseInt(options.limit) || 100;
         var res = await query.range((page - 1) * limit, page * limit - 1);
@@ -406,14 +408,16 @@ async function addPppoeUsageLog(entry) {
 }
 
 // Monthly per-room usage summary for billing. `month` is 'YYYY-MM'.
-async function getPppoeUsageSummary(month) {
+async function getPppoeUsageSummary(month, siteName) {
     var m = /^\d{4}-\d{2}$/.test(month) ? month : new Date().toISOString().slice(0, 7);
     var start = new Date(m + '-01T00:00:00.000Z');
     var end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
-    var res = await supabase.from('pppoe_usage_logs')
+    var query = supabase.from('pppoe_usage_logs')
         .select('username, bytes_in, bytes_out')
         .gte('login_time', start.toISOString())
         .lt('login_time', end.toISOString());
+    if (siteName) query = query.eq('site_name', siteName);
+    var res = await query;
     if (res.error) throw new Error(res.error.message);
     var byRoom = {};
     for (var row of (res.data || [])) {
@@ -448,6 +452,7 @@ async function getDnsQueryLogs(options) {
         if (options.from) query = query.gte('query_time', new Date(options.from).toISOString());
         if (options.to) query = query.lte('query_time', new Date(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
+        if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
         var limit = parseInt(options.limit) || 100;
         var res = await query.range((page - 1) * limit, page * limit - 1);
