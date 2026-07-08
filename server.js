@@ -1457,37 +1457,48 @@ app.listen(PORT, () => {
 // ==========================================
 // Background: Snapshot Hotspot Sessions (พรบ Log)
 // ตรวจสอบทุก 5 นาที — บันทึก user ใหม่ / user ที่ออกจากระบบ
+// ครอบคลุมทุกไซต์งาน ไม่ใช่แค่ไซต์ที่ active อยู่
 // ==========================================
-let lastSnapshotSessions = new Map(); // key: session id, value: session object
+let lastSnapshotSessionsBySite = new Map(); // siteId -> Map(sessionId -> session)
 
 // Dedupe state for DNS visit-history polling (see parseDnsLogMessage below).
 // RouterOS log '.id's reset on router reboot, so they're not a safe permanent
 // watermark — instead we fingerprint by ip+domain+minute and keep a bounded
-// recent-history set (also collapses the repeat queries browsers/OSes send
-// for the same domain every few seconds).
-let recentDnsFingerprints = new Set();
+// recent-history set per site (also collapses the repeat queries browsers/OSes
+// send for the same domain every few seconds).
+let recentDnsFingerprintsBySite = new Map(); // siteId -> Set(fingerprint)
 const MAX_DNS_FINGERPRINTS = 2000;
 
-function rememberDnsFingerprint(fp) {
-    recentDnsFingerprints.add(fp);
-    if (recentDnsFingerprints.size > MAX_DNS_FINGERPRINTS) {
+function rememberDnsFingerprint(siteId, fp) {
+    let set = recentDnsFingerprintsBySite.get(siteId);
+    if (!set) {
+        set = new Set();
+        recentDnsFingerprintsBySite.set(siteId, set);
+    }
+    set.add(fp);
+    if (set.size > MAX_DNS_FINGERPRINTS) {
         const toDrop = Math.floor(MAX_DNS_FINGERPRINTS * 0.1);
         let i = 0;
-        for (const v of recentDnsFingerprints) {
-            recentDnsFingerprints.delete(v);
+        for (const v of set) {
+            set.delete(v);
             if (++i >= toDrop) break;
         }
     }
 }
 
 async function snapshotHotspotSessions() {
-    try {
-        const config = await db.getConfig();
-        if (!config.host || !config.username) return; // Router ยังไม่ได้ตั้งค่า
+    const sitesData = db.getSites ? await db.getSites() : { sites: [], activeSiteId: '' };
+    const sites = sitesData.sites || [];
+    if (sites.length === 0) return;
+    // Promise.allSettled (not Promise.all) — one offline/slow router must not
+    // stop the others from being polled on schedule.
+    await Promise.allSettled(sites.map(site => snapshotSiteSessions(site)));
+}
 
-        const sitesData = db.getSites ? await db.getSites() : { sites: [], activeSiteId: '' };
-        const activeSite = sitesData.sites.find(s => s.id === sitesData.activeSiteId) || sitesData.sites[0];
-        const siteName = activeSite ? activeSite.name : 'Main';
+async function snapshotSiteSessions(site) {
+    try {
+        if (!site.host || !site.username) return; // ไซต์นี้ยังไม่ได้ตั้งค่าเราท์เตอร์
+        const siteName = site.name || 'Main';
 
         const { currentSessions, dnsLogLines } = await executeOnRouter(async (client) => {
             const list = await client.exec('/ip/hotspot/active/print');
@@ -1514,13 +1525,14 @@ async function snapshotHotspotSessions() {
             const dns = logs.filter(l => (l.topics || '').includes('dns'));
 
             return { currentSessions: sessions, dnsLogLines: dns };
-        });
+        }, site.id);
 
+        const lastSessions = lastSnapshotSessionsBySite.get(site.id) || new Map();
         const currentMap = new Map(currentSessions.map(s => [s.id, s]));
 
         // ตรวจหา session ใหม่ที่ยังไม่ได้บันทึก
         for (const session of currentSessions) {
-            if (!lastSnapshotSessions.has(session.id)) {
+            if (!lastSessions.has(session.id)) {
                 // User เชื่อมต่อใหม่
                 await db.addHotspotSessionLog({
                     loginTime: new Date().toISOString(),
@@ -1539,7 +1551,7 @@ async function snapshotHotspotSessions() {
         }
 
         // ตรวจหา session ที่หายไป (user disconnect)
-        for (const [id, prevSession] of lastSnapshotSessions.entries()) {
+        for (const [id, prevSession] of lastSessions.entries()) {
             if (!currentMap.has(id)) {
                 // User ออกจากระบบแล้ว — บันทึก disconnect log
                 await db.addHotspotSessionLog({
@@ -1559,7 +1571,7 @@ async function snapshotHotspotSessions() {
             }
         }
 
-        lastSnapshotSessions = currentMap;
+        lastSnapshotSessionsBySite.set(site.id, currentMap);
 
         // ----- DNS visit history correlation (พรบ มาตรา 26 — domain-level) -----
         if (dnsLogLines.length > 0) {
@@ -1568,17 +1580,18 @@ async function snapshotHotspotSessions() {
                 if (s.address) ipToClient.set(s.address, { username: s.user, macAddress: s.macAddress });
             }
 
+            const siteDnsFingerprints = recentDnsFingerprintsBySite.get(site.id) || new Set();
             const newRows = [];
             for (const line of dnsLogLines) {
                 const parsed = parseDnsLogMessage(line.message || '');
                 if (!parsed) {
-                    if (process.env.DEBUG_DNS_LOG) console.log('[DEBUG_DNS_LOG] unmatched:', line.message);
+                    if (process.env.DEBUG_DNS_LOG) console.log('[DEBUG_DNS_LOG]', site.name, 'unmatched:', line.message);
                     continue;
                 }
 
                 const fp = parsed.sourceIp + '|' + parsed.domain + '|' + Math.floor(Date.now() / 60000);
-                if (recentDnsFingerprints.has(fp)) continue;
-                rememberDnsFingerprint(fp);
+                if (siteDnsFingerprints.has(fp)) continue;
+                rememberDnsFingerprint(site.id, fp);
 
                 const client = ipToClient.get(parsed.sourceIp);
                 newRows.push({
@@ -1601,7 +1614,7 @@ async function snapshotHotspotSessions() {
         }
 
     } catch (e) {
-        // Silent — Router อาจ offline ชั่วคราว
+        // Silent — this router may be offline temporarily; other sites unaffected
     }
 }
 
