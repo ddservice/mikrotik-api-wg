@@ -321,6 +321,51 @@ app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (r
     res.send(csvLines.join('\r\n'));
 });
 
+// PPPoE room usage — monthly billing summary
+app.get('/api/pppoe-usage', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const summary = await db.getPppoeUsageSummary(req.query.month);
+        res.json(summary);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PPPoE room usage — raw session log (audit trail), paginated
+app.get('/api/pppoe-usage/logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { search, from, to, username, page, limit } = req.query;
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, page, limit });
+    res.json(result);
+});
+
+// PPPoE room usage — export raw session log as CSV
+app.get('/api/pppoe-usage/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { search, from, to, username } = req.query;
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const rows = result.logs;
+
+    const headers = ['เวลาเข้าใช้', 'เวลาออก', 'ห้อง', 'IP Address', 'ไซต์งาน', 'สถานะ', 'ดาวน์โหลด (bytes)', 'อัปโหลด (bytes)'];
+    const csvLines = [
+        '﻿' + headers.join(','),
+        ...rows.map(r => [
+            `"${r.loginTime || ''}"`,
+            `"${r.logoutTime || ''}"`,
+            `"${r.username || ''}"`,
+            `"${r.ipAddress || ''}"`,
+            `"${(r.siteName || '').replace(/"/g, '""')}"`,
+            `"${r.status || ''}"`,
+            `"${r.bytesIn || 0}"`,
+            `"${r.bytesOut || 0}"`
+        ].join(','))
+    ];
+
+    const filename = `pppoe_usage_log_${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    db.addLog(req.user.username, 'Export PPPoE Usage CSV', `Export PPPoE usage log จำนวน ${rows.length} รายการ`);
+    res.send(csvLines.join('\r\n'));
+});
+
 
 // ==========================================
 // Dashboard Users CRUD APIs (Admin only)
@@ -1059,6 +1104,239 @@ app.delete('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin
     }
 });
 
+// ==========================================
+// PPPoE Room Account Management APIs (Admin, Co-Admin — billing tool, not general-user-facing)
+// ==========================================
+
+// Read PPPoE room accounts
+app.get('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const users = await executeOnRouter(async (client) => {
+            const list = await client.exec('/ppp/secret/print');
+            return list
+                .filter(item => item.service === 'pppoe')
+                .map(item => ({
+                    id: item['.id'],
+                    name: item.name,
+                    password: item.password || '',
+                    profile: item.profile,
+                    disabled: item.disabled === 'true',
+                    comment: item.comment || ''
+                }));
+        });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create PPPoE room account
+app.post('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, password, profile, comment } = req.body;
+    if (!name || !password) {
+        return res.status(400).json({ error: 'ต้องระบุชื่อห้องและรหัสผ่าน' });
+    }
+    try {
+        await executeOnRouter(async (client) => {
+            await client.exec('/ppp/secret/add', {
+                name, password,
+                profile: profile || 'default',
+                service: 'pppoe',
+                comment: comment || ''
+            });
+        });
+        db.addLog(req.user.username, 'เพิ่มบัญชี PPPoE', 'เพิ่มห้อง ' + name + ' (แพ็กเกจ: ' + (profile || 'default') + ')');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit PPPoE room account (also used to enable/disable a room)
+app.put('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, password, profile, comment, disabled } = req.body;
+    try {
+        await executeOnRouter(async (client) => {
+            const params = {
+                '.id': req.params.id,
+                name,
+                profile: profile || 'default',
+                comment: comment || ''
+            };
+            if (password !== undefined && password !== '') params.password = password;
+            if (disabled !== undefined) params.disabled = disabled ? 'yes' : 'no';
+            await client.exec('/ppp/secret/set', params);
+        });
+        db.addLog(req.user.username, 'แก้ไขบัญชี PPPoE', 'แก้ไขห้อง ID: ' + req.params.id + ' เป็นชื่อ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete PPPoE room account
+app.delete('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(async (client) => {
+            await client.exec('/ppp/secret/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบบัญชี PPPoE', 'ลบห้อง ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read PPPoE live sessions
+// NOTE: byte counters on /ppp/active vary by RouterOS version — may need a
+// quick live check/adjustment after deploy, same class of issue as the DNS
+// log message-format calibration earlier this session.
+app.get('/api/mikrotik/pppoe/active', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const active = await executeOnRouter(async (client) => {
+            const list = await client.exec('/ppp/active/print');
+            return list
+                .filter(item => item.service === 'pppoe')
+                .map(item => ({
+                    id: item['.id'],
+                    name: item.name,
+                    address: item.address || '',
+                    uptime: item.uptime || '0s',
+                    callerId: item['caller-id'] || '',
+                    bytesIn: parseInt(item['bytes-in']) || 0,
+                    bytesOut: parseInt(item['bytes-out']) || 0
+                }));
+        });
+        res.json(active);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Disconnect a PPPoE session
+app.delete('/api/mikrotik/pppoe/active/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(async (client) => {
+            await client.exec('/ppp/active/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ตัดการเชื่อมต่อ PPPoE', 'ตัดเซสชัน ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read PPPoE packages (profiles)
+app.get('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const profiles = await executeOnRouter(async (client) => {
+            const list = await client.exec('/ppp/profile/print');
+            return list.map(item => ({
+                id: item['.id'],
+                name: item.name,
+                rateLimit: item['rate-limit'] || 'Unlimited',
+                localAddress: item['local-address'] || '',
+                remoteAddress: item['remote-address'] || ''
+            }));
+        });
+        res.json(profiles);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create PPPoE package
+app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, rateLimit, localAddress, remoteAddress } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'ต้องระบุชื่อแพ็กเกจ' });
+    }
+    try {
+        await executeOnRouter(async (client) => {
+            const params = { name, 'only-one': 'yes' };
+            if (rateLimit) params['rate-limit'] = rateLimit;
+            if (localAddress) params['local-address'] = localAddress;
+            if (remoteAddress) params['remote-address'] = remoteAddress;
+            await client.exec('/ppp/profile/add', params);
+        });
+        db.addLog(req.user.username, 'เพิ่มแพ็กเกจ PPPoE', 'เพิ่มแพ็กเกจ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit PPPoE package
+app.put('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, rateLimit, localAddress, remoteAddress } = req.body;
+    try {
+        await executeOnRouter(async (client) => {
+            const params = { '.id': req.params.id, name };
+            if (rateLimit) params['rate-limit'] = rateLimit;
+            if (localAddress) params['local-address'] = localAddress;
+            if (remoteAddress) params['remote-address'] = remoteAddress;
+            await client.exec('/ppp/profile/set', params);
+        });
+        db.addLog(req.user.username, 'แก้ไขแพ็กเกจ PPPoE', 'แก้ไขแพ็กเกจ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete PPPoE package
+app.delete('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(async (client) => {
+            await client.exec('/ppp/profile/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบแพ็กเกจ PPPoE', 'ลบแพ็กเกจ ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Generate PPPoE Server Setup Script for MikroTik (one-time per-site setup, run once in WinBox)
+app.post('/api/mikrotik/pppoe/generate-script', requireAuth(['admin']), (req, res) => {
+    const { interfaceName, vlanId, poolStart, poolEnd, serverAddress } = req.body;
+    if (!interfaceName || !poolStart || !poolEnd || !serverAddress) {
+        return res.status(400).json({ error: 'ต้องระบุ Interface, IP Pool (ต้น-ปลาย) และ Server Address ให้ครบ' });
+    }
+
+    const targetInterface = vlanId ? `vlan-pppoe-${vlanId}` : interfaceName;
+    const vlanStepBlock = vlanId ? `
+# 1. Create VLAN interface for the room-facing switch port
+/interface/vlan/add name=${targetInterface} vlan-id=${vlanId} interface=${interfaceName} comment="PPPoE Rooms VLAN"
+` : '';
+    const poolStepNum = vlanId ? 2 : 1;
+    const serverStepNum = poolStepNum + 1;
+    const resultStepNum = serverStepNum + 1;
+
+    const script = `# ======================================================
+# MikroTik PPPoE Server Setup Script (MT Management)
+# Interface: ${targetInterface}
+# IP Pool: ${poolStart} - ${poolEnd}
+# Server Address: ${serverAddress}
+# ======================================================
+${vlanStepBlock}
+# ${poolStepNum}. Create IP Pool for PPPoE room clients
+/ip/pool/add name=pppoe-pool ranges=${poolStart}-${poolEnd} comment="PPPoE Room Clients"
+
+# ${serverStepNum}. Enable PPPoE Server
+/interface/pppoe-server/server/add service-name=mt-pppoe interface=${targetInterface} default-profile=default one-session-per-host=yes disabled=no
+
+# ${resultStepNum}. Display Result
+:put "--------------------------------------------------------"
+:put "PPPoE Server Enabled Successfully!"
+:put "Interface: ${targetInterface}"
+:put "NOTE: Create at least one Package (PPP Profile) from the dashboard's PPPoE page before adding room accounts."
+:put "--------------------------------------------------------"
+`;
+
+    res.json({ script });
+});
+
 
 // Helper for cleaning expired users
 async function runExpiredCleanup(logUsername = 'System Auto') {
@@ -1460,6 +1738,7 @@ app.listen(PORT, () => {
 // ครอบคลุมทุกไซต์งาน ไม่ใช่แค่ไซต์ที่ active อยู่
 // ==========================================
 let lastSnapshotSessionsBySite = new Map(); // siteId -> Map(sessionId -> session)
+let lastPppoeSessionsBySite = new Map(); // siteId -> Map(sessionId -> session), for room billing usage
 
 // Dedupe state for DNS visit-history polling (see parseDnsLogMessage below).
 // RouterOS log '.id's reset on router reboot, so they're not a safe permanent
@@ -1500,7 +1779,7 @@ async function snapshotSiteSessions(site) {
         if (!site.host || !site.username) return; // ไซต์นี้ยังไม่ได้ตั้งค่าเราท์เตอร์
         const siteName = site.name || 'Main';
 
-        const { currentSessions, dnsLogLines } = await executeOnRouter(async (client) => {
+        const { currentSessions, dnsLogLines, pppoeSessions } = await executeOnRouter(async (client) => {
             const list = await client.exec('/ip/hotspot/active/print');
             const sessions = list.map(item => ({
                 id: item['.id'],
@@ -1524,7 +1803,24 @@ async function snapshotSiteSessions(site) {
             }
             const dns = logs.filter(l => (l.topics || '').includes('dns'));
 
-            return { currentSessions: sessions, dnsLogLines: dns };
+            // PPPoE room sessions — fail-open if PPPoE server isn't set up on
+            // this site yet (not every site necessarily has room accounts).
+            let pppoe = [];
+            try {
+                const pppoeList = await client.exec('/ppp/active/print');
+                pppoe = pppoeList.filter(item => item.service === 'pppoe').map(item => ({
+                    id: item['.id'],
+                    user: item.name,
+                    address: item.address || '',
+                    uptime: item.uptime || '0s',
+                    bytesIn: parseInt(item['bytes-in']) || 0,
+                    bytesOut: parseInt(item['bytes-out']) || 0
+                }));
+            } catch (e) {
+                pppoe = [];
+            }
+
+            return { currentSessions: sessions, dnsLogLines: dns, pppoeSessions: pppoe };
         }, site.id);
 
         const lastSessions = lastSnapshotSessionsBySite.get(site.id) || new Map();
@@ -1612,6 +1908,40 @@ async function snapshotSiteSessions(site) {
                 }
             }
         }
+
+        // ----- PPPoE room usage logging (billing) -----
+        const lastPppoe = lastPppoeSessionsBySite.get(site.id) || new Map();
+        const currentPppoeMap = new Map(pppoeSessions.map(s => [s.id, s]));
+
+        for (const session of pppoeSessions) {
+            if (!lastPppoe.has(session.id)) {
+                await db.addPppoeUsageLog({
+                    loginTime: new Date().toISOString(),
+                    username: session.user,
+                    ipAddress: session.address,
+                    bytesIn: session.bytesIn,
+                    bytesOut: session.bytesOut,
+                    siteName,
+                    status: 'connected'
+                });
+            }
+        }
+        for (const [id, prevSession] of lastPppoe.entries()) {
+            if (!currentPppoeMap.has(id)) {
+                await db.addPppoeUsageLog({
+                    loginTime: new Date(Date.now() - parseUptimeToMs(prevSession.uptime)).toISOString(),
+                    logoutTime: new Date().toISOString(),
+                    username: prevSession.user,
+                    ipAddress: prevSession.address,
+                    bytesIn: prevSession.bytesIn,
+                    bytesOut: prevSession.bytesOut,
+                    siteName,
+                    status: 'disconnected'
+                });
+            }
+        }
+
+        lastPppoeSessionsBySite.set(site.id, currentPppoeMap);
 
     } catch (e) {
         // Silent — this router may be offline temporarily; other sites unaffected

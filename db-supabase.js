@@ -357,6 +357,74 @@ async function purgeOldHotspotLogs() {
 }
 
 // ==========================================
+// PPPoE USAGE LOGS (ห้องเช่า — billing/accounting, no auto-purge)
+// ==========================================
+function _mapPppoeRow(l) {
+    return { id: l.id, loginTime: l.login_time, logoutTime: l.logout_time,
+             username: l.username || '', ipAddress: l.ip_address || '',
+             bytesIn: l.bytes_in || 0, bytesOut: l.bytes_out || 0,
+             siteName: l.site_name || '', status: l.status || 'connected' };
+}
+
+async function getAllPppoeUsageLogsRaw() {
+    var res = await supabase.from('pppoe_usage_logs').select('*').order('login_time', { ascending: false });
+    return (res.data || []).map(_mapPppoeRow);
+}
+
+async function getPppoeUsageLogs(options) {
+    options = options || {};
+    try {
+        var query = supabase.from('pppoe_usage_logs')
+            .select('*', { count: 'exact' })
+            .order('login_time', { ascending: false });
+        if (options.search) {
+            var q = '%' + options.search + '%';
+            query = query.or('username.ilike.' + q + ',ip_address.ilike.' + q);
+        }
+        if (options.from) query = query.gte('login_time', new Date(options.from).toISOString());
+        if (options.to) query = query.lte('login_time', new Date(options.to).toISOString());
+        if (options.username) query = query.eq('username', options.username);
+        var page = parseInt(options.page) || 1;
+        var limit = parseInt(options.limit) || 100;
+        var res = await query.range((page - 1) * limit, page * limit - 1);
+        if (res.error) throw res.error;
+        return { logs: (res.data || []).map(_mapPppoeRow), total: res.count || 0,
+                 page: page, limit: limit, pages: Math.ceil((res.count || 0) / limit) };
+    } catch(e) { return { logs: [], total: 0, page: 1, limit: 100, pages: 0 }; }
+}
+
+async function addPppoeUsageLog(entry) {
+    var id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+    var row = { id: id, username: entry.username || '', ip_address: entry.ipAddress || '',
+                bytes_in: entry.bytesIn || 0, bytes_out: entry.bytesOut || 0,
+                site_name: entry.siteName || '', status: entry.status || 'connected',
+                login_time: entry.loginTime || new Date().toISOString(),
+                logout_time: entry.logoutTime || null };
+    var res = await supabase.from('pppoe_usage_logs').insert(row).select().single();
+    if (res.error) throw new Error(res.error.message);
+    return _mapPppoeRow(res.data);
+}
+
+// Monthly per-room usage summary for billing. `month` is 'YYYY-MM'.
+async function getPppoeUsageSummary(month) {
+    var m = /^\d{4}-\d{2}$/.test(month) ? month : new Date().toISOString().slice(0, 7);
+    var start = new Date(m + '-01T00:00:00.000Z');
+    var end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
+    var res = await supabase.from('pppoe_usage_logs')
+        .select('username, bytes_in, bytes_out')
+        .gte('login_time', start.toISOString())
+        .lt('login_time', end.toISOString());
+    if (res.error) throw new Error(res.error.message);
+    var byRoom = {};
+    for (var row of (res.data || [])) {
+        if (!byRoom[row.username]) byRoom[row.username] = { username: row.username, bytesIn: 0, bytesOut: 0 };
+        byRoom[row.username].bytesIn += row.bytes_in || 0;
+        byRoom[row.username].bytesOut += row.bytes_out || 0;
+    }
+    return { month: m, rooms: Object.values(byRoom) };
+}
+
+// ==========================================
 // DNS QUERY LOGS (พรบ มาตรา 26 — domain-level visit history)
 // ==========================================
 var DNS_LOG_RETENTION_DAYS = 90;
@@ -387,6 +455,12 @@ async function getDnsQueryLogs(options) {
         return { logs: (res.data || []).map(_mapDnsRow), total: res.count || 0,
                  page: page, limit: limit, pages: Math.ceil((res.count || 0) / limit) };
     } catch(e) { return { logs: [], total: 0, page: 1, limit: 100, pages: 0 }; }
+}
+
+async function getAllDnsQueryLogsRaw() {
+    var cutoff = new Date(Date.now() - DNS_LOG_RETENTION_DAYS * 86400000).toISOString();
+    var res = await supabase.from('dns_query_logs').select('*').gte('query_time', cutoff).order('query_time', { ascending: false });
+    return (res.data || []).map(_mapDnsRow);
 }
 
 async function addDnsQueryLogsBulk(entries) {
@@ -436,7 +510,10 @@ module.exports = {
     getHotspotLogs: getHotspotLogs, getAllHotspotLogsRaw: getAllHotspotLogsRaw,
     addHotspotSessionLog: addHotspotSessionLog, updateHotspotSessionLog: updateHotspotSessionLog,
     purgeOldHotspotLogs: purgeOldHotspotLogs,
-    getDnsQueryLogs: getDnsQueryLogs, addDnsQueryLogsBulk: addDnsQueryLogsBulk,
+    getDnsQueryLogs: getDnsQueryLogs, getAllDnsQueryLogsRaw: getAllDnsQueryLogsRaw,
+    addDnsQueryLogsBulk: addDnsQueryLogsBulk,
     purgeOldDnsQueryLogs: purgeOldDnsQueryLogs,
+    getPppoeUsageLogs: getPppoeUsageLogs, getAllPppoeUsageLogsRaw: getAllPppoeUsageLogsRaw,
+    addPppoeUsageLog: addPppoeUsageLog, getPppoeUsageSummary: getPppoeUsageSummary,
     getAutoCleanupConfig: getAutoCleanupConfig, saveAutoCleanupConfig: saveAutoCleanupConfig
 };

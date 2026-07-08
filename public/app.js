@@ -216,19 +216,22 @@ function logout() {
 function configureMenuRoles(role) {
     // Hide all role-restricted menu items first
     document.getElementById('nav-hotspot').style.display = 'none';
+    document.getElementById('nav-pppoe').style.display = 'none';
     document.getElementById('nav-firewall').style.display = 'none';
     document.getElementById('nav-admins').style.display = 'none';
     document.getElementById('nav-settings').style.display = 'none';
     document.getElementById('nav-logs').style.display = 'none';
-    
+
     if (role === 'admin') {
         document.getElementById('nav-hotspot').style.display = 'flex';
+        document.getElementById('nav-pppoe').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-admins').style.display = 'flex';
         document.getElementById('nav-settings').style.display = 'flex';
         document.getElementById('nav-logs').style.display = 'flex';
     } else if (role === 'co-admin') {
         document.getElementById('nav-hotspot').style.display = 'flex';
+        document.getElementById('nav-pppoe').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-logs').style.display = 'flex';
     } else if (role === 'user') {
@@ -271,7 +274,7 @@ function switchPage(targetPageId) {
         }
     }
     if (role === 'user') {
-        if (targetPageId === 'page-logs') {
+        if (targetPageId === 'page-logs' || targetPageId === 'page-pppoe') {
             targetPageId = 'page-overview';
         }
     }
@@ -300,6 +303,7 @@ function switchPage(targetPageId) {
     const titleMap = {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
         'page-hotspot': { title: 'จัดการ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
+        'page-pppoe': { title: 'PPPoE ห้องเช่า', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
         'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
@@ -319,6 +323,8 @@ function loadPageData(pageId) {
         // Polling will handle it
     } else if (pageId === 'page-hotspot') {
         loadHotspotTab(activeHotspotTab);
+    } else if (pageId === 'page-pppoe') {
+        loadPppoeTab(activePppoeTab);
     } else if (pageId === 'page-firewall') {
         fetchFirewallStatus();
     } else if (pageId === 'page-admins') {
@@ -1396,6 +1402,482 @@ async function fetchProfilesToDropdown() {
         console.error('Failed to fetch user profiles:', err);
     }
 }
+
+
+// ==========================================
+// PPPoE ROOM ACCOUNT MANAGEMENT
+// ==========================================
+let activePppoeTab = 'tab-pppoe-active';
+
+function loadPppoeTab(tabId) {
+    activePppoeTab = tabId;
+    document.querySelectorAll('#page-pppoe .tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('data-tab') === tabId) btn.classList.add('active');
+    });
+    document.querySelectorAll('#page-pppoe .tab-content').forEach(c => c.classList.remove('active'));
+    const tabEl = document.getElementById(tabId);
+    if (tabEl) tabEl.classList.add('active');
+
+    stopPppoeActiveAutoRefresh();
+
+    if (tabId === 'tab-pppoe-active') {
+        fetchPppoeActive();
+        startPppoeActiveAutoRefresh();
+    } else if (tabId === 'tab-pppoe-accounts') {
+        fetchPppoeAccounts();
+        fetchPppoeProfilesToDropdown();
+    } else if (tabId === 'tab-pppoe-profiles') {
+        fetchPppoeProfiles();
+    } else if (tabId === 'tab-pppoe-billing') {
+        fetchPppoeBilling();
+    }
+}
+
+document.querySelectorAll('#page-pppoe .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadPppoeTab(btn.getAttribute('data-tab')));
+});
+
+// ---- TAB: Live Status ----
+let _pppoeActiveRefreshCountdown = null;
+const PPPOE_REFRESH_INTERVAL = 30;
+
+async function fetchPppoeActive() {
+    try {
+        const active = await apiFetch('/api/mikrotik/pppoe/active');
+        const tbody = document.querySelector('#table-pppoe-active tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const badge = document.getElementById('badge-pppoe-active');
+        if (badge) badge.textContent = `(${active.length})`;
+
+        if (active.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">ไม่มีห้องออนไลน์ในขณะนี้</td></tr>';
+            return;
+        }
+
+        active.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${item.name}</strong></td>
+                <td><code>${item.address || '-'}</code></td>
+                <td>${item.uptime}</td>
+                <td>${formatBytes(item.bytesOut)}</td>
+                <td>${formatBytes(item.bytesIn)}</td>
+                <td class="text-center">
+                    <button class="btn btn-danger btn-sm btn-kick-pppoe" data-id="${item.id}" data-user="${item.name}">
+                        <i class="fa-solid fa-plug-circle-xmark"></i> ตัดการเชื่อมต่อ
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.querySelectorAll('.btn-kick-pppoe').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                const user = btn.getAttribute('data-user');
+                if (!confirm(`ตัดการเชื่อมต่อห้อง "${user}" ใช่หรือไม่?`)) return;
+                try {
+                    btn.disabled = true;
+                    await apiFetch(`/api/mikrotik/pppoe/active/${id}`, { method: 'DELETE' });
+                    fetchPppoeActive();
+                } catch (err) {
+                    alert(err.message);
+                    btn.disabled = false;
+                }
+            });
+        });
+    } catch (err) {
+        const tbody = document.querySelector('#table-pppoe-active tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+function startPppoeActiveAutoRefresh() {
+    stopPppoeActiveAutoRefresh();
+    let remaining = PPPOE_REFRESH_INTERVAL;
+    const updateCountdown = () => {
+        const el = document.getElementById('pppoe-refresh-countdown');
+        if (el) el.textContent = `รีเฟรชใน ${remaining}s`;
+        remaining--;
+        if (remaining < 0) {
+            remaining = PPPOE_REFRESH_INTERVAL;
+            fetchPppoeActive();
+        }
+    };
+    updateCountdown();
+    _pppoeActiveRefreshCountdown = setInterval(updateCountdown, 1000);
+}
+
+function stopPppoeActiveAutoRefresh() {
+    if (_pppoeActiveRefreshCountdown) { clearInterval(_pppoeActiveRefreshCountdown); _pppoeActiveRefreshCountdown = null; }
+}
+
+document.getElementById('btn-refresh-pppoe-active')?.addEventListener('click', () => {
+    fetchPppoeActive();
+    startPppoeActiveAutoRefresh();
+});
+
+// ---- TAB: Room Accounts ----
+let _allPppoeAccounts = [];
+
+async function fetchPppoeAccounts() {
+    try {
+        const users = await apiFetch('/api/mikrotik/pppoe/users');
+        _allPppoeAccounts = users;
+        const badge = document.getElementById('badge-pppoe-accounts');
+        if (badge) badge.textContent = `(${users.length})`;
+        renderPppoeAccounts(users);
+    } catch (err) {
+        document.querySelector('#table-pppoe-users tbody').innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+function renderPppoeAccounts(users) {
+    const searchVal = (document.getElementById('search-pppoe-accounts')?.value || '').toLowerCase().trim();
+    const filtered = searchVal
+        ? users.filter(u =>
+            (u.name || '').toLowerCase().includes(searchVal) ||
+            (u.profile || '').toLowerCase().includes(searchVal) ||
+            (u.comment || '').toLowerCase().includes(searchVal)
+          )
+        : users;
+
+    const tbody = document.querySelector('#table-pppoe-users tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const countEl = document.getElementById('pppoe-accounts-count');
+    if (countEl) {
+        countEl.textContent = searchVal
+            ? `พบ ${filtered.length} จาก ${users.length} ห้อง`
+            : `${users.length} ห้องทั้งหมด`;
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">${searchVal ? 'ไม่พบห้องที่ค้นหา' : 'ยังไม่มีบัญชีห้อง'}</td></tr>`;
+        return;
+    }
+
+    filtered.forEach(item => {
+        const statusBadge = item.disabled
+            ? '<span class="status-badge-disconnected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> ปิดใช้งาน</span>'
+            : '<span class="status-badge-connected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> เปิดใช้งาน</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${item.name}</strong></td>
+            <td><code>${item.password || '(ไม่แสดง)'}</code></td>
+            <td><span class="badge badge-profile">${item.profile}</span></td>
+            <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
+            <td class="text-center">${statusBadge}</td>
+            <td class="text-center">
+                <div style="display:flex; gap:6px; justify-content:center;">
+                    <button class="btn btn-secondary btn-sm btn-edit-pppoe-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm btn-del-pppoe-user" data-id="${item.id}" data-user="${item.name}" title="ลบ">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.querySelectorAll('.btn-edit-pppoe-user').forEach(btn => {
+        btn.addEventListener('click', () => openPppoeUserModal(JSON.parse(btn.getAttribute('data-item'))));
+    });
+    document.querySelectorAll('.btn-del-pppoe-user').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const user = btn.getAttribute('data-user');
+            if (!confirm(`ต้องการลบบัญชีห้อง "${user}" ใช่หรือไม่?`)) return;
+            try {
+                await apiFetch(`/api/mikrotik/pppoe/users/${id}`, { method: 'DELETE' });
+                fetchPppoeAccounts();
+            } catch (err) { alert(err.message); }
+        });
+    });
+}
+
+document.getElementById('search-pppoe-accounts')?.addEventListener('input', () => renderPppoeAccounts(_allPppoeAccounts));
+
+let pppoeProfilesCached = [];
+async function fetchPppoeProfilesToDropdown() {
+    try {
+        const profiles = await apiFetch('/api/mikrotik/pppoe/profiles');
+        pppoeProfilesCached = profiles;
+        const select = document.getElementById('pppoe-user-profile');
+        if (select) {
+            select.innerHTML = profiles.map(p => `<option value="${p.name}">${p.name} (${p.rateLimit})</option>`).join('') || '<option value="default">default</option>';
+        }
+    } catch (err) {
+        console.error('Failed to fetch PPPoE packages:', err);
+    }
+}
+
+const modalPppoeUser = document.getElementById('modal-pppoe-user');
+const formPppoeUser = document.getElementById('form-pppoe-user');
+const pppoeUserError = document.getElementById('pppoe-user-error');
+
+function openPppoeUserModal(item = null) {
+    fetchPppoeProfilesToDropdown();
+    if (item) {
+        document.getElementById('pppoe-user-modal-title').textContent = 'แก้ไขบัญชีห้อง';
+        document.getElementById('pppoe-user-id').value = item.id;
+        document.getElementById('pppoe-user-name').value = item.name;
+        document.getElementById('pppoe-user-name').readOnly = true;
+        document.getElementById('pppoe-user-password').value = item.password || '';
+        document.getElementById('pppoe-user-profile').value = item.profile;
+        document.getElementById('pppoe-user-comment').value = item.comment || '';
+        document.getElementById('pppoe-user-enabled').checked = !item.disabled;
+    } else {
+        document.getElementById('pppoe-user-modal-title').textContent = 'เพิ่มบัญชีห้องใหม่';
+        document.getElementById('pppoe-user-id').value = '';
+        document.getElementById('pppoe-user-name').value = '';
+        document.getElementById('pppoe-user-name').readOnly = false;
+        document.getElementById('pppoe-user-password').value = '';
+        document.getElementById('pppoe-user-comment').value = '';
+        document.getElementById('pppoe-user-enabled').checked = true;
+    }
+    if (pppoeUserError) pppoeUserError.style.display = 'none';
+    if (modalPppoeUser) modalPppoeUser.classList.add('active');
+}
+
+function closePppoeUserModal() {
+    if (modalPppoeUser) modalPppoeUser.classList.remove('active');
+}
+
+document.getElementById('btn-add-pppoe-user')?.addEventListener('click', () => openPppoeUserModal());
+document.querySelectorAll('#modal-pppoe-user .modal-cancel, #modal-pppoe-user .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', closePppoeUserModal);
+});
+
+if (formPppoeUser) {
+    formPppoeUser.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('pppoe-user-id').value;
+        const name = document.getElementById('pppoe-user-name').value;
+        const password = document.getElementById('pppoe-user-password').value;
+        const profile = document.getElementById('pppoe-user-profile').value;
+        const comment = document.getElementById('pppoe-user-comment').value;
+        const disabled = !document.getElementById('pppoe-user-enabled').checked;
+
+        const body = { name, password, profile, comment, disabled };
+        const url = id ? `/api/mikrotik/pppoe/users/${id}` : '/api/mikrotik/pppoe/users';
+        const method = id ? 'PUT' : 'POST';
+
+        try {
+            await apiFetch(url, { method, body: JSON.stringify(body) });
+            closePppoeUserModal();
+            fetchPppoeAccounts();
+        } catch (err) {
+            if (pppoeUserError) {
+                pppoeUserError.textContent = err.message;
+                pppoeUserError.style.display = 'block';
+            }
+        }
+    });
+}
+
+// ---- TAB: Packages (PPP Profiles) ----
+async function fetchPppoeProfiles() {
+    try {
+        const profiles = await apiFetch('/api/mikrotik/pppoe/profiles');
+        const badge = document.getElementById('badge-pppoe-profiles');
+        if (badge) badge.textContent = `(${profiles.length})`;
+        const tbody = document.querySelector('#table-pppoe-profiles tbody');
+        tbody.innerHTML = '';
+        if (profiles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">ยังไม่มีแพ็กเกจ — เพิ่มอย่างน้อย 1 แพ็กเกจก่อนสร้างบัญชีห้อง</td></tr>';
+            return;
+        }
+        profiles.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${p.name}</strong></td>
+                <td><span class="badge badge-profile">${p.rateLimit}</span></td>
+                <td><code>${p.localAddress || '-'}</code></td>
+                <td><code>${p.remoteAddress || '-'}</code></td>
+                <td class="text-center">
+                    <div style="display:flex; gap:6px; justify-content:center;">
+                        <button class="btn btn-secondary btn-sm btn-edit-pppoe-profile" data-item='${JSON.stringify(p).replace(/'/g, "&apos;")}'><i class="fa-solid fa-pen-to-square"></i> แก้ไข</button>
+                        <button class="btn btn-danger btn-sm btn-del-pppoe-profile" data-id="${p.id}" data-name="${p.name}"><i class="fa-solid fa-trash-can"></i> ลบ</button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.querySelectorAll('.btn-edit-pppoe-profile').forEach(b => {
+            b.addEventListener('click', () => openPppoeProfileModal(JSON.parse(b.getAttribute('data-item'))));
+        });
+        document.querySelectorAll('.btn-del-pppoe-profile').forEach(b => {
+            b.addEventListener('click', async () => {
+                const id = b.getAttribute('data-id');
+                const name = b.getAttribute('data-name');
+                if (!confirm(`ต้องการลบแพ็กเกจ "${name}" ใช่หรือไม่?`)) return;
+                try {
+                    await apiFetch(`/api/mikrotik/pppoe/profiles/${id}`, { method: 'DELETE' });
+                    fetchPppoeProfiles();
+                } catch (err) { alert(err.message); }
+            });
+        });
+    } catch (err) {
+        document.querySelector('#table-pppoe-profiles tbody').innerHTML = `<tr><td colspan="5" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+const modalPppoeProfile = document.getElementById('modal-pppoe-profile');
+const formPppoeProfile = document.getElementById('form-pppoe-profile');
+const pppoeProfileError = document.getElementById('pppoe-profile-error');
+
+function openPppoeProfileModal(item = null) {
+    if (item) {
+        document.getElementById('pppoe-profile-modal-title').textContent = 'แก้ไขแพ็กเกจ';
+        document.getElementById('pppoe-profile-id').value = item.id;
+        document.getElementById('pppoe-profile-name').value = item.name;
+        document.getElementById('pppoe-profile-rate-limit').value = item.rateLimit === 'Unlimited' ? '' : item.rateLimit;
+        document.getElementById('pppoe-profile-local-address').value = item.localAddress || '';
+        document.getElementById('pppoe-profile-remote-address').value = item.remoteAddress || '';
+    } else {
+        document.getElementById('pppoe-profile-modal-title').textContent = 'เพิ่มแพ็กเกจใหม่';
+        document.getElementById('pppoe-profile-id').value = '';
+        document.getElementById('pppoe-profile-name').value = '';
+        document.getElementById('pppoe-profile-rate-limit').value = '';
+        document.getElementById('pppoe-profile-local-address').value = '';
+        document.getElementById('pppoe-profile-remote-address').value = '';
+    }
+    document.getElementById('pppoe-profile-rate-preset').value = '';
+    if (pppoeProfileError) pppoeProfileError.style.display = 'none';
+    if (modalPppoeProfile) modalPppoeProfile.classList.add('active');
+}
+
+function closePppoeProfileModal() {
+    if (modalPppoeProfile) modalPppoeProfile.classList.remove('active');
+}
+
+document.getElementById('btn-add-pppoe-profile')?.addEventListener('click', () => openPppoeProfileModal());
+document.querySelectorAll('#modal-pppoe-profile .modal-cancel, #modal-pppoe-profile .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', closePppoeProfileModal);
+});
+
+document.getElementById('pppoe-profile-rate-preset')?.addEventListener('change', (e) => {
+    if (e.target.value) document.getElementById('pppoe-profile-rate-limit').value = e.target.value;
+});
+
+if (formPppoeProfile) {
+    formPppoeProfile.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('pppoe-profile-id').value;
+        const name = document.getElementById('pppoe-profile-name').value;
+        const rateLimit = document.getElementById('pppoe-profile-rate-limit').value;
+        const localAddress = document.getElementById('pppoe-profile-local-address').value;
+        const remoteAddress = document.getElementById('pppoe-profile-remote-address').value;
+
+        const body = { name, rateLimit, localAddress, remoteAddress };
+        const url = id ? `/api/mikrotik/pppoe/profiles/${id}` : '/api/mikrotik/pppoe/profiles';
+        const method = id ? 'PUT' : 'POST';
+
+        try {
+            await apiFetch(url, { method, body: JSON.stringify(body) });
+            closePppoeProfileModal();
+            fetchPppoeProfiles();
+        } catch (err) {
+            if (pppoeProfileError) {
+                pppoeProfileError.textContent = err.message;
+                pppoeProfileError.style.display = 'block';
+            }
+        }
+    });
+}
+
+// ---- TAB: Usage / Billing ----
+async function fetchPppoeBilling(month) {
+    const monthInput = document.getElementById('pppoe-billing-month');
+    if (!month) {
+        month = monthInput && monthInput.value ? monthInput.value : new Date().toISOString().slice(0, 7);
+    }
+    if (monthInput && !monthInput.value) monthInput.value = month;
+
+    const tbody = document.querySelector('#table-pppoe-billing tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>';
+
+    try {
+        const result = await apiFetch(`/api/pppoe-usage?month=${month}`);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const rooms = (result.rooms || []).sort((a, b) => (b.bytesIn + b.bytesOut) - (a.bytesIn + a.bytesOut));
+        if (rooms.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">ไม่มีข้อมูลการใช้งานในเดือนนี้</td></tr>';
+            return;
+        }
+        rooms.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${r.username}</strong></td>
+                <td>${formatBytes(r.bytesIn)}</td>
+                <td>${formatBytes(r.bytesOut)}</td>
+                <td><strong>${formatBytes(r.bytesIn + r.bytesOut)}</strong></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+document.getElementById('pppoe-billing-month')?.addEventListener('change', (e) => fetchPppoeBilling(e.target.value));
+
+// ---- PPPoE Server Setup Script Modal ----
+const modalPppoeScript = document.getElementById('modal-pppoe-script');
+
+document.getElementById('btn-pppoe-setup-script')?.addEventListener('click', () => {
+    document.getElementById('pppoe-script-result-box').style.display = 'none';
+    document.getElementById('pppoe-script-error').style.display = 'none';
+    if (modalPppoeScript) modalPppoeScript.classList.add('active');
+});
+
+document.querySelectorAll('#modal-pppoe-script .modal-cancel, #modal-pppoe-script .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => { if (modalPppoeScript) modalPppoeScript.classList.remove('active'); });
+});
+
+document.getElementById('btn-generate-pppoe-script')?.addEventListener('click', async () => {
+    const interfaceName = document.getElementById('pppoe-script-interface').value.trim();
+    const vlanId = document.getElementById('pppoe-script-vlan').value.trim();
+    const poolStart = document.getElementById('pppoe-script-pool-start').value.trim();
+    const poolEnd = document.getElementById('pppoe-script-pool-end').value.trim();
+    const serverAddress = document.getElementById('pppoe-script-server-address').value.trim();
+    const errorEl = document.getElementById('pppoe-script-error');
+
+    if (!interfaceName || !poolStart || !poolEnd || !serverAddress) {
+        errorEl.textContent = 'กรุณากรอกข้อมูลที่จำเป็น (Interface, IP Pool, Server Address) ให้ครบ';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    try {
+        errorEl.style.display = 'none';
+        const res = await apiFetch('/api/mikrotik/pppoe/generate-script', {
+            method: 'POST',
+            body: JSON.stringify({ interfaceName, vlanId: vlanId || undefined, poolStart, poolEnd, serverAddress })
+        });
+        document.getElementById('pppoe-script-textarea').value = res.script;
+        document.getElementById('pppoe-script-result-box').style.display = 'block';
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+    }
+});
+
+document.getElementById('btn-copy-pppoe-script')?.addEventListener('click', () => {
+    const textarea = document.getElementById('pppoe-script-textarea');
+    textarea.select();
+    document.execCommand('copy');
+    alert('คัดลอกสคริปต์เรียบร้อยแล้ว! นำไปวางใน WinBox Terminal ได้เลย');
+});
 
 
 // Add/Edit Hotspot Account Modal Actions

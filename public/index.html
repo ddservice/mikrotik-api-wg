@@ -77,6 +77,9 @@
                 <a href="#" class="menu-item" data-target="page-hotspot" id="nav-hotspot" style="display: none;">
                     <i class="fa-solid fa-wifi"></i> <span>จัดการ Hotspot</span>
                 </a>
+                <a href="#" class="menu-item" data-target="page-pppoe" id="nav-pppoe" style="display: none;">
+                    <i class="fa-solid fa-door-open"></i> <span>PPPoE ห้องเช่า</span>
+                </a>
                 <a href="#" class="menu-item" data-target="page-firewall" id="nav-firewall" style="display: none;">
                     <i class="fa-solid fa-fire-burner"></i> <span>จัดการบล็อกเว็บ (Firewall)</span>
                 </a>
@@ -616,6 +619,189 @@
                             </div>
                         </div>
                     </div>
+                </section>
+
+                <!-- PPPoE ROOM ACCOUNTS PAGE -->
+                <section id="page-pppoe" class="page-section" style="display: none;">
+
+                    <!-- Tabs Navigation -->
+                    <div class="tab-nav">
+                        <button class="tab-btn active" data-tab="tab-pppoe-active">
+                            <i class="fa-solid fa-circle-nodes"></i> สถานะออนไลน์ <span class="tab-badge" id="badge-pppoe-active">(-)</span>
+                        </button>
+                        <button class="tab-btn" data-tab="tab-pppoe-accounts">
+                            <i class="fa-solid fa-door-open"></i> บัญชีห้อง <span class="tab-badge" id="badge-pppoe-accounts">(-)</span>
+                        </button>
+                        <button class="tab-btn" data-tab="tab-pppoe-profiles">
+                            <i class="fa-solid fa-sliders"></i> แพ็กเกจ <span class="tab-badge" id="badge-pppoe-profiles">(-)</span>
+                        </button>
+                        <button class="tab-btn" data-tab="tab-pppoe-billing">
+                            <i class="fa-solid fa-file-invoice-dollar"></i> การใช้งาน/บิล
+                        </button>
+                    </div>
+
+                    <!-- TAB 1: Live Status -->
+                    <div id="tab-pppoe-active" class="tab-content active">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-bolt text-warning"></i>
+                                    <div>
+                                        <h4>ห้องที่ออนไลน์อยู่ตอนนี้</h4>
+                                        <p>Router ตามห้องที่กำลังเชื่อมต่อผ่าน PPPoE อยู่ในปัจจุบัน</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <div class="refresh-status" id="pppoe-refresh-status">
+                                        <span class="live-indicator"><i class="fa-solid fa-circle"></i> Live</span>
+                                        <span id="pppoe-refresh-countdown" style="font-size:0.78rem;color:var(--text-muted);">รีเฟรชใน 30s</span>
+                                    </div>
+                                    <button id="btn-refresh-pppoe-active" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-arrows-rotate"></i> รีเฟรช
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-pppoe-active">
+                                        <thead>
+                                            <tr>
+                                                <th>ห้อง</th>
+                                                <th>IP Address</th>
+                                                <th>เวลาออนไลน์</th>
+                                                <th>ดาวน์โหลด</th>
+                                                <th>อัปโหลด</th>
+                                                <th class="text-center">ตัดการเชื่อมต่อ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: Room Accounts -->
+                    <div id="tab-pppoe-accounts" class="tab-content">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-address-book text-primary"></i>
+                                    <div>
+                                        <h4>บัญชีห้องทั้งหมด</h4>
+                                        <p>รายชื่อบัญชี PPPoE ของแต่ละห้อง</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-secondary btn-sm" id="btn-pppoe-setup-script"><i class="fa-solid fa-gear"></i> ตั้งค่า PPPoE Server</button>
+                                    <button class="btn btn-primary" id="btn-add-pppoe-user"><i class="fa-solid fa-plus"></i> เพิ่มบัญชีห้อง</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="search-bar-inline mb-12">
+                                    <div class="input-with-icon" style="max-width:300px;">
+                                        <i class="fa-solid fa-magnifying-glass"></i>
+                                        <input type="text" id="search-pppoe-accounts" class="form-control" placeholder="ค้นหาห้อง, แพ็กเกจ, หมายเหตุ...">
+                                    </div>
+                                    <span id="pppoe-accounts-count" class="count-badge"></span>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table" id="table-pppoe-users">
+                                        <thead>
+                                            <tr>
+                                                <th>ห้อง (Username)</th>
+                                                <th>รหัสผ่าน</th>
+                                                <th>แพ็กเกจ</th>
+                                                <th>หมายเหตุ</th>
+                                                <th class="text-center">สถานะ</th>
+                                                <th class="text-center">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: Packages -->
+                    <div id="tab-pppoe-profiles" class="tab-content">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-sliders text-primary"></i>
+                                    <div>
+                                        <h4>แพ็กเกจ (PPP Profiles)</h4>
+                                        <p>กำหนดแพ็กเกจความเร็วต่างๆ สำหรับผูกกับบัญชีห้อง เช่น 500Mbps, 1Gbps</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-primary" id="btn-add-pppoe-profile"><i class="fa-solid fa-plus"></i> เพิ่มแพ็กเกจใหม่</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-pppoe-profiles">
+                                        <thead>
+                                            <tr>
+                                                <th>ชื่อแพ็กเกจ</th>
+                                                <th>จำกัดความเร็ว (Upload/Download)</th>
+                                                <th>Local Address</th>
+                                                <th>Remote Address / Pool</th>
+                                                <th class="text-center">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="5" class="text-center text-muted">กำลังโหลดข้อมูลแพ็กเกจ...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 4: Usage / Billing -->
+                    <div id="tab-pppoe-billing" class="tab-content">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-file-invoice-dollar text-primary"></i>
+                                    <div>
+                                        <h4>สรุปการใช้งานรายห้อง (สำหรับเก็บเงิน)</h4>
+                                        <p>ยอดรวมดาวน์โหลด/อัปโหลดของแต่ละห้องตามเดือนที่เลือก</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <input type="month" id="pppoe-billing-month" class="form-control" style="max-width:160px;">
+                                    <a id="btn-export-pppoe-log" href="/api/pppoe-usage/export-csv" class="btn btn-secondary btn-sm" target="_blank">
+                                        <i class="fa-solid fa-file-csv"></i> Export CSV (ประวัติทั้งหมด)
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-pppoe-billing">
+                                        <thead>
+                                            <tr>
+                                                <th>ห้อง</th>
+                                                <th>ดาวน์โหลดรวม</th>
+                                                <th>อัปโหลดรวม</th>
+                                                <th>รวมทั้งหมด</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="4" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </section>
 
                 <!-- 3. FIREWALL BLOCK PAGE -->
@@ -1602,6 +1788,152 @@
             </div>
         </div>
     </div>
+
+    <!-- MODAL: ADD/EDIT PPPoE ROOM ACCOUNT -->
+    <div id="modal-pppoe-user" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="pppoe-user-modal-title">เพิ่มบัญชีห้องใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-pppoe-user">
+                    <input type="hidden" id="pppoe-user-id">
+                    <div class="form-group">
+                        <label for="pppoe-user-name">ชื่อห้อง (Username) *</label>
+                        <input type="text" id="pppoe-user-name" required class="form-control" placeholder="เช่น A101, B202">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-user-password">รหัสผ่าน (Password) *</label>
+                        <input type="text" id="pppoe-user-password" class="form-control" placeholder="รหัสผ่านสำหรับ router ของห้อง">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-user-profile">แพ็กเกจ (Package) *</label>
+                        <select id="pppoe-user-profile" required class="form-control">
+                            <option value="default">default</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-user-comment">หมายเหตุ (เช่น ชื่อผู้เช่า)</label>
+                        <input type="text" id="pppoe-user-comment" class="form-control" placeholder="เช่น ชื่อผู้เช่า, เบอร์โทร">
+                    </div>
+                    <div class="cleanup-status-bar mb-16">
+                        <div class="cleanup-info">
+                            <i class="fa-solid fa-toggle-on text-primary"></i>
+                            <span>เปิดใช้งานห้องนี้ (ปิดเมื่อค้างชำระ)</span>
+                        </div>
+                        <label class="switch switch-sm">
+                            <input type="checkbox" id="pppoe-user-enabled" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div id="pppoe-user-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary">บันทึกข้อมูล</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: ADD/EDIT PPPoE PACKAGE -->
+    <div id="modal-pppoe-profile" class="modal-wrapper">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="pppoe-profile-modal-title">เพิ่มแพ็กเกจใหม่</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-pppoe-profile">
+                    <input type="hidden" id="pppoe-profile-id">
+                    <div class="form-group">
+                        <label for="pppoe-profile-name">ชื่อแพ็กเกจ *</label>
+                        <input type="text" id="pppoe-profile-name" required class="form-control" placeholder="เช่น 500Mbps, 1Gbps">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-profile-rate-preset">จำกัดความเร็วมาตรฐาน</label>
+                        <select id="pppoe-profile-rate-preset" class="form-control mb-8">
+                            <option value="">-- กำหนดเอง (Custom) --</option>
+                            <option value="500M/500M">500 Mbps / 500 Mbps</option>
+                            <option value="1G/1G">1 Gbps / 1 Gbps</option>
+                        </select>
+                        <input type="text" id="pppoe-profile-rate-limit" class="form-control" placeholder="รูปแบบ Upload/Download เช่น 500M/500M">
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="pppoe-profile-local-address">Local Address (IP ฝั่งเซิร์ฟเวอร์)</label>
+                            <input type="text" id="pppoe-profile-local-address" class="form-control" placeholder="เช่น 10.20.0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="pppoe-profile-remote-address">Remote Address / Pool</label>
+                            <input type="text" id="pppoe-profile-remote-address" class="form-control" placeholder="เช่น pppoe-pool">
+                        </div>
+                    </div>
+                    <div id="pppoe-profile-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer mt-16">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary">บันทึกแพ็กเกจ</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: PPPoE SERVER SETUP SCRIPT -->
+    <div id="modal-pppoe-script" class="modal-wrapper">
+        <div class="modal-card" style="max-width: 680px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-gear text-primary"></i> ตั้งค่า PPPoE Server บน MikroTik</h4>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
+                    ทำครั้งเดียวต่อไซต์งาน — กรอกข้อมูลแล้วกด "สร้างสคริปต์" จากนั้นคัดลอกไปวางใน <strong>WinBox &rarr; Terminal</strong> บน MikroTik ของไซต์นั้น
+                    (ถ้าใช้ VLAN แยกวงสำหรับห้องเช่า ต้องตั้งค่าฝั่ง Switch เองแยกต่างหาก — MikroTik API ตั้งค่าให้เฉพาะฝั่งราวเตอร์เท่านั้น)
+                </p>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="pppoe-script-interface">Interface ที่ต่อกับ Switch ห้องเช่า *</label>
+                        <input type="text" id="pppoe-script-interface" class="form-control" placeholder="เช่น ether3">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-script-vlan">VLAN ID (ไม่บังคับ)</label>
+                        <input type="number" id="pppoe-script-vlan" class="form-control" placeholder="เว้นว่างถ้าไม่ใช้ VLAN">
+                    </div>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="pppoe-script-pool-start">IP Pool เริ่มต้น *</label>
+                        <input type="text" id="pppoe-script-pool-start" class="form-control" placeholder="เช่น 10.20.0.2">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-script-pool-end">IP Pool สิ้นสุด *</label>
+                        <input type="text" id="pppoe-script-pool-end" class="form-control" placeholder="เช่น 10.20.255.254">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="pppoe-script-server-address">Server Address (IP ฝั่งราวเตอร์) *</label>
+                    <input type="text" id="pppoe-script-server-address" class="form-control" placeholder="เช่น 10.20.0.1">
+                </div>
+                <div id="pppoe-script-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                <div class="form-group text-right">
+                    <button type="button" class="btn btn-primary" id="btn-generate-pppoe-script"><i class="fa-solid fa-wand-magic-sparkles"></i> สร้างสคริปต์</button>
+                </div>
+                <div class="form-group" id="pppoe-script-result-box" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <label style="margin:0;">สคริปต์ (คัดลอกไปวางใน WinBox Terminal)</label>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-pppoe-script"><i class="fa-solid fa-copy"></i> คัดลอก</button>
+                    </div>
+                    <textarea id="pppoe-script-textarea" class="form-control" rows="8" readonly style="font-family:monospace; font-size:0.8rem; background:#0f172a; color:#38bdf8; padding:12px; border-radius:6px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:12px 24px;">
+                <button type="button" class="btn btn-secondary modal-cancel">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: ADD/EDIT DASHBOARD ADMIN -->
     <!-- ========================================== -->
     <div id="modal-admin" class="modal-wrapper">
@@ -1893,7 +2225,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=16.0"></script>
+    <script src="app.js?v=17.0"></script>
 </body>
 </html>
 

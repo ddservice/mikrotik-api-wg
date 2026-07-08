@@ -555,6 +555,89 @@ function purgeOldHotspotLogs() {
 }
 
 // ==========================================
+// PPPoE Usage Logs (ห้องเช่า — billing/accounting, no auto-purge)
+// ==========================================
+const PPPOE_LOGS_FILE = path.join(DB_DIR, 'pppoe_usage_logs.json');
+
+function getAllPppoeUsageLogsRaw() {
+    try {
+        if (!fs.existsSync(PPPOE_LOGS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(PPPOE_LOGS_FILE, 'utf8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+function getPppoeUsageLogs(options = {}) {
+    try {
+        let logs = getAllPppoeUsageLogsRaw();
+        if (options.search) {
+            const q = options.search.toLowerCase();
+            logs = logs.filter(l =>
+                (l.username || '').toLowerCase().includes(q) ||
+                (l.ipAddress || '').includes(q)
+            );
+        }
+        if (options.from) {
+            const from = new Date(options.from).getTime();
+            logs = logs.filter(l => new Date(l.loginTime).getTime() >= from);
+        }
+        if (options.to) {
+            const to = new Date(options.to).getTime();
+            logs = logs.filter(l => new Date(l.loginTime).getTime() <= to);
+        }
+        if (options.username) {
+            logs = logs.filter(l => l.username === options.username);
+        }
+        const total = logs.length;
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const offset = (page - 1) * limit;
+        const paginated = logs.slice(offset, offset + limit);
+        return { logs: paginated, total, page, limit, pages: Math.ceil(total / limit) };
+    } catch (e) {
+        return { logs: [], total: 0, page: 1, limit: 100, pages: 0 };
+    }
+}
+
+function addPppoeUsageLog(entry) {
+    const logs = getAllPppoeUsageLogsRaw();
+    const newEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        loginTime: entry.loginTime || new Date().toISOString(),
+        logoutTime: entry.logoutTime || null,
+        username: entry.username || '',
+        ipAddress: entry.ipAddress || '',
+        bytesIn: entry.bytesIn || 0,
+        bytesOut: entry.bytesOut || 0,
+        siteName: entry.siteName || '',
+        status: entry.status || 'connected'
+    };
+    logs.unshift(newEntry);
+    // No auto-purge here — billing data, kept indefinitely (unlike hotspot/DNS logs).
+    fs.writeFileSync(PPPOE_LOGS_FILE, JSON.stringify(logs, null, 4), 'utf8');
+    return newEntry;
+}
+
+function getPppoeUsageSummary(month) {
+    const m = /^\d{4}-\d{2}$/.test(month) ? month : new Date().toISOString().slice(0, 7);
+    const start = new Date(m + '-01T00:00:00.000Z').getTime();
+    const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
+    const endTime = end.getTime();
+    const logs = getAllPppoeUsageLogsRaw().filter(l => {
+        const t = new Date(l.loginTime).getTime();
+        return t >= start && t < endTime;
+    });
+    const byRoom = {};
+    for (const l of logs) {
+        if (!byRoom[l.username]) byRoom[l.username] = { username: l.username, bytesIn: 0, bytesOut: 0 };
+        byRoom[l.username].bytesIn += l.bytesIn || 0;
+        byRoom[l.username].bytesOut += l.bytesOut || 0;
+    }
+    return { month: m, rooms: Object.values(byRoom) };
+}
+
+// ==========================================
 // DNS Query Logs (พรบ คอมพิวเตอร์ มาตรา 26 — domain-level visit history)
 // ==========================================
 const DNS_LOGS_FILE = path.join(DB_DIR, 'dns_query_logs.json');
@@ -680,8 +763,13 @@ module.exports = {
     updateHotspotSessionLog,
     purgeOldHotspotLogs,
     getDnsQueryLogs,
+    getAllDnsQueryLogsRaw,
     addDnsQueryLogsBulk,
     purgeOldDnsQueryLogs,
+    getPppoeUsageLogs,
+    getAllPppoeUsageLogsRaw,
+    addPppoeUsageLog,
+    getPppoeUsageSummary,
     getAutoCleanupConfig,
     saveAutoCleanupConfig
 };
