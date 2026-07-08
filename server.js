@@ -659,7 +659,8 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
         callbackScriptBlock = `
 # 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
 :local pubkey [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
-/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="Content-Type: application/json" http-data="{\\"publicKey\\":\\"$pubkey\\"}" output=none
+:local wgBody ("{\\"publicKey\\":\\"" . $pubkey . "\\"}")
+/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="Content-Type: application/json" http-data=$wgBody output=none
 :put "Public Key auto-registered to dashboard!"`;
     } else {
         console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
