@@ -741,6 +741,34 @@ function saveAutoCleanupConfig(config) {
     return updated;
 }
 
+// ==========================================
+// Menu Permissions (which nav items co-admin/user can see)
+// admin always sees everything — not configurable, not stored here.
+// ==========================================
+const MENU_PERMISSIONS_FILE = path.join(DB_DIR, 'menu_permissions.json');
+const DEFAULT_MENU_PERMISSIONS = {
+    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'user': ['hotspot', 'firewall']
+};
+
+function getMenuPermissions() {
+    try {
+        if (!fs.existsSync(MENU_PERMISSIONS_FILE)) return { ...DEFAULT_MENU_PERMISSIONS };
+        return JSON.parse(fs.readFileSync(MENU_PERMISSIONS_FILE, 'utf8'));
+    } catch (e) {
+        return { ...DEFAULT_MENU_PERMISSIONS };
+    }
+}
+
+function saveMenuPermissions(config) {
+    const updated = {
+        'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
+        'user': Array.isArray(config['user']) ? config['user'] : []
+    };
+    fs.writeFileSync(MENU_PERMISSIONS_FILE, JSON.stringify(updated, null, 4), 'utf8');
+    return updated;
+}
+
 module.exports = {
     getConfig,
     saveConfig,
@@ -771,6 +799,8 @@ module.exports = {
     addPppoeUsageLog,
     getPppoeUsageSummary,
     getAutoCleanupConfig,
-    saveAutoCleanupConfig
+    saveAutoCleanupConfig,
+    getMenuPermissions,
+    saveMenuPermissions
 };
 

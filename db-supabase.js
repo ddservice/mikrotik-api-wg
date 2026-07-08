@@ -500,6 +500,31 @@ async function saveAutoCleanupConfig(config) {
     return updated;
 }
 
+// ==========================================
+// Menu Permissions (which nav items co-admin/user can see)
+// admin always sees everything — not configurable, not stored here.
+// ==========================================
+var DEFAULT_MENU_PERMISSIONS = {
+    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'user': ['hotspot', 'firewall']
+};
+
+async function getMenuPermissions() {
+    try {
+        var res = await supabase.from('app_settings').select('value').eq('key', 'menu_permissions').maybeSingle();
+        return (res.data && res.data.value) || Object.assign({}, DEFAULT_MENU_PERMISSIONS);
+    } catch(e) { return Object.assign({}, DEFAULT_MENU_PERMISSIONS); }
+}
+
+async function saveMenuPermissions(config) {
+    var updated = {
+        'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
+        'user': Array.isArray(config['user']) ? config['user'] : []
+    };
+    await supabase.from('app_settings').upsert({ key: 'menu_permissions', value: updated, updated_at: new Date().toISOString() });
+    return updated;
+}
+
 module.exports = {
     getConfig: getConfig, saveConfig: saveConfig,
     getSites: getSites, setActiveSite: setActiveSite,
@@ -515,5 +540,6 @@ module.exports = {
     purgeOldDnsQueryLogs: purgeOldDnsQueryLogs,
     getPppoeUsageLogs: getPppoeUsageLogs, getAllPppoeUsageLogsRaw: getAllPppoeUsageLogsRaw,
     addPppoeUsageLog: addPppoeUsageLog, getPppoeUsageSummary: getPppoeUsageSummary,
-    getAutoCleanupConfig: getAutoCleanupConfig, saveAutoCleanupConfig: saveAutoCleanupConfig
+    getAutoCleanupConfig: getAutoCleanupConfig, saveAutoCleanupConfig: saveAutoCleanupConfig,
+    getMenuPermissions: getMenuPermissions, saveMenuPermissions: saveMenuPermissions
 };

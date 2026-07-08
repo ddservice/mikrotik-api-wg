@@ -208,6 +208,28 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
     res.json({ user: req.user });
 });
 
+// Menu visibility per role (co-admin/user) — admin always sees everything,
+// this is a UI-only convenience toggle, not an API-level access boundary
+// (the underlying API routes keep their own fixed requireAuth role checks).
+app.get('/api/settings/menu-permissions', requireAuth(), async (req, res) => {
+    try {
+        const perms = await db.getMenuPermissions();
+        res.json(perms);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/settings/menu-permissions', requireAuth(['admin']), async (req, res) => {
+    try {
+        const updated = await db.saveMenuPermissions(req.body || {});
+        db.addLog(req.user.username, 'ตั้งค่าสิทธิ์เมนู', 'อัปเดตสิทธิ์การมองเห็นเมนูของ co-admin/user');
+        res.json(updated);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // ==========================================
 // Log APIs (Admin only)

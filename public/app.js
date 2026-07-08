@@ -213,6 +213,22 @@ function logout() {
     showLogin();
 }
 
+// Maps a menu-permission key (stored/toggled in Settings) to its nav <a> id.
+const MENU_PERMISSION_NAV_IDS = {
+    hotspot: 'nav-hotspot',
+    pppoe: 'nav-pppoe',
+    firewall: 'nav-firewall',
+    logs: 'nav-logs'
+};
+
+// Fallback if the permissions API call fails — mirrors the defaults on the
+// server (db.js/db-supabase.js DEFAULT_MENU_PERMISSIONS) so the app doesn't
+// look broken while offline/erroring.
+const DEFAULT_MENU_PERMISSIONS_FALLBACK = {
+    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'user': ['hotspot', 'firewall']
+};
+
 function configureMenuRoles(role) {
     // Hide all role-restricted menu items first
     document.getElementById('nav-hotspot').style.display = 'none';
@@ -223,21 +239,35 @@ function configureMenuRoles(role) {
     document.getElementById('nav-logs').style.display = 'none';
 
     if (role === 'admin') {
+        // admin always sees everything — not configurable
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-pppoe').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-admins').style.display = 'flex';
         document.getElementById('nav-settings').style.display = 'flex';
         document.getElementById('nav-logs').style.display = 'flex';
-    } else if (role === 'co-admin') {
-        document.getElementById('nav-hotspot').style.display = 'flex';
-        document.getElementById('nav-pppoe').style.display = 'flex';
-        document.getElementById('nav-firewall').style.display = 'flex';
-        document.getElementById('nav-logs').style.display = 'flex';
-    } else if (role === 'user') {
-        document.getElementById('nav-hotspot').style.display = 'flex';
-        document.getElementById('nav-firewall').style.display = 'flex';
+        return;
     }
+
+    if (role === 'co-admin' || role === 'user') {
+        applyMenuPermissionsForRole(role);
+    }
+}
+
+async function applyMenuPermissionsForRole(role) {
+    let allowed;
+    try {
+        const perms = await apiFetch('/api/settings/menu-permissions');
+        allowed = perms[role] || [];
+    } catch (err) {
+        console.error('Failed to load menu permissions, using defaults:', err);
+        allowed = DEFAULT_MENU_PERMISSIONS_FALLBACK[role] || [];
+    }
+    allowed.forEach(key => {
+        const navId = MENU_PERMISSION_NAV_IDS[key];
+        const el = navId ? document.getElementById(navId) : null;
+        if (el) el.style.display = 'flex';
+    });
 }
 
 // ==========================================
@@ -303,7 +333,7 @@ function switchPage(targetPageId) {
     const titleMap = {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
         'page-hotspot': { title: 'จัดการ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
-        'page-pppoe': { title: 'PPPoE ห้องเช่า', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
+        'page-pppoe': { title: 'จัดการระบบ PPPoE', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
         'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
@@ -329,6 +359,7 @@ function loadPageData(pageId) {
         fetchFirewallStatus();
     } else if (pageId === 'page-admins') {
         fetchDashboardUsers();
+        fetchMenuPermissions();
     } else if (pageId === 'page-settings') {
         fetchSitesManagement();
     } else if (pageId === 'page-logs') {
@@ -2259,6 +2290,41 @@ document.addEventListener('click', async (e) => {
 // ==========================================
 // ADMIN DASHBOARD USER MANAGEMENT
 // ==========================================
+async function fetchMenuPermissions() {
+    try {
+        const perms = await apiFetch('/api/settings/menu-permissions');
+        document.querySelectorAll('.menu-perm-chk').forEach(chk => {
+            const menu = chk.getAttribute('data-menu');
+            const role = chk.getAttribute('data-role');
+            const allowed = perms[role] || [];
+            chk.checked = allowed.includes(menu);
+        });
+    } catch (err) {
+        console.error('Failed to load menu permissions:', err);
+    }
+}
+
+document.getElementById('btn-save-menu-permissions')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const body = { 'co-admin': [], 'user': [] };
+    document.querySelectorAll('.menu-perm-chk').forEach(chk => {
+        if (chk.checked) {
+            const menu = chk.getAttribute('data-menu');
+            const role = chk.getAttribute('data-role');
+            if (body[role]) body[role].push(menu);
+        }
+    });
+    try {
+        btn.disabled = true;
+        await apiFetch('/api/settings/menu-permissions', { method: 'POST', body: JSON.stringify(body) });
+        alert('บันทึกสิทธิ์การมองเห็นเมนูเรียบร้อยแล้ว');
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
 async function fetchDashboardUsers() {
     try {
         const users = await apiFetch('/api/users');

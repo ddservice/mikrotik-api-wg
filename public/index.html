@@ -78,7 +78,7 @@
                     <i class="fa-solid fa-wifi"></i> <span>จัดการ Hotspot</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-pppoe" id="nav-pppoe" style="display: none;">
-                    <i class="fa-solid fa-door-open"></i> <span>PPPoE ห้องเช่า</span>
+                    <i class="fa-solid fa-door-open"></i> <span>จัดการระบบ PPPoE</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-firewall" id="nav-firewall" style="display: none;">
                     <i class="fa-solid fa-fire-burner"></i> <span>จัดการบล็อกเว็บ (Firewall)</span>
@@ -1474,6 +1474,57 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Menu Visibility Permissions (admin only, co-admin/user configurable) -->
+                    <div class="card mt-24">
+                        <div class="card-header card-header-flex">
+                            <div class="card-title">
+                                <i class="fa-solid fa-eye text-primary"></i>
+                                <div>
+                                    <h4>สิทธิ์การมองเห็นเมนู (Menu Visibility)</h4>
+                                    <p>กำหนดว่าบทบาท co-admin และ user จะเห็นเมนูใดใน sidebar บ้าง (admin เห็นทุกเมนูเสมอ)</p>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" id="btn-save-menu-permissions"><i class="fa-solid fa-floppy-disk"></i> บันทึก</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table" id="table-menu-permissions">
+                                    <thead>
+                                        <tr>
+                                            <th>เมนู</th>
+                                            <th class="text-center">co-admin</th>
+                                            <th class="text-center">user</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>จัดการ Hotspot</td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="hotspot" data-role="co-admin"></td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="hotspot" data-role="user"></td>
+                                        </tr>
+                                        <tr>
+                                            <td>จัดการระบบ PPPoE</td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="pppoe" data-role="co-admin"></td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="pppoe" data-role="user"></td>
+                                        </tr>
+                                        <tr>
+                                            <td>จัดการบล็อกเว็บ (Firewall)</td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="firewall" data-role="co-admin"></td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="firewall" data-role="user"></td>
+                                        </tr>
+                                        <tr>
+                                            <td>ประวัติการใช้งาน (Log)</td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="logs" data-role="co-admin"></td>
+                                            <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="logs" data-role="user"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- 5. ROUTER SETTINGS PAGE (Admin only) -->
@@ -2225,7 +2276,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=17.0"></script>
+    <script src="app.js?v=18.0"></script>
 </body>
 </html>
 
