@@ -336,6 +336,7 @@ function loadPageData(pageId) {
 let activeLogTab = 'tab-log-activity';
 let activityLogPage = 1;
 let trafficLogPage = 1;
+let dnsLogPage = 1;
 
 function loadLogTab(tabId) {
     activeLogTab = tabId;
@@ -355,6 +356,9 @@ function loadLogTab(tabId) {
     } else if (tabId === 'tab-log-traffic') {
         trafficLogPage = 1;
         fetchHotspotTrafficLogs();
+    } else if (tabId === 'tab-log-dns') {
+        dnsLogPage = 1;
+        fetchDnsQueryLogs();
     }
 }
 
@@ -503,6 +507,73 @@ document.getElementById('btn-clear-traffic')?.addEventListener('click', () => {
     fetchHotspotTrafficLogs(1);
 });
 document.getElementById('traffic-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { trafficLogPage = 1; fetchHotspotTrafficLogs(1); } });
+
+// ---- DNS VISIT HISTORY (พรบ, domain-level) ----
+async function fetchDnsQueryLogs(page = dnsLogPage) {
+    dnsLogPage = page;
+    const search = (document.getElementById('dns-search')?.value || '').trim();
+    const from = document.getElementById('dns-from')?.value || '';
+    const to = document.getElementById('dns-to')?.value || '';
+
+    const tbody = document.getElementById('tbody-dns-log');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>';
+
+    try {
+        const params = new URLSearchParams({ page, limit: 50 });
+        if (search) params.set('search', search);
+        if (from) params.set('from', from);
+        if (to) params.set('to', to + 'T23:59:59');
+
+        const result = await apiFetch(`/api/dns-logs?${params}`);
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!result.logs || result.logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">ยังไม่มีข้อมูล — ต้องเปิด DNS logging บนราวเตอร์ก่อน ระบบจะเริ่มบันทึกอัตโนมัติทุก 5 นาที</td></tr>';
+        } else {
+            result.logs.forEach(log => {
+                const tr = document.createElement('tr');
+                const dt = log.queryTime ? new Date(log.queryTime).toLocaleString('th-TH') : '-';
+                tr.innerHTML = `
+                    <td style="font-size:0.79rem;">${dt}</td>
+                    <td><strong>${log.username || '-'}</strong></td>
+                    <td><code style="font-size:0.8rem;">${log.ipAddress || '-'}</code></td>
+                    <td><code style="font-size:0.75rem;color:var(--text-muted);">${log.macAddress || '-'}</code></td>
+                    <td><code style="font-size:0.8rem;">${log.domain || '-'}</code></td>
+                    <td style="font-size:0.8rem;">${log.siteName || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Update export link with current filters
+        const exportLink = document.getElementById('btn-export-dns-log');
+        if (exportLink) {
+            const exportParams = new URLSearchParams();
+            if (search) exportParams.set('search', search);
+            if (from) exportParams.set('from', from);
+            if (to) exportParams.set('to', to + 'T23:59:59');
+            exportLink.href = `/api/dns-logs/export-csv?${exportParams}`;
+        }
+
+        // Render pagination
+        renderPagination('pagination-dns', result, (p) => fetchDnsQueryLogs(p));
+
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+// Filter / Clear buttons for DNS Visit History
+document.getElementById('btn-filter-dns')?.addEventListener('click', () => { dnsLogPage = 1; fetchDnsQueryLogs(1); });
+document.getElementById('btn-clear-dns')?.addEventListener('click', () => {
+    document.getElementById('dns-search').value = '';
+    document.getElementById('dns-from').value = '';
+    document.getElementById('dns-to').value = '';
+    fetchDnsQueryLogs(1);
+});
+document.getElementById('dns-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { dnsLogPage = 1; fetchDnsQueryLogs(1); } });
 
 // ---- SHARED: Pagination Renderer ----
 function renderPagination(containerId, result, onPageChange) {

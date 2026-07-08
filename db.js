@@ -554,6 +554,87 @@ function purgeOldHotspotLogs() {
     return logs.length - retained.length; // จำนวนที่ถูกลบ
 }
 
+// ==========================================
+// DNS Query Logs (พรบ คอมพิวเตอร์ มาตรา 26 — domain-level visit history)
+// ==========================================
+const DNS_LOGS_FILE = path.join(DB_DIR, 'dns_query_logs.json');
+const DNS_LOG_RETENTION_DAYS = 90;
+
+function getAllDnsQueryLogsRaw() {
+    try {
+        if (!fs.existsSync(DNS_LOGS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(DNS_LOGS_FILE, 'utf8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+function getDnsQueryLogs(options = {}) {
+    try {
+        let logs = getAllDnsQueryLogsRaw();
+
+        if (options.search) {
+            const q = options.search.toLowerCase();
+            logs = logs.filter(l =>
+                (l.username || '').toLowerCase().includes(q) ||
+                (l.ipAddress || '').includes(q) ||
+                (l.macAddress || '').toLowerCase().includes(q) ||
+                (l.domain || '').toLowerCase().includes(q)
+            );
+        }
+        if (options.from) {
+            const from = new Date(options.from).getTime();
+            logs = logs.filter(l => new Date(l.queryTime).getTime() >= from);
+        }
+        if (options.to) {
+            const to = new Date(options.to).getTime();
+            logs = logs.filter(l => new Date(l.queryTime).getTime() <= to);
+        }
+        if (options.username) {
+            logs = logs.filter(l => l.username === options.username);
+        }
+
+        const total = logs.length;
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const offset = (page - 1) * limit;
+        const paginated = logs.slice(offset, offset + limit);
+
+        return { logs: paginated, total, page, limit, pages: Math.ceil(total / limit) };
+    } catch (e) {
+        return { logs: [], total: 0, page: 1, limit: 100, pages: 0 };
+    }
+}
+
+function addDnsQueryLogsBulk(entries) {
+    if (!entries || entries.length === 0) return 0;
+    const logs = getAllDnsQueryLogsRaw();
+    const newRows = entries.map(entry => ({
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+        queryTime: entry.queryTime || new Date().toISOString(),
+        username: entry.username || '',
+        ipAddress: entry.ipAddress || '',
+        macAddress: entry.macAddress || '',
+        domain: entry.domain || '',
+        siteName: entry.siteName || ''
+    }));
+    const combined = newRows.concat(logs);
+    const cutoff = Date.now() - (DNS_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const retained = combined.filter(l => new Date(l.queryTime).getTime() >= cutoff);
+    fs.writeFileSync(DNS_LOGS_FILE, JSON.stringify(retained, null, 4), 'utf8');
+    return newRows.length;
+}
+
+function purgeOldDnsQueryLogs() {
+    const logs = getAllDnsQueryLogsRaw();
+    const cutoff = Date.now() - (DNS_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const retained = logs.filter(l => new Date(l.queryTime).getTime() >= cutoff);
+    if (retained.length < logs.length) {
+        fs.writeFileSync(DNS_LOGS_FILE, JSON.stringify(retained, null, 4), 'utf8');
+    }
+    return logs.length - retained.length;
+}
+
 const SETTINGS_FILE = path.join(DB_DIR, 'settings.json');
 
 function getAutoCleanupConfig() {
@@ -598,6 +679,9 @@ module.exports = {
     addHotspotSessionLog,
     updateHotspotSessionLog,
     purgeOldHotspotLogs,
+    getDnsQueryLogs,
+    addDnsQueryLogsBulk,
+    purgeOldDnsQueryLogs,
     getAutoCleanupConfig,
     saveAutoCleanupConfig
 };

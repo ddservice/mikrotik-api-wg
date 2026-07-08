@@ -357,6 +357,59 @@ async function purgeOldHotspotLogs() {
 }
 
 // ==========================================
+// DNS QUERY LOGS (พรบ มาตรา 26 — domain-level visit history)
+// ==========================================
+var DNS_LOG_RETENTION_DAYS = 90;
+
+function _mapDnsRow(l) {
+    return { id: l.id, queryTime: l.query_time, username: l.username || '',
+             ipAddress: l.ip_address, macAddress: l.mac_address || '',
+             domain: l.domain, siteName: l.site_name || '' };
+}
+
+async function getDnsQueryLogs(options) {
+    options = options || {};
+    try {
+        var query = supabase.from('dns_query_logs')
+            .select('*', { count: 'exact' })
+            .order('query_time', { ascending: false });
+        if (options.search) {
+            var q = '%' + options.search + '%';
+            query = query.or('username.ilike.' + q + ',ip_address.ilike.' + q + ',mac_address.ilike.' + q + ',domain.ilike.' + q);
+        }
+        if (options.from) query = query.gte('query_time', new Date(options.from).toISOString());
+        if (options.to) query = query.lte('query_time', new Date(options.to).toISOString());
+        if (options.username) query = query.eq('username', options.username);
+        var page = parseInt(options.page) || 1;
+        var limit = parseInt(options.limit) || 100;
+        var res = await query.range((page - 1) * limit, page * limit - 1);
+        if (res.error) throw res.error;
+        return { logs: (res.data || []).map(_mapDnsRow), total: res.count || 0,
+                 page: page, limit: limit, pages: Math.ceil((res.count || 0) / limit) };
+    } catch(e) { return { logs: [], total: 0, page: 1, limit: 100, pages: 0 }; }
+}
+
+async function addDnsQueryLogsBulk(entries) {
+    if (!entries || entries.length === 0) return 0;
+    var rows = entries.map(function(entry) {
+        return { id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+                 username: entry.username || '', ip_address: entry.ipAddress || '',
+                 mac_address: entry.macAddress || '', domain: entry.domain || '',
+                 site_name: entry.siteName || '',
+                 query_time: entry.queryTime || new Date().toISOString() };
+    });
+    var res = await supabase.from('dns_query_logs').insert(rows);
+    if (res.error) throw new Error(res.error.message);
+    return rows.length;
+}
+
+async function purgeOldDnsQueryLogs() {
+    var cutoff = new Date(Date.now() - DNS_LOG_RETENTION_DAYS * 86400000).toISOString();
+    var res = await supabase.from('dns_query_logs').delete({ count: 'exact' }).lt('query_time', cutoff);
+    return res.count || 0;
+}
+
+// ==========================================
 // SETTINGS
 // ==========================================
 async function getAutoCleanupConfig() {
@@ -383,5 +436,7 @@ module.exports = {
     getHotspotLogs: getHotspotLogs, getAllHotspotLogsRaw: getAllHotspotLogsRaw,
     addHotspotSessionLog: addHotspotSessionLog, updateHotspotSessionLog: updateHotspotSessionLog,
     purgeOldHotspotLogs: purgeOldHotspotLogs,
+    getDnsQueryLogs: getDnsQueryLogs, addDnsQueryLogsBulk: addDnsQueryLogsBulk,
+    purgeOldDnsQueryLogs: purgeOldDnsQueryLogs,
     getAutoCleanupConfig: getAutoCleanupConfig, saveAutoCleanupConfig: saveAutoCleanupConfig
 };

@@ -282,6 +282,39 @@ app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), asyn
     res.send(csvLines.join('\r\n'));
 });
 
+// GET DNS query (domain visit history) logs with search/filter/pagination
+app.get('/api/dns-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { search, from, to, username, page, limit } = req.query;
+    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit });
+    res.json(result);
+});
+
+// Export DNS query (domain visit history) logs as CSV
+app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { search, from, to, username } = req.query;
+    const result = await db.getDnsQueryLogs({ search, from, to, username, page: 1, limit: 99999 });
+    const rows = result.logs;
+
+    const headers = ['เวลา', 'ชื่อผู้ใช้', 'IP Address', 'MAC Address', 'โดเมนที่เข้าชม', 'ไซต์งาน'];
+    const csvLines = [
+        '﻿' + headers.join(','),
+        ...rows.map(r => [
+            `"${r.queryTime || ''}"`,
+            `"${r.username || ''}"`,
+            `"${r.ipAddress || ''}"`,
+            `"${r.macAddress || ''}"`,
+            `"${r.domain || ''}"`,
+            `"${(r.siteName || '').replace(/"/g, '""')}"`
+        ].join(','))
+    ];
+
+    const filename = `dns_visit_log_${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    db.addLog(req.user.username, 'Export DNS Log CSV', `Export DNS visit log จำนวน ${rows.length} รายการ`);
+    res.send(csvLines.join('\r\n'));
+});
+
 
 // ==========================================
 // Dashboard Users CRUD APIs (Admin only)
@@ -398,25 +431,28 @@ app.post('/api/sites/switch/:id', requireAuth(['admin', 'co-admin', 'user']), as
 
 
 // Helper for VPS WireGuard Peer Management
+//
+// NOTE: these shell out to `sudo wg`/`sudo wg-quick`, which requires the OS
+// user running this Node process to have passwordless sudo rights for those
+// two binaries (see /etc/sudoers.d/ setup) — without it, sudo silently fails
+// (no TTY to prompt for a password). Errors here are intentionally left to
+// propagate (not swallowed with `|| true`) so callers/route handlers can
+// report the real failure instead of a false "success".
 function cleanupVpsPeerByIp(wireguardIp) {
     if (!wireguardIp) return;
-    try {
-        const { execSync } = require('child_process');
-        const dump = execSync('sudo wg show wg0 dump 2>/dev/null', { encoding: 'utf8' });
-        const lines = dump.split('\n');
-        const targetIpStr = wireguardIp.trim() + '/32';
-        for (const line of lines) {
-            const parts = line.trim().split(/\s+/);
-            if (parts.length >= 4) {
-                const pubKey = parts[0];
-                const allowedIps = parts[3];
-                if (allowedIps && allowedIps.includes(targetIpStr)) {
-                    execSync(`sudo wg set wg0 peer "${pubKey}" remove 2>/dev/null || true`, { encoding: 'utf8' });
-                }
+    const { execSync } = require('child_process');
+    const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+    const lines = dump.split('\n');
+    const targetIpStr = wireguardIp.trim() + '/32';
+    for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 4) {
+            const pubKey = parts[0];
+            const allowedIps = parts[3];
+            if (allowedIps && allowedIps.includes(targetIpStr)) {
+                execSync(`sudo wg set wg0 peer "${pubKey}" remove`, { encoding: 'utf8' });
             }
         }
-    } catch (e) {
-        console.error('Failed to cleanup VPS peer for IP:', wireguardIp, e.message);
     }
 }
 
@@ -424,8 +460,8 @@ function registerVpsPeer(wireguardIp, clientPublicKey) {
     if (!wireguardIp || !clientPublicKey) return;
     cleanupVpsPeerByIp(wireguardIp);
     const { execSync } = require('child_process');
-    const cmd = `sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32 && sudo wg-quick save wg0 2>/dev/null || true`;
-    execSync(cmd, { encoding: 'utf8' });
+    execSync(`sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32`, { encoding: 'utf8' });
+    execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
 }
 
 // Add new site (Admin only)
@@ -439,7 +475,10 @@ app.post('/api/sites', requireAuth(['admin']), async (req, res) => {
         if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
             try {
                 registerVpsPeer(wireguardIp, wireguardPublicKey);
-            } catch (wgErr) {}
+            } catch (wgErr) {
+                console.error('[WireGuard] Failed to register VPS peer for new site', name, ':', wgErr.message);
+                db.addLog('System Auto', 'WireGuard Peer ลงทะเบียนล้มเหลว', `ไซต์ ${name}: ${wgErr.message}`);
+            }
         }
         db.addLog(req.user.username, 'เพิ่มไซต์งานใหม่', 'เพิ่มไซต์งาน ' + name + ' (IP: ' + newSite.host + ')');
         res.status(201).json(newSite);
@@ -456,7 +495,10 @@ app.put('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
         if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
             try {
                 registerVpsPeer(wireguardIp, wireguardPublicKey);
-            } catch (wgErr) {}
+            } catch (wgErr) {
+                console.error('[WireGuard] Failed to register VPS peer for site', updated.name, ':', wgErr.message);
+                db.addLog('System Auto', 'WireGuard Peer ลงทะเบียนล้มเหลว', `ไซต์ ${updated.name}: ${wgErr.message}`);
+            }
         }
         db.addLog(req.user.username, 'แก้ไขไซต์งาน', 'แก้ไขข้อมูลไซต์งาน: ' + updated.name);
         res.json(updated);
@@ -566,7 +608,7 @@ app.post('/api/wireguard/remove-peer', requireAuth(['admin']), (req, res) => {
     try {
         cleanupVpsPeerByIp(wireguardIp);
         const { execSync } = require('child_process');
-        execSync('sudo wg-quick save wg0 2>/dev/null || true', { encoding: 'utf8' });
+        execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
         db.addLog(req.user.username, 'ลบ WireGuard Peer', `ลบ Peer สำหรับ IP ${wireguardIp} บน VPS`);
         res.json({ success: true, message: `ล้างค่า WireGuard Peer สำหรับ IP ${wireguardIp} บน VPS เรียบร้อยแล้ว` });
     } catch (err) {
@@ -1331,6 +1373,26 @@ app.listen(PORT, () => {
 // ==========================================
 let lastSnapshotSessions = new Map(); // key: session id, value: session object
 
+// Dedupe state for DNS visit-history polling (see parseDnsLogMessage below).
+// RouterOS log '.id's reset on router reboot, so they're not a safe permanent
+// watermark — instead we fingerprint by ip+domain+minute and keep a bounded
+// recent-history set (also collapses the repeat queries browsers/OSes send
+// for the same domain every few seconds).
+let recentDnsFingerprints = new Set();
+const MAX_DNS_FINGERPRINTS = 2000;
+
+function rememberDnsFingerprint(fp) {
+    recentDnsFingerprints.add(fp);
+    if (recentDnsFingerprints.size > MAX_DNS_FINGERPRINTS) {
+        const toDrop = Math.floor(MAX_DNS_FINGERPRINTS * 0.1);
+        let i = 0;
+        for (const v of recentDnsFingerprints) {
+            recentDnsFingerprints.delete(v);
+            if (++i >= toDrop) break;
+        }
+    }
+}
+
 async function snapshotHotspotSessions() {
     try {
         const config = await db.getConfig();
@@ -1340,9 +1402,9 @@ async function snapshotHotspotSessions() {
         const activeSite = sitesData.sites.find(s => s.id === sitesData.activeSiteId) || sitesData.sites[0];
         const siteName = activeSite ? activeSite.name : 'Main';
 
-        const currentSessions = await executeOnRouter(async (client) => {
+        const { currentSessions, dnsLogLines } = await executeOnRouter(async (client) => {
             const list = await client.exec('/ip/hotspot/active/print');
-            return list.map(item => ({
+            const sessions = list.map(item => ({
                 id: item['.id'],
                 user: item.user,
                 address: item.address,
@@ -1352,6 +1414,19 @@ async function snapshotHotspotSessions() {
                 bytesOut: parseInt(item['bytes-out']) || 0,
                 loginBy: item['login-by'] || ''
             }));
+
+            // Fetch full log buffer and filter client-side for dns topic entries
+            // (same "fetch all, filter in JS" convention used for firewall rules
+            // below) — fail-open if DNS logging isn't configured on the router yet.
+            let logs = [];
+            try {
+                logs = await client.exec('/log/print');
+            } catch (e) {
+                logs = [];
+            }
+            const dns = logs.filter(l => (l.topics || '').includes('dns'));
+
+            return { currentSessions: sessions, dnsLogLines: dns };
         });
 
         const currentMap = new Map(currentSessions.map(s => [s.id, s]));
@@ -1399,9 +1474,68 @@ async function snapshotHotspotSessions() {
 
         lastSnapshotSessions = currentMap;
 
+        // ----- DNS visit history correlation (พรบ มาตรา 26 — domain-level) -----
+        if (dnsLogLines.length > 0) {
+            const ipToClient = new Map();
+            for (const s of currentSessions) {
+                if (s.address) ipToClient.set(s.address, { username: s.user, macAddress: s.macAddress });
+            }
+
+            const newRows = [];
+            for (const line of dnsLogLines) {
+                const parsed = parseDnsLogMessage(line.message || '');
+                if (!parsed) {
+                    if (process.env.DEBUG_DNS_LOG) console.log('[DEBUG_DNS_LOG] unmatched:', line.message);
+                    continue;
+                }
+
+                const fp = parsed.sourceIp + '|' + parsed.domain + '|' + Math.floor(Date.now() / 60000);
+                if (recentDnsFingerprints.has(fp)) continue;
+                rememberDnsFingerprint(fp);
+
+                const client = ipToClient.get(parsed.sourceIp);
+                newRows.push({
+                    queryTime: new Date().toISOString(),
+                    username: client ? client.username : '',
+                    ipAddress: parsed.sourceIp,
+                    macAddress: client ? client.macAddress : '',
+                    domain: parsed.domain,
+                    siteName
+                });
+            }
+
+            if (newRows.length > 0) {
+                try {
+                    await db.addDnsQueryLogsBulk(newRows);
+                } catch (e) {
+                    // Silent — same failure posture as the rest of this function
+                }
+            }
+        }
+
     } catch (e) {
         // Silent — Router อาจ offline ชั่วคราว
     }
+}
+
+// Parses a RouterOS `/log/print` message (topics containing "dns") into
+// { sourceIp, domain }, or null if the line doesn't match a recognized
+// DNS-query pattern. RouterOS's exact wording for DNS query log entries
+// varies by RouterOS version — this is a best-effort permissive parser.
+// Calibrate against real output: enable DEBUG_DNS_LOG=1 and check `pm2 logs`
+// for "[DEBUG_DNS_LOG] unmatched:" lines, then adjust the patterns below.
+function parseDnsLogMessage(msg) {
+    if (!msg) return null;
+
+    // Pattern A: "dns query from 172.16.1.247: #3 example.com. A"
+    let m = msg.match(/dns query from (\d{1,3}(?:\.\d{1,3}){3}).*?\s([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s/i);
+    if (m) return { sourceIp: m[1], domain: m[2].toLowerCase() };
+
+    // Pattern B: "resolving example.com from 172.16.1.247"
+    m = msg.match(/resolving\s+([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s+from\s+(\d{1,3}(?:\.\d{1,3}){3})/i);
+    if (m) return { sourceIp: m[2], domain: m[1].toLowerCase() };
+
+    return null;
 }
 
 // แปลง RouterOS uptime string เป็น milliseconds
@@ -1426,5 +1560,9 @@ setInterval(async () => {
     const purged = await db.purgeOldHotspotLogs();
     if (purged > 0) {
         db.addLog('System Auto', 'Purge Log เก่า', `ลบ hotspot log เก่าเกิน 90 วัน จำนวน ${purged} รายการ`);
+    }
+    const purgedDns = await db.purgeOldDnsQueryLogs();
+    if (purgedDns > 0) {
+        db.addLog('System Auto', 'Purge DNS Log เก่า', `ลบ DNS query log เก่าเกิน 90 วัน จำนวน ${purgedDns} รายการ`);
     }
 }, 24 * 60 * 60 * 1000);

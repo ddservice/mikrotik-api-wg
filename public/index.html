@@ -1340,6 +1340,9 @@
                         <button class="tab-btn" data-tab="tab-log-traffic">
                             <i class="fa-solid fa-database"></i> บันทึกการใช้งาน Hotspot <span class="tab-badge" style="background:var(--danger);color:#fff;">พรบ</span>
                         </button>
+                        <button class="tab-btn" data-tab="tab-log-dns">
+                            <i class="fa-solid fa-globe"></i> ประวัติเว็บไซต์ที่เข้าชม <span class="tab-badge" style="background:var(--danger);color:#fff;">พรบ</span>
+                        </button>
                     </div>
 
                     <!-- TAB 1: Activity Log -->
@@ -1471,6 +1474,74 @@
                                 </div>
                                 <!-- Pagination -->
                                 <div class="pagination-bar" id="pagination-traffic"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: DNS Visit History (พรบ, domain-level) -->
+                    <div id="tab-log-dns" class="tab-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-globe" style="color:var(--danger);"></i>
+                                    <div>
+                                        <h4>ประวัติเว็บไซต์ที่เข้าชม <span style="color:var(--danger);font-size:0.85rem;">(ตามพรบ คอมพิวเตอร์ มาตรา 26)</span></h4>
+                                        <p>บันทึกระดับโดเมนที่แต่ละผู้ใช้เข้าชม (ไม่รวม URL เต็ม เนื่องจากเว็บส่วนใหญ่เป็น HTTPS)</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <a id="btn-export-dns-log" href="/api/dns-logs/export-csv" class="btn btn-danger btn-sm" target="_blank">
+                                        <i class="fa-solid fa-file-csv"></i> Export CSV (พรบ)
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Info box -->
+                                <div class="info-box-law">
+                                    <i class="fa-solid fa-scale-balanced"></i>
+                                    <span>ระบบบันทึกโดเมนที่เข้าชมอัตโนมัติทุก 5 นาที ตาม <strong>พรบ ว่าด้วยการกระทำความผิดเกี่ยวกับคอมพิวเตอร์ พ.ศ.2560 มาตรา 26</strong> — เก็บรักษา 90 วัน</span>
+                                </div>
+                                <!-- Filter bar -->
+                                <div class="filter-bar mt-16" id="filter-bar-dns">
+                                    <div class="filter-group">
+                                        <label>ค้นหา</label>
+                                        <div class="input-with-icon">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" id="dns-search" class="form-control" placeholder="ค้นหา username, IP, MAC, โดเมน...">
+                                        </div>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ตั้งแต่วันที่</label>
+                                        <input type="date" id="dns-from" class="form-control">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>ถึงวันที่</label>
+                                        <input type="date" id="dns-to" class="form-control">
+                                    </div>
+                                    <div class="filter-group" style="align-self:flex-end;">
+                                        <button id="btn-filter-dns" class="btn btn-primary btn-sm"><i class="fa-solid fa-filter"></i> กรอง</button>
+                                        <button id="btn-clear-dns" class="btn btn-secondary btn-sm"><i class="fa-solid fa-xmark"></i> ล้าง</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive mt-16">
+                                    <table class="table" id="table-dns-log">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:160px;">เวลา</th>
+                                                <th style="width:130px;">ชื่อผู้ใช้</th>
+                                                <th style="width:130px;">IP Address</th>
+                                                <th style="width:150px;">MAC Address</th>
+                                                <th>โดเมนที่เข้าชม</th>
+                                                <th style="width:120px;">ไซต์งาน</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-dns-log">
+                                            <tr><td colspan="6" class="text-center text-muted">กำลังโหลด...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <!-- Pagination -->
+                                <div class="pagination-bar" id="pagination-dns"></div>
                             </div>
                         </div>
                     </div>
@@ -1808,7 +1879,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=14.0"></script>
+    <script src="app.js?v=15.0"></script>
 </body>
 </html>
 
