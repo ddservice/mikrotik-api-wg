@@ -1627,8 +1627,11 @@ async function snapshotSiteSessions(site) {
 function parseDnsLogMessage(msg) {
     if (!msg) return null;
 
-    // Pattern A: "dns query from 172.16.1.247: #3 example.com. A"
-    let m = msg.match(/dns query from (\d{1,3}(?:\.\d{1,3}){3}).*?\s([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s/i);
+    // Pattern A: "query from 172.16.1.247: #3 example.com. A"
+    // Note: the "dns" prefix visible on-screen (WinBox/terminal) is actually
+    // the separate `topics` field concatenated for display — the API's raw
+    // `message` field does NOT include it, confirmed against live router output.
+    let m = msg.match(/query from (\d{1,3}(?:\.\d{1,3}){3}).*?\s([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s/i);
     if (m) return { sourceIp: m[1], domain: m[2].toLowerCase() };
 
     // Pattern B: "resolving example.com from 172.16.1.247"
