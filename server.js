@@ -658,11 +658,12 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
         wgRegistrationTokens.set(token, { wireguardIp: targetIp, siteId: siteId || null, expiresAt: Date.now() + WG_TOKEN_TTL_MS });
         callbackScriptBlock = `
 # 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
-# Sent as a plain HTTP header, not a JSON body — RouterOS's string
-# concatenation/escaping inside http-data proved unreliable across
-# attempts (empty values), a raw header value has no such quoting to trip over.
-:local pubkey [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
-/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field="X-Public-Key: $pubkey" output=none
+# Sent as a plain HTTP header, not a JSON body (avoids any string-escaping
+# issues). Confirmed live on RouterOS 7.2.2: assigning the key to a
+# ":local pubkey [...]" variable first silently loses the value — call
+# [/interface/wireguard/get ... public-key] directly inline instead, which
+# works correctly.
+/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field=("X-Public-Key: " . [/interface/wireguard/get [find name=wg-gatekeeper] public-key]) output=none
 :put "Public Key auto-registered to dashboard!"`;
     } else {
         console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
