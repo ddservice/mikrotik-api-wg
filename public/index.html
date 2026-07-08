@@ -2047,6 +2047,19 @@
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="site-id">
+
+                    <div class="info-box-law mb-16" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <span>
+                            <strong>Username/Password</strong> คือบัญชี login เข้า RouterOS API ของราวเตอร์ตัวนี้ (คนละเรื่องกับ WireGuard) —
+                            <strong>ต้องกรอกตั้งแต่ครั้งแรก</strong> ไม่งั้น dashboard จะเชื่อมต่อราวเตอร์ไม่ได้เลยไม่ว่าจะใช้ WireGuard หรือ Direct IP ก็ตาม
+                            แก้ไขทีหลังได้เสมอ (ช่อง Password ตอนแก้ไข ปล่อยว่างไว้ได้ถ้าไม่ต้องการเปลี่ยนรหัสผ่านเดิม)<br>
+                            <strong>ขั้นตอนแนะนำสำหรับ WireGuard:</strong> (1) เลือก Connection Type = WireGuard และกรอก WireGuard IP + Port ด้านล่างนี้ก่อน
+                            (2) กดปุ่ม "สร้างสคริปต์ WireGuard" ท้ายฟอร์ม (จะดึงค่าที่กรอกไว้นี้ไปใช้อัตโนมัติ) (3) รันสคริปต์บนราวเตอร์
+                            (4) ค่อยกลับมากด "บันทึกไซต์งาน" ที่นี่อีกครั้ง
+                        </span>
+                    </div>
+
                     <div class="form-group">
                         <label for="site-name">ชื่อไซต์งาน / สาขา *</label>
                         <input type="text" id="site-name" required class="form-control" placeholder="เช่น สาขา 1 - โรงแรมเซ็นทรัล">
@@ -2062,11 +2075,13 @@
                         <div class="form-group">
                             <label for="site-wg-ip">WireGuard IP (วง 10.10.88.x)</label>
                             <input type="text" id="site-wg-ip" class="form-control" placeholder="เช่น 10.10.88.2">
+                            <span class="help-text">ต้องไม่ซ้ำกับไซต์งานอื่นที่มีอยู่แล้ว</span>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="site-host">IP Address / Hostname *</label>
                         <input type="text" id="site-host" required class="form-control" placeholder="เช่น 10.10.88.2 หรือ 192.168.88.1">
+                        <span class="help-text">ถ้าใช้ WireGuard ควรตรงกับ "WireGuard IP" ด้านบน — ระบบจะเติมให้อัตโนมัติเมื่อเลือก Connection Type เป็น WireGuard</span>
                     </div>
                     <div class="form-row-2">
                         <div class="form-group">
@@ -2105,21 +2120,6 @@
                 <button class="modal-close-btn">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- PREREQUISITES: fields the script generator actually reads live on
-                     the Site edit form behind this modal (site-wg-ip, site-port) — if
-                     those are wrong/blank, the generated script below will be wrong too. -->
-                <div class="info-box-law mb-16" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">
-                    <i class="fa-solid fa-circle-info"></i>
-                    <span>
-                        <strong>ก่อนกดสร้างสคริปต์ ต้องตั้งค่าในฟอร์ม "แก้ไขไซต์งาน" ให้ครบก่อน:</strong>
-                        (1) <strong>ประเภทการเชื่อมต่อ</strong> = WireGuard,
-                        (2) <strong>WireGuard IP</strong> เป็นวง 10.10.88.x ที่ไม่ซ้ำกับไซต์อื่น,
-                        (3) <strong>Port</strong> (ค่าเริ่มต้น 8728) — สคริปต์จะดึงค่าทั้งหมดนี้จากฟอร์มไซต์ตอนกดสร้างสคริปต์อัตโนมัติ
-                        นอกจากนี้ราวเตอร์ต้องมีอินเทอร์เน็ตออกได้ (ต่อไปยัง VPS endpoint 157.85.108.84:51820)
-                        และถ้าต้องการให้ลงทะเบียนคีย์อัตโนมัติ (ขั้นตอนที่ 1 ด้านล่าง) เซิร์ฟเวอร์ต้องตั้งค่า <code>PUBLIC_APP_URL</code> ไว้แล้ว — ถ้ายังไม่ได้ตั้ง ให้ใช้ขั้นตอนที่ 2 (วาง key เอง) แทน
-                    </span>
-                </div>
-
                 <!-- TYPE SELECTOR -->
                 <div class="form-group mb-16" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:var(--bg-card-subtle); padding:10px 14px; border-radius:8px;">
                     <span style="font-size:0.85rem; font-weight:600;"><i class="fa-solid fa-list-check text-primary"></i> เลือกประเภทสคริปต์:</span>
