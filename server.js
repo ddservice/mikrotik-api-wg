@@ -1386,7 +1386,12 @@ app.get('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asyn
                 name: item.name,
                 rateLimit: item['rate-limit'] || 'Unlimited',
                 localAddress: item['local-address'] || '',
-                remoteAddress: item['remote-address'] || ''
+                remoteAddress: item['remote-address'] || '',
+                // Idle/session timeout: cleans up dead/zombie sessions automatically
+                // (e.g. a room's router loses power without a clean PPP terminate)
+                // instead of them sitting connected forever.
+                idleTimeout: (item['idle-timeout'] && item['idle-timeout'] !== 'none') ? item['idle-timeout'] : '',
+                sessionTimeout: (item['session-timeout'] && item['session-timeout'] !== 'none') ? item['session-timeout'] : ''
             }));
         });
         res.json(profiles);
@@ -1397,7 +1402,7 @@ app.get('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asyn
 
 // Create PPPoE package
 app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { name, rateLimit, localAddress, remoteAddress } = req.body;
+    const { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout } = req.body;
     if (!name) {
         return res.status(400).json({ error: 'ต้องระบุชื่อแพ็กเกจ' });
     }
@@ -1407,6 +1412,8 @@ app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asy
             if (rateLimit) params['rate-limit'] = rateLimit;
             if (localAddress) params['local-address'] = localAddress;
             if (remoteAddress) params['remote-address'] = remoteAddress;
+            if (idleTimeout) params['idle-timeout'] = idleTimeout;
+            if (sessionTimeout) params['session-timeout'] = sessionTimeout;
             await client.exec('/ppp/profile/add', params);
         });
         db.addLog(req.user.username, 'เพิ่มแพ็กเกจ PPPoE', 'เพิ่มแพ็กเกจ ' + name);
@@ -1418,13 +1425,18 @@ app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asy
 
 // Edit PPPoE package
 app.put('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const { name, rateLimit, localAddress, remoteAddress } = req.body;
+    const { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout } = req.body;
     try {
         await executeOnRouter(async (client) => {
             const params = { '.id': req.params.id, name };
             if (rateLimit) params['rate-limit'] = rateLimit;
             if (localAddress) params['local-address'] = localAddress;
             if (remoteAddress) params['remote-address'] = remoteAddress;
+            // Always set explicitly (not conditionally) so clearing the field in
+            // the edit form actually clears it on the router instead of leaving
+            // a stale value from before.
+            params['idle-timeout'] = idleTimeout || 'none';
+            params['session-timeout'] = sessionTimeout || 'none';
             await client.exec('/ppp/profile/set', params);
         });
         db.addLog(req.user.username, 'แก้ไขแพ็กเกจ PPPoE', 'แก้ไขแพ็กเกจ ' + name);
@@ -1447,12 +1459,57 @@ app.delete('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']
     }
 });
 
+// Read PPPoE server (service) settings, e.g. keepalive-timeout — separate from
+// /ppp/profile, this lives on /interface/pppoe-server/server (the service
+// itself, created once per site by the setup script below). Assumes one
+// PPPoE server instance per site, which is what the setup script creates.
+app.get('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const settings = await executeOnRouter(async (client) => {
+            const list = await client.exec('/interface/pppoe-server/server/print');
+            if (!list.length) return null;
+            const server = list[0];
+            return {
+                id: server['.id'],
+                serviceName: server['service-name'] || '',
+                interfaceName: server.interface || '',
+                keepaliveTimeout: server['keepalive-timeout'] || ''
+            };
+        });
+        res.json(settings || {});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update PPPoE server keepalive-timeout — lets a dead peer (room router that
+// lost power without a clean disconnect) get detected and cleared faster,
+// without re-running the whole one-time setup script.
+app.put('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { keepaliveTimeout } = req.body;
+    if (!keepaliveTimeout) {
+        return res.status(400).json({ error: 'ต้องระบุค่า Keepalive Timeout' });
+    }
+    try {
+        await executeOnRouter(async (client) => {
+            const list = await client.exec('/interface/pppoe-server/server/print');
+            if (!list.length) throw new Error('ไม่พบ PPPoE Server บนเราท์เตอร์นี้ (ต้องตั้งค่าเซิร์ฟเวอร์ก่อนผ่านสคริปต์ตั้งค่า)');
+            await client.exec('/interface/pppoe-server/server/set', { '.id': list[0]['.id'], 'keepalive-timeout': keepaliveTimeout });
+        });
+        db.addLog(req.user.username, 'แก้ไขการตั้งค่า PPPoE Server', `keepalive-timeout = ${keepaliveTimeout}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Generate PPPoE Server Setup Script for MikroTik (one-time per-site setup, run once in WinBox)
 app.post('/api/mikrotik/pppoe/generate-script', requireAuth(['admin']), (req, res) => {
-    const { interfaceName, vlanId, poolStart, poolEnd, serverAddress } = req.body;
+    const { interfaceName, vlanId, poolStart, poolEnd, serverAddress, keepaliveTimeout } = req.body;
     if (!interfaceName || !poolStart || !poolEnd || !serverAddress) {
         return res.status(400).json({ error: 'ต้องระบุ Interface, IP Pool (ต้น-ปลาย) และ Server Address ให้ครบ' });
     }
+    const keepalive = keepaliveTimeout || '10';
 
     const targetInterface = vlanId ? `vlan-pppoe-${vlanId}` : interfaceName;
     const vlanStepBlock = vlanId ? `
@@ -1474,7 +1531,7 @@ ${vlanStepBlock}
 /ip/pool/add name=pppoe-pool ranges=${poolStart}-${poolEnd} comment="PPPoE Room Clients"
 
 # ${serverStepNum}. Enable PPPoE Server
-/interface/pppoe-server/server/add service-name=mt-pppoe interface=${targetInterface} default-profile=default one-session-per-host=yes disabled=no
+/interface/pppoe-server/server/add service-name=mt-pppoe interface=${targetInterface} default-profile=default one-session-per-host=yes keepalive-timeout=${keepalive} disabled=no
 
 # ${resultStepNum}. Display Result
 :put "--------------------------------------------------------"

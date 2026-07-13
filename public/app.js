@@ -19,6 +19,8 @@ function getCurrentSiteName() {
 // Polling intervals
 let statsInterval = null;
 let trafficInterval = null;
+let hotspotOnlineInterval = null;
+let pppoeOnlineInterval = null;
 
 // Traffic history for selected interface
 let lastTrafficData = { rx: 0, tx: 0, time: 0 };
@@ -296,15 +298,24 @@ function startPolling() {
     fetchTrafficStats();
     trafficInterval = setInterval(fetchTrafficStats, 2000);
 
-    // จำนวนห้อง PPPoE เปลี่ยนแปลงไม่บ่อย ดึงครั้งเดียวตอนเริ่ม ไม่ต้อง poll ถี่
-    fetchPppoeRoomCount();
+    // Overview stat cards (ผู้ใช้ Hotspot ออนไลน์ / ห้อง PPPoE ออนไลน์) ต้องอัปเดตเอง
+    // อิสระจากแท็บที่เปิดอยู่ ไม่งั้นจะค้างที่ 0 จนกว่าจะไปเปิดแท็บนั้นๆ ก่อน
+    fetchActiveHotspotUsers();
+    hotspotOnlineInterval = setInterval(fetchActiveHotspotUsers, 30000);
+
+    fetchPppoeOnlineCount();
+    pppoeOnlineInterval = setInterval(fetchPppoeOnlineCount, 30000);
 }
 
 function stopPolling() {
     if (statsInterval) clearInterval(statsInterval);
     if (trafficInterval) clearInterval(trafficInterval);
+    if (hotspotOnlineInterval) clearInterval(hotspotOnlineInterval);
+    if (pppoeOnlineInterval) clearInterval(pppoeOnlineInterval);
     statsInterval = null;
     trafficInterval = null;
+    hotspotOnlineInterval = null;
+    pppoeOnlineInterval = null;
 }
 
 // ==========================================
@@ -720,8 +731,9 @@ async function fetchSystemStatus() {
     }
 }
 
-// Overview: จำนวนห้องที่ใช้ระบบ PPPoE ทั้งหมด (endpoint จำกัดสิทธิ์ admin/co-admin เท่านั้น)
-async function fetchPppoeRoomCount() {
+// Overview: จำนวนห้อง PPPoE ที่ออนไลน์/active อยู่ ณ ขณะนี้ (ไม่ใช่จำนวนบัญชีทั้งหมด)
+// endpoint จำกัดสิทธิ์ admin/co-admin เท่านั้น
+async function fetchPppoeOnlineCount() {
     const statEl = document.getElementById('stat-pppoe-rooms');
     if (!statEl) return;
     if (!CURRENT_USER || CURRENT_USER.role === 'user') {
@@ -729,8 +741,8 @@ async function fetchPppoeRoomCount() {
         return;
     }
     try {
-        const users = await apiFetch('/api/mikrotik/pppoe/users');
-        statEl.textContent = `${users.length} ห้อง`;
+        const active = await apiFetch('/api/mikrotik/pppoe/active');
+        statEl.textContent = `${active.length} ห้อง`;
     } catch (err) {
         statEl.textContent = '-';
     }
@@ -738,7 +750,7 @@ async function fetchPppoeRoomCount() {
 
 document.getElementById('stat-card-pppoe-rooms')?.addEventListener('click', () => {
     switchPage('page-pppoe');
-    setTimeout(() => loadPppoeTab('tab-pppoe-accounts'), 100);
+    setTimeout(() => loadPppoeTab('tab-pppoe-active'), 100);
 });
 
 async function fetchTrafficStats() {
@@ -1502,6 +1514,7 @@ function loadPppoeTab(tabId) {
         fetchPppoeProfilesToDropdown();
     } else if (tabId === 'tab-pppoe-profiles') {
         fetchPppoeProfiles();
+        fetchPppoeServerKeepalive();
     } else if (tabId === 'tab-pppoe-billing') {
         fetchPppoeBilling();
     }
@@ -1525,8 +1538,11 @@ async function fetchPppoeActive() {
         const badge = document.getElementById('badge-pppoe-active');
         if (badge) badge.textContent = `(${active.length})`;
 
+        const overviewStat = document.getElementById('stat-pppoe-rooms');
+        if (overviewStat) overviewStat.textContent = `${active.length} ห้อง`;
+
         if (active.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">ไม่มีห้องออนไลน์ในขณะนี้</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">ไม่มีห้องออนไลน์ในขณะนี้</td></tr>';
             return;
         }
 
@@ -1535,6 +1551,7 @@ async function fetchPppoeActive() {
             tr.innerHTML = `
                 <td><strong>${item.name}</strong></td>
                 <td><code>${item.address || '-'}</code></td>
+                <td><code>${item.callerId || '-'}</code></td>
                 <td>${item.uptime}</td>
                 <td>${formatBytes(item.bytesOut)}</td>
                 <td>${formatBytes(item.bytesIn)}</td>
@@ -1587,7 +1604,7 @@ async function fetchPppoeActive() {
         });
     } catch (err) {
         const tbody = document.querySelector('#table-pppoe-active tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
 }
 
@@ -1626,9 +1643,6 @@ async function fetchPppoeAccounts() {
         const badge = document.getElementById('badge-pppoe-accounts');
         if (badge) badge.textContent = `(${users.length})`;
         renderPppoeAccounts(users);
-
-        const overviewStat = document.getElementById('stat-pppoe-rooms');
-        if (overviewStat) overviewStat.textContent = `${users.length} ห้อง`;
     } catch (err) {
         document.querySelector('#table-pppoe-users tbody').innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
@@ -1814,7 +1828,7 @@ async function fetchPppoeProfiles() {
         const tbody = document.querySelector('#table-pppoe-profiles tbody');
         tbody.innerHTML = '';
         if (profiles.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">ยังไม่มีแพ็กเกจ — เพิ่มอย่างน้อย 1 แพ็กเกจก่อนสร้างบัญชีห้อง</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">ยังไม่มีแพ็กเกจ — เพิ่มอย่างน้อย 1 แพ็กเกจก่อนสร้างบัญชีห้อง</td></tr>';
             return;
         }
         profiles.forEach(p => {
@@ -1824,6 +1838,7 @@ async function fetchPppoeProfiles() {
                 <td><span class="badge badge-profile">${p.rateLimit}</span></td>
                 <td><code>${p.localAddress || '-'}</code></td>
                 <td><code>${p.remoteAddress || '-'}</code></td>
+                <td><span style="font-size:0.8rem;color:var(--text-muted);">${p.idleTimeout || '-'} / ${p.sessionTimeout || '-'}</span></td>
                 <td class="text-center">
                     <div style="display:flex; gap:6px; justify-content:center;">
                         <button class="btn btn-secondary btn-sm btn-edit-pppoe-profile" data-item='${JSON.stringify(p).replace(/'/g, "&apos;")}'><i class="fa-solid fa-pen-to-square"></i> แก้ไข</button>
@@ -1849,7 +1864,7 @@ async function fetchPppoeProfiles() {
             });
         });
     } catch (err) {
-        document.querySelector('#table-pppoe-profiles tbody').innerHTML = `<tr><td colspan="5" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+        document.querySelector('#table-pppoe-profiles tbody').innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
 }
 
@@ -1865,6 +1880,8 @@ function openPppoeProfileModal(item = null) {
         document.getElementById('pppoe-profile-rate-limit').value = item.rateLimit === 'Unlimited' ? '' : item.rateLimit;
         document.getElementById('pppoe-profile-local-address').value = item.localAddress || '';
         document.getElementById('pppoe-profile-remote-address').value = item.remoteAddress || '';
+        document.getElementById('pppoe-profile-idle-timeout').value = item.idleTimeout || '';
+        document.getElementById('pppoe-profile-session-timeout').value = item.sessionTimeout || '';
     } else {
         document.getElementById('pppoe-profile-modal-title').textContent = 'เพิ่มแพ็กเกจใหม่';
         document.getElementById('pppoe-profile-id').value = '';
@@ -1872,6 +1889,8 @@ function openPppoeProfileModal(item = null) {
         document.getElementById('pppoe-profile-rate-limit').value = '';
         document.getElementById('pppoe-profile-local-address').value = '';
         document.getElementById('pppoe-profile-remote-address').value = '';
+        document.getElementById('pppoe-profile-idle-timeout').value = '';
+        document.getElementById('pppoe-profile-session-timeout').value = '';
     }
     document.getElementById('pppoe-profile-rate-preset').value = '';
     if (pppoeProfileError) pppoeProfileError.style.display = 'none';
@@ -1899,8 +1918,10 @@ if (formPppoeProfile) {
         const rateLimit = document.getElementById('pppoe-profile-rate-limit').value;
         const localAddress = document.getElementById('pppoe-profile-local-address').value;
         const remoteAddress = document.getElementById('pppoe-profile-remote-address').value;
+        const idleTimeout = document.getElementById('pppoe-profile-idle-timeout').value.trim();
+        const sessionTimeout = document.getElementById('pppoe-profile-session-timeout').value.trim();
 
-        const body = { name, rateLimit, localAddress, remoteAddress };
+        const body = { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout };
         const url = id ? `/api/mikrotik/pppoe/profiles/${id}` : '/api/mikrotik/pppoe/profiles';
         const method = id ? 'PUT' : 'POST';
 
@@ -1916,6 +1937,42 @@ if (formPppoeProfile) {
         }
     });
 }
+
+// ---- Keepalive Timeout (PPPoE Server, per-site) ----
+async function fetchPppoeServerKeepalive() {
+    const input = document.getElementById('pppoe-server-keepalive');
+    if (!input) return;
+    try {
+        const settings = await apiFetch('/api/mikrotik/pppoe/server-settings');
+        input.value = settings.keepaliveTimeout || '';
+        input.placeholder = settings.keepaliveTimeout ? '' : 'ยังไม่พบ PPPoE Server บนไซต์นี้ (ตั้งค่าผ่านสคริปต์ก่อน)';
+    } catch (err) {
+        input.value = '';
+        input.placeholder = 'โหลดค่าไม่สำเร็จ: ' + err.message;
+    }
+}
+
+document.getElementById('btn-save-pppoe-keepalive')?.addEventListener('click', async () => {
+    const input = document.getElementById('pppoe-server-keepalive');
+    const errorEl = document.getElementById('pppoe-keepalive-error');
+    const keepaliveTimeout = input.value.trim();
+    if (!keepaliveTimeout) {
+        errorEl.textContent = 'กรุณาระบุค่า Keepalive Timeout';
+        errorEl.style.display = 'block';
+        return;
+    }
+    try {
+        errorEl.style.display = 'none';
+        await apiFetch('/api/mikrotik/pppoe/server-settings', {
+            method: 'PUT',
+            body: JSON.stringify({ keepaliveTimeout })
+        });
+        alert('บันทึกค่า Keepalive Timeout เรียบร้อยแล้ว');
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+    }
+});
 
 // ---- TAB: Usage / Billing ----
 async function fetchPppoeBilling(month) {
@@ -1983,6 +2040,7 @@ document.getElementById('btn-generate-pppoe-script')?.addEventListener('click', 
     const poolStart = document.getElementById('pppoe-script-pool-start').value.trim();
     const poolEnd = document.getElementById('pppoe-script-pool-end').value.trim();
     const serverAddress = document.getElementById('pppoe-script-server-address').value.trim();
+    const keepaliveTimeout = document.getElementById('pppoe-script-keepalive').value.trim();
     const errorEl = document.getElementById('pppoe-script-error');
 
     if (!interfaceName || !poolStart || !poolEnd || !serverAddress) {
@@ -1995,7 +2053,7 @@ document.getElementById('btn-generate-pppoe-script')?.addEventListener('click', 
         errorEl.style.display = 'none';
         const res = await apiFetch('/api/mikrotik/pppoe/generate-script', {
             method: 'POST',
-            body: JSON.stringify({ interfaceName, vlanId: vlanId || undefined, poolStart, poolEnd, serverAddress })
+            body: JSON.stringify({ interfaceName, vlanId: vlanId || undefined, poolStart, poolEnd, serverAddress, keepaliveTimeout: keepaliveTimeout || undefined })
         });
         document.getElementById('pppoe-script-textarea').value = res.script;
         document.getElementById('pppoe-script-result-box').style.display = 'block';

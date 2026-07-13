@@ -131,6 +131,34 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-13 (3)** — Added long-term PPPoE reliability controls, all
+  optional/best-effort per user request: (1) `idle-timeout` and
+  `session-timeout` fields on the Package (PPP Profile) add/edit form —
+  clears zombie sessions (e.g. a room's router lost power without a clean
+  PPP terminate) automatically; note `session-timeout` counts from when that
+  room's session started, not a fixed wall-clock time. (2) A live
+  "Keepalive Timeout" control on the Packages tab
+  (`GET/PUT /api/mikrotik/pppoe/server-settings`, backed by
+  `/interface/pppoe-server/server`, assumes one PPPoE server instance per
+  site) so already-provisioned sites can get faster dead-peer detection
+  without re-running the WinBox setup script. (3) `keepalive-timeout` (default
+  `10`) added as a field to the one-time PPPoE server setup script generator
+  for newly-provisioned sites. No DB schema changes — all RouterOS-side.
+  `app.js` bumped to `v=24.0`.
+
+- **2026-07-13 (2)** — Fixed two Overview stat cards that only updated after
+  visiting their page's tab once (they weren't part of the main polling
+  loop): "ผู้ใช้ Hotspot ออนไลน์" and the PPPoE room card. The PPPoE room
+  card's meaning was also changed from "total registered rooms" to "rooms
+  currently online" (`fetchPppoeOnlineCount`, hits `/api/mikrotik/pppoe/active`
+  instead of `/pppoe/users`) per user request — clicking it now opens the
+  Live Status tab instead of Accounts. Added a MAC Address column to the
+  PPPoE live-status table (from `caller-id`, already returned by the API but
+  previously unused) — deliberately did NOT add a MAC-vendor/brand guess,
+  since PPPoE carries no vendor/model info and a hardcoded OUI table risked
+  showing confidently wrong brands; user chose "show raw MAC only" when
+  asked. `app.js` bumped to `v=23.0`.
+
 - **2026-07-13** — PPPoE live-status table: fixed upload/download always
   showing 0 (see byte-counter gotcha above). Added a "ระงับการใช้งาน" (Suspend)
   button on the live-status table and a matching suspend/unlock toggle on the

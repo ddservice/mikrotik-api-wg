@@ -178,12 +178,13 @@
                             </div>
                             <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
                         </div>
-                        <div class="stat-card" id="stat-card-pppoe-rooms" style="cursor:pointer;" title="คลิกเพื่อดูบัญชีห้อง PPPoE">
+                        <div class="stat-card" id="stat-card-pppoe-rooms" style="cursor:pointer;" title="คลิกเพื่อดูห้อง PPPoE ที่ออนไลน์อยู่ในขณะนี้">
                             <div class="stat-icon model"><i class="fa-solid fa-door-closed"></i></div>
                             <div class="stat-info">
-                                <h3>ห้องที่ใช้ระบบ PPPoE</h3>
+                                <h3>ห้อง PPPoE ออนไลน์</h3>
                                 <p id="stat-pppoe-rooms">-</p>
                             </div>
+                            <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
                         </div>
                     </div>
 
@@ -675,6 +676,7 @@
                                             <tr>
                                                 <th>ห้อง</th>
                                                 <th>IP Address</th>
+                                                <th>MAC Address (อุปกรณ์)</th>
                                                 <th>เวลาออนไลน์</th>
                                                 <th>ดาวน์โหลด</th>
                                                 <th>อัปโหลด</th>
@@ -682,7 +684,7 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr><td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
+                                            <tr><td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -759,14 +761,43 @@
                                                 <th>จำกัดความเร็ว (Upload/Download)</th>
                                                 <th>Local Address</th>
                                                 <th>Remote Address / Pool</th>
+                                                <th>Idle / Session Timeout</th>
                                                 <th class="text-center">จัดการ</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr><td colspan="5" class="text-center text-muted">กำลังโหลดข้อมูลแพ็กเกจ...</td></tr>
+                                            <tr><td colspan="6" class="text-center text-muted">กำลังโหลดข้อมูลแพ็กเกจ...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Keepalive-timeout: PPPoE service-level setting (per-site), used to
+                             detect dead peers (e.g. a room's router that lost power) faster than
+                             the RouterOS default so their session gets cleared sooner instead of
+                             lingering. -->
+                        <div class="card mt-16">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-heart-pulse text-primary"></i>
+                                    <div>
+                                        <h4>Keepalive Timeout (PPPoE Server)</h4>
+                                        <p>ตรวจจับห้องที่ขาดการเชื่อมต่อกะทันหัน (เช่น ไฟดับ) ให้เร็วขึ้น เพื่อล้างเซสชันค้างอัตโนมัติ</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="pppoe-server-keepalive">Keepalive Timeout (วินาที)</label>
+                                        <input type="text" id="pppoe-server-keepalive" class="form-control" placeholder="เช่น 10">
+                                    </div>
+                                    <div class="form-group" style="display:flex; align-items:flex-end;">
+                                        <button class="btn btn-primary" id="btn-save-pppoe-keepalive"><i class="fa-solid fa-floppy-disk"></i> บันทึก</button>
+                                    </div>
+                                </div>
+                                <div id="pppoe-keepalive-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
                             </div>
                         </div>
                     </div>
@@ -1941,6 +1972,18 @@
                             <input type="text" id="pppoe-profile-remote-address" class="form-control" placeholder="เช่น pppoe-pool">
                         </div>
                     </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="pppoe-profile-idle-timeout">Idle Timeout</label>
+                            <input type="text" id="pppoe-profile-idle-timeout" class="form-control" placeholder="เช่น 30m, 1h (ว่าง = ไม่ตัดอัตโนมัติ)">
+                            <p class="help-text">ตัดการเชื่อมต่อที่ไม่มีทราฟฟิกค้างไว้นานเกินนี้ ช่วยล้างเซสชันค้าง (เช่น ห้องไฟดับ) ให้อัตโนมัติ</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="pppoe-profile-session-timeout">Session Timeout</label>
+                            <input type="text" id="pppoe-profile-session-timeout" class="form-control" placeholder="เช่น 1d (ว่าง = ไม่จำกัด)">
+                            <p class="help-text">นับจากเวลาที่ห้องนั้นเริ่มต่อ (ไม่ใช่เวลาตายตัวของวัน) บังคับต่อ PPPoE ใหม่เป็นระยะเพื่อล้าง state สะสม</p>
+                        </div>
+                    </div>
                     <div id="pppoe-profile-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
                     <div class="modal-footer mt-16">
                         <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
@@ -1983,9 +2026,15 @@
                         <input type="text" id="pppoe-script-pool-end" class="form-control" placeholder="เช่น 10.20.255.254">
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="pppoe-script-server-address">Server Address (IP ฝั่งราวเตอร์) *</label>
-                    <input type="text" id="pppoe-script-server-address" class="form-control" placeholder="เช่น 10.20.0.1">
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="pppoe-script-server-address">Server Address (IP ฝั่งราวเตอร์) *</label>
+                        <input type="text" id="pppoe-script-server-address" class="form-control" placeholder="เช่น 10.20.0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="pppoe-script-keepalive">Keepalive Timeout (วินาที)</label>
+                        <input type="text" id="pppoe-script-keepalive" class="form-control" placeholder="ค่าเริ่มต้น 10" value="10">
+                    </div>
                 </div>
                 <div id="pppoe-script-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
                 <div class="form-group text-right">
@@ -2322,7 +2371,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=22.0"></script>
+    <script src="app.js?v=24.0"></script>
 </body>
 </html>
 
