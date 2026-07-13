@@ -1300,26 +1300,64 @@ app.delete('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), 
 });
 
 // Read PPPoE live sessions
-// NOTE: byte counters on /ppp/active vary by RouterOS version — may need a
-// quick live check/adjustment after deploy, same class of issue as the DNS
-// log message-format calibration earlier this session.
+// NOTE: /ppp/active/print does NOT expose live bytes-in/bytes-out (unlike
+// /ip/hotspot/active/print, which does) — RouterOS only tracks per-session
+// traffic on the dynamic interface it creates for each connection, named
+// "<pppoe-USERNAME>". We look that interface up in /interface/print and
+// pull rx-byte/tx-byte from there instead.
 app.get('/api/mikrotik/pppoe/active', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
         const active = await executeOnRouter(async (client) => {
-            const list = await client.exec('/ppp/active/print');
+            const [list, interfaces] = await Promise.all([
+                client.exec('/ppp/active/print'),
+                client.exec('/interface/print')
+            ]);
+            const ifaceByName = new Map(interfaces.map(i => [i.name, i]));
             return list
                 .filter(item => item.service === 'pppoe')
-                .map(item => ({
-                    id: item['.id'],
-                    name: item.name,
-                    address: item.address || '',
-                    uptime: item.uptime || '0s',
-                    callerId: item['caller-id'] || '',
-                    bytesIn: parseInt(item['bytes-in']) || 0,
-                    bytesOut: parseInt(item['bytes-out']) || 0
-                }));
+                .map(item => {
+                    const iface = ifaceByName.get(`<pppoe-${item.name}>`);
+                    return {
+                        id: item['.id'],
+                        name: item.name,
+                        address: item.address || '',
+                        uptime: item.uptime || '0s',
+                        callerId: item['caller-id'] || '',
+                        bytesIn: iface ? (parseInt(iface['rx-byte']) || 0) : 0,
+                        bytesOut: iface ? (parseInt(iface['tx-byte']) || 0) : 0
+                    };
+                });
         });
         res.json(active);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Suspend or reactivate a PPPoE room account by username — used for the
+// "quick lock" button on the live-status table so staff can cut off a room
+// on the spot (e.g. non-payment) without going through the account editor.
+// Suspending also kicks any live session so the effect is immediate.
+app.patch('/api/mikrotik/pppoe/users/by-name/:name/suspend', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { suspend } = req.body;
+    if (typeof suspend !== 'boolean') {
+        return res.status(400).json({ error: 'ต้องระบุค่า suspend เป็น true หรือ false' });
+    }
+    try {
+        await executeOnRouter(async (client) => {
+            const secrets = await client.exec('/ppp/secret/print');
+            const secret = secrets.find(item => item.service === 'pppoe' && item.name === req.params.name);
+            if (!secret) throw new Error(`ไม่พบบัญชีห้อง "${req.params.name}"`);
+            await client.exec('/ppp/secret/set', { '.id': secret['.id'], disabled: suspend ? 'yes' : 'no' });
+
+            if (suspend) {
+                const activeList = await client.exec('/ppp/active/print');
+                const session = activeList.find(item => item.service === 'pppoe' && item.name === req.params.name);
+                if (session) await client.exec('/ppp/active/remove', { '.id': session['.id'] });
+            }
+        });
+        db.addLog(req.user.username, suspend ? 'ระงับการใช้งาน PPPoE' : 'ปลดล็อกการใช้งาน PPPoE', `ห้อง ${req.params.name}`);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

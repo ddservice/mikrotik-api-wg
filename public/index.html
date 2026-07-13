@@ -75,7 +75,7 @@
                     <i class="fa-solid fa-chart-line"></i> <span>ข้อมูลทั่วไป (Overview)</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-hotspot" id="nav-hotspot" style="display: none;">
-                    <i class="fa-solid fa-wifi"></i> <span>จัดการ Hotspot</span>
+                    <i class="fa-solid fa-wifi"></i> <span>จัดการระบบ Hotspot ทั้งระบบ</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-pppoe" id="nav-pppoe" style="display: none;">
                     <i class="fa-solid fa-door-open"></i> <span>จัดการระบบ PPPoE</span>
@@ -177,6 +177,13 @@
                                 <p id="stat-hotspot-online"><span class="online-count">-</span> <span class="online-label">คน</span></p>
                             </div>
                             <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
+                        </div>
+                        <div class="stat-card" id="stat-card-pppoe-rooms" style="cursor:pointer;" title="คลิกเพื่อดูบัญชีห้อง PPPoE">
+                            <div class="stat-icon model"><i class="fa-solid fa-door-closed"></i></div>
+                            <div class="stat-info">
+                                <h3>ห้องที่ใช้ระบบ PPPoE</h3>
+                                <p id="stat-pppoe-rooms">-</p>
+                            </div>
                         </div>
                     </div>
 
@@ -1501,7 +1508,7 @@
                                     </thead>
                                     <tbody>
                                         <tr>
-                                            <td>จัดการ Hotspot</td>
+                                            <td>จัดการระบบ Hotspot ทั้งระบบ</td>
                                             <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="hotspot" data-role="co-admin"></td>
                                             <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="hotspot" data-role="user"></td>
                                         </tr>
@@ -2315,7 +2322,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=21.0"></script>
+    <script src="app.js?v=22.0"></script>
 </body>
 </html>
 

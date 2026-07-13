@@ -287,14 +287,17 @@ async function applyMenuPermissionsForRole(role) {
 // ==========================================
 function startPolling() {
     stopPolling();
-    
+
     // Poll System resource status every 5 seconds
     fetchSystemStatus();
     statsInterval = setInterval(fetchSystemStatus, 5000);
-    
+
     // Poll Interface & cumulative Traffic data every 2 seconds
     fetchTrafficStats();
     trafficInterval = setInterval(fetchTrafficStats, 2000);
+
+    // จำนวนห้อง PPPoE เปลี่ยนแปลงไม่บ่อย ดึงครั้งเดียวตอนเริ่ม ไม่ต้อง poll ถี่
+    fetchPppoeRoomCount();
 }
 
 function stopPolling() {
@@ -344,7 +347,7 @@ function switchPage(targetPageId) {
     // Update Header Title
     const titleMap = {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
-        'page-hotspot': { title: 'จัดการ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
+        'page-hotspot': { title: 'จัดการระบบ Hotspot ทั้งระบบ', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-pppoe': { title: 'จัดการระบบ PPPoE', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
@@ -716,6 +719,27 @@ async function fetchSystemStatus() {
         document.getElementById('stat-model').textContent = 'Cannot Connect';
     }
 }
+
+// Overview: จำนวนห้องที่ใช้ระบบ PPPoE ทั้งหมด (endpoint จำกัดสิทธิ์ admin/co-admin เท่านั้น)
+async function fetchPppoeRoomCount() {
+    const statEl = document.getElementById('stat-pppoe-rooms');
+    if (!statEl) return;
+    if (!CURRENT_USER || CURRENT_USER.role === 'user') {
+        statEl.textContent = '-';
+        return;
+    }
+    try {
+        const users = await apiFetch('/api/mikrotik/pppoe/users');
+        statEl.textContent = `${users.length} ห้อง`;
+    } catch (err) {
+        statEl.textContent = '-';
+    }
+}
+
+document.getElementById('stat-card-pppoe-rooms')?.addEventListener('click', () => {
+    switchPage('page-pppoe');
+    setTimeout(() => loadPppoeTab('tab-pppoe-accounts'), 100);
+});
 
 async function fetchTrafficStats() {
     try {
@@ -1515,9 +1539,14 @@ async function fetchPppoeActive() {
                 <td>${formatBytes(item.bytesOut)}</td>
                 <td>${formatBytes(item.bytesIn)}</td>
                 <td class="text-center">
-                    <button class="btn btn-danger btn-sm btn-kick-pppoe" data-id="${item.id}" data-user="${item.name}">
-                        <i class="fa-solid fa-plug-circle-xmark"></i> ตัดการเชื่อมต่อ
-                    </button>
+                    <div style="display:flex; gap:6px; justify-content:center;">
+                        <button class="btn btn-warning btn-sm btn-suspend-pppoe" data-user="${item.name}" title="ระงับการใช้งาน (เช่น กรณีค้างชำระ)">
+                            <i class="fa-solid fa-lock"></i> ระงับการใช้งาน
+                        </button>
+                        <button class="btn btn-danger btn-sm btn-kick-pppoe" data-id="${item.id}" data-user="${item.name}" title="ตัดการเชื่อมต่อชั่วคราว (เชื่อมต่อใหม่ได้ทันที)">
+                            <i class="fa-solid fa-plug-circle-xmark"></i> ตัดการเชื่อมต่อ
+                        </button>
+                    </div>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -1531,6 +1560,24 @@ async function fetchPppoeActive() {
                 try {
                     btn.disabled = true;
                     await apiFetch(`/api/mikrotik/pppoe/active/${id}`, { method: 'DELETE' });
+                    fetchPppoeActive();
+                } catch (err) {
+                    alert(err.message);
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-suspend-pppoe').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const user = btn.getAttribute('data-user');
+                if (!confirm(`ระงับการใช้งานห้อง "${user}" ใช่หรือไม่? (จะตัดการเชื่อมต่อทันทีและห้องนี้จะเชื่อมต่อใหม่ไม่ได้จนกว่าจะปลดล็อก)`)) return;
+                try {
+                    btn.disabled = true;
+                    await apiFetch(`/api/mikrotik/pppoe/users/by-name/${encodeURIComponent(user)}/suspend`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ suspend: true })
+                    });
                     fetchPppoeActive();
                 } catch (err) {
                     alert(err.message);
@@ -1579,6 +1626,9 @@ async function fetchPppoeAccounts() {
         const badge = document.getElementById('badge-pppoe-accounts');
         if (badge) badge.textContent = `(${users.length})`;
         renderPppoeAccounts(users);
+
+        const overviewStat = document.getElementById('stat-pppoe-rooms');
+        if (overviewStat) overviewStat.textContent = `${users.length} ห้อง`;
     } catch (err) {
         document.querySelector('#table-pppoe-users tbody').innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
@@ -1623,6 +1673,9 @@ function renderPppoeAccounts(users) {
             <td class="text-center">${statusBadge}</td>
             <td class="text-center">
                 <div style="display:flex; gap:6px; justify-content:center;">
+                    <button class="btn ${item.disabled ? 'btn-success' : 'btn-warning'} btn-sm btn-suspend-pppoe-user" data-user="${item.name}" data-suspend="${!item.disabled}" title="${item.disabled ? 'ปลดล็อก (เปิดใช้งาน)' : 'ระงับการใช้งาน (เช่น กรณีค้างชำระ)'}">
+                        <i class="fa-solid ${item.disabled ? 'fa-lock-open' : 'fa-lock'}"></i>
+                    </button>
                     <button class="btn btn-secondary btn-sm btn-edit-pppoe-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข">
                         <i class="fa-solid fa-pen-to-square"></i>
                     </button>
@@ -1635,6 +1688,27 @@ function renderPppoeAccounts(users) {
         tbody.appendChild(tr);
     });
 
+    document.querySelectorAll('.btn-suspend-pppoe-user').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const user = btn.getAttribute('data-user');
+            const suspend = btn.getAttribute('data-suspend') === 'true';
+            const confirmMsg = suspend
+                ? `ระงับการใช้งานห้อง "${user}" ใช่หรือไม่? (จะเชื่อมต่อใหม่ไม่ได้จนกว่าจะปลดล็อก)`
+                : `ปลดล็อกห้อง "${user}" ใช่หรือไม่?`;
+            if (!confirm(confirmMsg)) return;
+            try {
+                btn.disabled = true;
+                await apiFetch(`/api/mikrotik/pppoe/users/by-name/${encodeURIComponent(user)}/suspend`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ suspend })
+                });
+                fetchPppoeAccounts();
+            } catch (err) {
+                alert(err.message);
+                btn.disabled = false;
+            }
+        });
+    });
     document.querySelectorAll('.btn-edit-pppoe-user').forEach(btn => {
         btn.addEventListener('click', () => openPppoeUserModal(JSON.parse(btn.getAttribute('data-item'))));
     });
