@@ -358,7 +358,7 @@ function switchPage(targetPageId) {
     // Update Header Title
     const titleMap = {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
-        'page-hotspot': { title: 'จัดการระบบ Hotspot ทั้งระบบ', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
+        'page-hotspot': { title: 'จัดการระบบ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-pppoe': { title: 'จัดการระบบ PPPoE', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },

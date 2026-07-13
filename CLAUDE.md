@@ -131,6 +131,21 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-13 (4)** — Reverted the Hotspot menu label back to "จัดการระบบ
+  Hotspot" (dropped "ทั้งระบบ" per user feedback). Found and fixed a real bug
+  in the background poller (`snapshotSiteSessions` in server.js): it read
+  `bytes-in`/`bytes-out` straight off `/ppp/active/print` (same gotcha as the
+  live-status endpoint fixed earlier — that field doesn't exist there), so
+  **every PPPoE billing log entry had recorded 0 bytes since the feature was
+  built**. Fixed the same way (correlate with `/interface/print` via the
+  `<pppoe-USERNAME>` dynamic interface). Past months' logged usage is
+  permanently 0 and cannot be recovered — only new session logs going
+  forward will have real numbers. Separately investigating a user report of
+  incomplete fields (name/IP/bytes blank, MAC populated) on the PPPoE live
+  Status table — likely a stale `index.html`/Cloudflare cache after deploy
+  since `index.html` itself isn't cache-busted (only `app.js?v=`), pending
+  user confirmation after a hard refresh / cache purge.
+
 - **2026-07-13 (3)** — Added long-term PPPoE reliability controls, all
   optional/best-effort per user request: (1) `idle-timeout` and
   `session-timeout` fields on the Package (PPP Profile) add/edit form —

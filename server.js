@@ -2018,17 +2018,28 @@ async function snapshotSiteSessions(site) {
 
             // PPPoE room sessions — fail-open if PPPoE server isn't set up on
             // this site yet (not every site necessarily has room accounts).
+            // NOTE: /ppp/active/print has no bytes-in/bytes-out (see the same
+            // gotcha on /api/mikrotik/pppoe/active) — pull real traffic from
+            // the dynamic "<pppoe-USERNAME>" interface via /interface/print
+            // instead, or every billing log entry silently records 0 bytes.
             let pppoe = [];
             try {
-                const pppoeList = await client.exec('/ppp/active/print');
-                pppoe = pppoeList.filter(item => item.service === 'pppoe').map(item => ({
-                    id: item['.id'],
-                    user: item.name,
-                    address: item.address || '',
-                    uptime: item.uptime || '0s',
-                    bytesIn: parseInt(item['bytes-in']) || 0,
-                    bytesOut: parseInt(item['bytes-out']) || 0
-                }));
+                const [pppoeList, pppoeInterfaces] = await Promise.all([
+                    client.exec('/ppp/active/print'),
+                    client.exec('/interface/print')
+                ]);
+                const pppoeIfaceByName = new Map(pppoeInterfaces.map(i => [i.name, i]));
+                pppoe = pppoeList.filter(item => item.service === 'pppoe').map(item => {
+                    const iface = pppoeIfaceByName.get(`<pppoe-${item.name}>`);
+                    return {
+                        id: item['.id'],
+                        user: item.name,
+                        address: item.address || '',
+                        uptime: item.uptime || '0s',
+                        bytesIn: iface ? (parseInt(iface['rx-byte']) || 0) : 0,
+                        bytesOut: iface ? (parseInt(iface['tx-byte']) || 0) : 0
+                    };
+                });
             } catch (e) {
                 pppoe = [];
             }
