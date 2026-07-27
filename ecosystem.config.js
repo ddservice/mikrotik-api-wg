@@ -16,7 +16,7 @@ module.exports = {
             script: 'server.js',
 
             // โฟลเดอร์ที่รัน (ปรับตาม path จริงบน VPS)
-            cwd: '/root/mikrotik-api-wg',
+            cwd: '/home/ddservice/mikrotik',
 
             // จำนวน instance (1 = single process, 'max' = ทุก CPU core)
             instances: 1,
@@ -58,8 +58,8 @@ module.exports = {
             },
 
             // Log files
-            out_file: '/var/log/mikrotik-dashboard/out.log',
-            error_file: '/var/log/mikrotik-dashboard/error.log',
+            out_file: '/home/ddservice/mikrotik/logs/out.log',
+            error_file: '/home/ddservice/mikrotik/logs/error.log',
             merge_logs: true,
 
             // Log rotation (ต้องติดตั้ง pm2-logrotate ด้วย)
