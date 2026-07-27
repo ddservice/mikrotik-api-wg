@@ -8,16 +8,16 @@
 #   ./deploy.sh
 #
 # หรือ setup alias:
-#   echo "alias deploy='cd /root/mikrotik-api-wg && ./deploy.sh'" >> ~/.bashrc
+#   echo "alias deploy='cd /home/ddservice/mikrotik && ./deploy.sh'" >> ~/.bashrc
 # ============================================================
 
 set -e  # หยุดทันทีถ้ามี error
 
 # ---- CONFIG ----
-APP_DIR="/root/mikrotik-api-wg"
+APP_DIR="/home/ddservice/mikrotik"
 APP_NAME="mikrotik-dashboard"
 BRANCH="main"
-LOG_DIR="/var/log/mikrotik-dashboard"
+LOG_DIR="/home/ddservice/mikrotik/logs"
 
 # สี terminal
 RED='\033[0;31m'

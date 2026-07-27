@@ -14,9 +14,9 @@
 # ============================================================
 
 APP_NAME="mikrotik-dashboard"
-APP_DIR="/root/mikrotik-api-wg"
-PM2_OUT="/var/log/mikrotik-dashboard/out.log"
-PM2_ERR="/var/log/mikrotik-dashboard/error.log"
+APP_DIR="/home/ddservice/mikrotik"
+PM2_OUT="/home/ddservice/mikrotik/logs/out.log"
+PM2_ERR="/home/ddservice/mikrotik/logs/error.log"
 HOTSPOT_LOG="$APP_DIR/db/hotspot_logs.json"
 ACTIVITY_LOG="$APP_DIR/db/logs.json"
 

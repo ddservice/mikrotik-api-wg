@@ -10,8 +10,10 @@ each with its own downstream router), DNS visit-history logging (พรบ.
 คอมพิวเตอร์ มาตรา 26 compliance — domain-level only), WireGuard VPN
 site-to-site connectivity, and role-based admin/co-admin/user access.
 
-Live deployment: `api.ddserviceth.com`, VPS managed via SSH, PM2 process
-manager, deployed by `git pull` + `pm2 reload`.
+Live deployment: `api.ddserviceth.com`, VPS managed via SSH as user `ddservice`,
+project lives at `/home/ddservice/mikrotik`. PM2 process manager, deployed by
+`git pull` + `pm2 reload`. **Do not assume root access** — the `ddservice` user
+cannot write to `/root/` or `/var/log/`.
 
 ## Architecture
 
@@ -105,12 +107,20 @@ before pushing.
 
 Changes are deployed by the user via SSH, not by Claude directly:
 ```
+cd /home/ddservice/mikrotik
 git pull origin main && pm2 reload ecosystem.config.js --update-env
 ```
-`ecosystem.config.js` holds live secrets (`SUPABASE_URL`,
-`SUPABASE_SERVICE_KEY`, `ALLOWED_ORIGINS`, `PUBLIC_APP_URL`) — never
-overwrite it carelessly; if it has local edits blocking a `git pull`, that's
-real prod config, not something to discard.
+`ecosystem.config.js` on the VPS holds live secrets (`SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY`, `ALLOWED_ORIGINS`, `PUBLIC_APP_URL`) — the copy in the
+repo contains only placeholder values. **Never overwrite the VPS copy carelessly**;
+if `git pull` would clobber it, stash or back it up first.
+
+**Auto-start after reboot** is configured via systemd (`pm2 startup` +
+`pm2 save`). If PM2 is not running after a VPS reboot/crash, run:
+```
+cd /home/ddservice/mikrotik && pm2 start ecosystem.config.js && pm2 save
+```
+Log files are written to `/home/ddservice/mikrotik/logs/` (out.log / error.log).
 
 ## Database migrations
 
@@ -130,6 +140,14 @@ browser.
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-07-27** — Fixed 502 Bad Gateway caused by PM2 not running after VPS
+  reboot/crash. Root cause: `ecosystem.config.js` and `deploy.sh` had incorrect
+  hardcoded paths (`/root/mikrotik-api-wg`, `/var/log/mikrotik-dashboard`) but
+  the VPS runs as user `ddservice` with no access to `/root/`. Corrected all
+  paths to `/home/ddservice/mikrotik` and `/home/ddservice/mikrotik/logs`.
+  Configured PM2 systemd startup (`pm2 startup` + `pm2 save`) so the server
+  auto-starts on reboot without manual intervention.
 
 - **2026-07-13 (4)** — Reverted the Hotspot menu label back to "จัดการระบบ
   Hotspot" (dropped "ทั้งระบบ" per user feedback). Found and fixed a real bug

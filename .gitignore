@@ -4,3 +4,9 @@ db/*.json
 db/*.db
 !db/.gitkeep
 nas-backup.conf
+
+# PM2 config มี secret จริงบน VPS — ใช้ ecosystem.config.example.js เป็น template
+ecosystem.config.js
+
+# Log files
+logs/*.log
