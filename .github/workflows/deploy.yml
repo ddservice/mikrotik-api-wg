@@ -1,0 +1,35 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: SSH Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd ~/mikrotik
+            echo "📥 Pulling latest code..."
+            git pull origin main
+            echo "📦 Installing dependencies (if changed)..."
+            npm install --production --silent
+            echo "🔄 Reloading PM2..."
+            pm2 reload ecosystem.config.js --update-env
+            pm2 save
+            echo "✅ Deploy สำเร็จ!"
+            pm2 list

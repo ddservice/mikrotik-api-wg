@@ -176,6 +176,20 @@ async function executeOnRouter(fn, siteId) {
 }
 
 // ==========================================
+// Health Check — สำหรับ UptimeRobot / external monitor
+// ไม่ต้อง auth — ตอบ 200 เสมอถ้า server รันอยู่
+// ==========================================
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+        db: process.env.SUPABASE_URL ? 'supabase' : 'local-json'
+    });
+});
+
+// ==========================================
 // Authentication APIs
 // ==========================================
 
