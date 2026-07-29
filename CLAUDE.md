@@ -159,6 +159,27 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29 (5)** — UI polish pass on the Hotspot Accounts toolbar per
+  user feedback that it "looked old-fashioned": `.search-bar-inline` and
+  `.count-badge` (used above the Hotspot Active Users, Hotspot Accounts, and
+  PPPoE Accounts tables) had **zero CSS rules defined anywhere** — they
+  rendered as unstyled stacked blocks. Added a proper flex toolbar (search
+  box + optional filter `<select>` + result-count pill, wrapping to a
+  full-width stack under 640px). Also refined the auto-cleanup card from
+  2026-07-29 (2): layered shadow instead of a flat border, a left accent
+  rail that reflects on/off state, precise concentric thumb sizing on the
+  toggle switch (recomputed the box-model math — `.switch`'s existing
+  values were already correct, `.switch-sm`'s were too, verified rather
+  than guessed), focus-visible ring and iOS-style press-stretch on both
+  switch sizes, and a `flex-direction: column` stack under 640px. Verified
+  by actually running the app locally (JSON-fallback mode) and checking
+  both the on/off toggle states and the sub-640px layout in a real browser
+  (via a temporary unconditional style override standing in for a true
+  viewport resize, since the browser automation tool's window-resize
+  didn't propagate to the page's actual `window.innerWidth` in this
+  environment) rather than just reading the CSS. `style.css` bumped to
+  `v=14.0`.
+
 - **2026-07-29 (4)** — **Production outage caused by the dependency cleanup
   in 2026-07-29's first entry.** Removing `sqlite3`/`googleapis`/`archiver`
   and running `npm install` also silently dropped `ws` from `node_modules`
