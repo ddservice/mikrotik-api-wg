@@ -159,6 +159,34 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29 (4)** — **Production outage caused by the dependency cleanup
+  in 2026-07-29's first entry.** Removing `sqlite3`/`googleapis`/`archiver`
+  and running `npm install` also silently dropped `ws` from `node_modules`
+  — `ws` was never a direct dependency, it only existed because one of
+  those three pulled it in transitively. But `db-supabase.js:5` and `:13`
+  `require('ws')` directly (Node <22 lacks a global `WebSocket`, so
+  Supabase's realtime client needs the polyfill) — this is a real, direct
+  runtime dependency of this app, not a leftover. Result: every PM2 restart
+  crashed instantly with `Cannot find module 'ws'` before reaching
+  `app.listen()`, hence a fast, silent restart-loop (empty error.log at
+  first because it kept crash-looping — the actual error only became
+  visible once PM2 was fully deleted and restarted fresh). Fixed by adding
+  `"ws": "^8.18.0"` to `package.json`. **Lesson**: when removing an unused
+  dependency, checking that *the removed package's own name* has no
+  `require()` call sites isn't sufficient — grep every `require('pkg')`
+  call site across all Node-side files and diff that full list against
+  `package.json`'s `dependencies` before/after, since another file may be
+  relying on that package's *transitive* deps being hoisted into
+  `node_modules` without declaring them itself.
+  - Secondary VPS-only issue hit while debugging this: `pm2 reload
+    ecosystem.config.js` got the running process into a broken
+    `waiting restart` state (`Process 1 not found`) that plain `reload`
+    couldn't recover from. Fix was `pm2 delete <name>` then
+    `pm2 start ecosystem.config.js` (matches the existing PM2
+    reboot-recovery steps documented under Deploy workflow) — don't rely
+    on `reload` alone if a process looks stuck; delete + fresh start is
+    more reliable to unstick it.
+
 - **2026-07-29 (3)** — Pinned `@supabase/supabase-js` to `>=2.49.4 <2.110.0`
   (was `^2.49.4`). `npm install` on the VPS had started emitting `EBADENGINE`
   warnings because 2.110.0 bumped its required Node to `>=22.0.0`, while the
