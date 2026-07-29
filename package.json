@@ -8,11 +8,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
-    "archiver": "^8.0.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "express-rate-limit": "^7.5.0",
-    "googleapis": "^173.0.0",
-    "sqlite3": "^6.0.1"
+    "express-rate-limit": "^7.5.0"
   }
 }

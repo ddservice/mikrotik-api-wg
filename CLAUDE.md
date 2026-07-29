@@ -141,6 +141,21 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29** — Repo cleanup after auditing tracked files against actual
+  usage: removed `sqlite3`, `googleapis`, and `archiver` from
+  `package.json` — all three were declared dependencies with zero
+  `require(...)` call sites anywhere in the codebase (`npm install`
+  afterward dropped 164 transitive packages from `node_modules`). Deleted
+  `migrate.js` (one-time JSON→Supabase migration script, already run back
+  when Supabase was first adopted; it `require()`d `dotenv` and `ws`, which
+  were never in `package.json` and aren't installed, so it was already
+  broken/unrunnable) and `log_rotation_backup.sh` (leftover from an earlier,
+  abandoned design that rotated raw rsyslog files and expired rows in
+  ClickHouse — neither rsyslog nor ClickHouse exist anywhere else in this
+  project; superseded by `backup.js` and `nas-backup.sh`). No functional/
+  runtime code changed — `package-lock.json` and
+  `node_modules/.package-lock.json` regenerated to match.
+
 - **2026-07-27** — Fixed 502 Bad Gateway caused by PM2 not running after VPS
   reboot/crash. Root cause: `ecosystem.config.js` and `deploy.sh` had incorrect
   hardcoded paths (`/root/mikrotik-api-wg`, `/var/log/mikrotik-dashboard`) but
