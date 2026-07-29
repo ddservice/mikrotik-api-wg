@@ -109,6 +109,59 @@ cannot write to `/root/` or `/var/log/`.
   Hotspot User modal (hidden when adding a brand-new user, since a fresh
   `/user/add` already starts at uptime 0).
 
+## Local development setup
+
+For anyone picking this project up on a new machine (or a future Claude
+Code session starting cold):
+
+- **Requirements**: Node.js — `@supabase/supabase-js` is pinned to
+  `>=2.49.4 <2.110.0` specifically so this still works on Node 20 (the
+  VPS runs 20.20.2); Node 22+ also works but isn't required. `npm install`
+  after cloning.
+- **Two ways to run it locally**:
+  - **JSON-fallback mode** (`node server.js` with no `SUPABASE_URL` set) —
+    reads/writes the `db/*.json` files directly, needs zero configuration,
+    and is the fastest way to check a UI/frontend change end-to-end. This
+    is what was used to test every UI change in this session.
+  - **Supabase mode** — set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` env
+    vars (matching what's in the VPS's `ecosystem.config.js`, which is
+    gitignored — copy `ecosystem.config.example.js` as a template if you
+    need a local PM2-managed run) to hit the real production database
+    instead. Only do this deliberately; JSON mode is safer for
+    experimentation.
+- **Logging in locally**: the repo's checked-in `db/users.json` has real
+  seeded accounts (`admin`, `test`) whose actual passwords are unknown/not
+  documented — they're legacy SHA-256 hashes (`hashPasswordLegacy` in
+  `db.js`) that auto-upgrade to salted PBKDF2 on next successful login.
+  To log in locally for testing, either:
+  1. Delete `db/users.json` and restart the server — `db.js`'s `initDB()`
+     recreates it with a fresh default `admin` / `admin1234` account, or
+  2. Temporarily swap in a known password hash to keep the existing seed
+     data (username unchanged), e.g.:
+     ```
+     node -e "const c=require('crypto');console.log(c.createHash('sha256').update('yourpassword'+'mikrotik_gatekeeper_salt_secure_2026').digest('hex'))"
+     ```
+     paste the result into `db/users.json`'s `passwordHash` field, test,
+     then **always run `git checkout -- db/users.json` (and
+     `db/logs.json`/`db/settings.json`, which login/toggle actions also
+     touch) before committing** — never leave a known-password local hash
+     or test-session log noise in a commit.
+- **Visually verifying UI/CSS changes**: don't just read the CSS — run the
+  app locally per above, log in, and actually click through the affected
+  page. If browser automation is available, prefer it over guessing;
+  but note that in at least one session the window-resize tool silently
+  didn't propagate to the page's real `window.innerWidth` (verify with
+  `window.innerWidth` via JS before trusting a "mobile" screenshot), and
+  screenshot capture occasionally returned a stale/tiled repaint after a
+  DOM update — reload the page before concluding a rendering bug is real.
+- **Syntax-checking**: see below — there is no test suite, so this plus
+  manual reasoning about call sites is the only safety net before pushing.
+- **Git/commit conventions**: commits are only pushed when explicitly
+  authorized in the conversation (not automatically after every change),
+  and the `## Change log` section below is updated with a dated entry
+  every time — read it top-to-bottom for the full history of *why* things
+  are the way they are, not just *what* changed.
+
 ## Syntax-checking (no system Node available)
 
 There is no system Node in this sandbox. Use the Playwright-bundled binary
@@ -119,7 +172,9 @@ before committing any JS change:
 Run this on every modified `.js` file (`server.js`, `db.js`,
 `db-supabase.js`, `public/app.js`, etc.) — there is no test suite, so this
 syntax check plus manual reasoning about call sites is the only safety net
-before pushing.
+before pushing. (This specific binary path is a workaround for *this*
+sandbox having no system Node install — on a normal dev machine, just use
+your own `node -c <file>` or `node --check <file>`.)
 
 ## Deploy workflow
 
@@ -158,6 +213,18 @@ browser.
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-07-29 (8)** — Added the "## Local development setup" section per
+  user request, so someone else picking this project up on a different
+  machine (or a fresh Claude Code session) isn't stuck rediscovering things
+  this session had to work out the hard way: how to run in JSON-fallback
+  vs Supabase mode, that the checked-in `db/users.json` seed accounts have
+  unrecoverable real passwords (with a copy-pasteable recipe for a
+  temporary local-only password swap, and the reminder to always revert it
+  before committing), and two browser-automation quirks hit while testing
+  today's UI changes (window-resize not reflecting in `window.innerWidth`,
+  and a transient stale/tiled screenshot repaint that cleared on reload).
+  No code changes — documentation only.
 
 - **2026-07-29 (7)** — Follow-up on (6): user tested again and said it was
   specifically the **toggle switch itself** that still looked unchanged —
