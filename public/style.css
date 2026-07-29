@@ -1011,7 +1011,11 @@ select.form-control {
     font-weight: 500;
 }
 
-/* Auto-Cleanup settings card (modern card + toggle) */
+/* Auto-Cleanup settings card — deliberately richer than a plain settings
+   row: gradient icon plate (same treatment as .btn-primary) instead of a
+   flat tint, a soft corner glow, and layered elevation. The icon stays
+   vibrant in both states (brand identity); the accent rail + badge carry
+   the actual on/off signal so color is never the only cue. */
 .auto-cleanup-card {
     position: relative;
     display: flex;
@@ -1019,12 +1023,39 @@ select.form-control {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 16px;
-    background: #fff;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    padding: 16px 20px 16px 24px;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 2px 8px rgba(15, 23, 42, 0.03);
-    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+    padding: 18px 24px 18px 28px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -12px rgba(79, 70, 229, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    overflow: hidden;
+    isolation: isolate;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .auto-cleanup-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 16px 32px -14px rgba(79, 70, 229, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+}
+
+/* Soft corner glow — decorative depth, clipped by the card's overflow:hidden */
+.auto-cleanup-card::after {
+    content: "";
+    position: absolute;
+    top: -60px;
+    right: -40px;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--primary-glow) 0%, rgba(79, 70, 229, 0) 70%);
+    z-index: -1;
+    transition: background var(--transition-normal);
+}
+
+.auto-cleanup-card.is-on::after {
+    background: radial-gradient(circle, var(--success-glow) 0%, rgba(5, 150, 105, 0) 70%);
 }
 
 /* Status accent rail — reads at a glance without relying on color alone
@@ -1033,8 +1064,8 @@ select.form-control {
     content: "";
     position: absolute;
     left: 0;
-    top: 12px;
-    bottom: 12px;
+    top: 14px;
+    bottom: 14px;
     width: 4px;
     border-radius: 0 4px 4px 0;
     background: var(--border-color);
@@ -1043,37 +1074,38 @@ select.form-control {
 
 .auto-cleanup-card.is-on {
     border-color: rgba(5, 150, 105, 0.25);
-    box-shadow: 0 1px 2px rgba(5, 150, 105, 0.06), 0 4px 12px rgba(5, 150, 105, 0.06);
 }
 
 .auto-cleanup-card.is-on::before {
     background: var(--success);
+    box-shadow: 0 0 8px rgba(5, 150, 105, 0.5);
 }
 
 .auto-cleanup-card-main {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
     min-width: 0;
 }
 
 .auto-cleanup-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     flex-shrink: 0;
-    background: var(--primary-glow);
-    color: var(--primary);
-    transition: background var(--transition-normal), color var(--transition-normal);
+    color: #fff;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+    box-shadow: 0 6px 16px -4px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    transition: background var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .auto-cleanup-card.is-on .auto-cleanup-icon {
-    background: var(--success-glow);
-    color: var(--success);
+    background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
+    box-shadow: 0 6px 16px -4px rgba(5, 150, 105, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .auto-cleanup-text {
@@ -1081,14 +1113,15 @@ select.form-control {
 }
 
 .auto-cleanup-text h5 {
-    font-size: 0.92rem;
-    font-weight: 600;
-    margin: 0 0 2px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    margin: 0 0 3px;
     color: var(--text-main);
 }
 
 .auto-cleanup-text p {
-    font-size: 0.78rem;
+    font-size: 0.79rem;
     color: var(--text-muted);
     margin: 0;
 }
@@ -1105,8 +1138,8 @@ select.form-control {
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
-    font-weight: 600;
-    padding: 4px 12px;
+    font-weight: 700;
+    padding: 5px 13px;
     border-radius: 20px;
     white-space: nowrap;
     background: #f1f5f9;
@@ -1121,7 +1154,7 @@ select.form-control {
     height: 6px;
     border-radius: 50%;
     background: currentColor;
-    opacity: 0.6;
+    opacity: 0.7;
 }
 
 .auto-cleanup-status-badge.on {
@@ -1130,11 +1163,15 @@ select.form-control {
     border-color: rgba(5, 150, 105, 0.2);
 }
 
+.auto-cleanup-status-badge.on::before {
+    box-shadow: 0 0 6px currentColor;
+}
+
 @media (max-width: 640px) {
     .auto-cleanup-card {
         flex-direction: column;
         align-items: stretch;
-        padding: 16px 18px 16px 22px;
+        padding: 18px 20px 18px 24px;
     }
 
     .auto-cleanup-actions {

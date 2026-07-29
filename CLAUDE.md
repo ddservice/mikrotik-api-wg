@@ -159,6 +159,23 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29 (6)** — Follow-up on 2026-07-29 (5): user tested and said the
+  auto-cleanup card "still looked the same... the whole card looks bland,
+  not premium" (the search-bar-inline/count-badge fix from (5) had in fact
+  loaded correctly — confirmed via the screenshot they sent — but the card
+  itself read as flat). Gave the card real visual weight to match the
+  request: gradient icon plate (`linear-gradient(135deg, var(--primary)
+  0%, var(--primary-hover) 100%)`, same treatment as `.btn-primary`, with
+  an `inset` highlight + colored drop shadow) instead of a flat tinted
+  square, a soft radial corner glow clipped by `overflow:hidden`, deeper
+  layered elevation with a hover lift, and a glowing accent rail/badge dot
+  when active. The icon stays vibrant in both on/off states by design (it's
+  brand identity) — the accent rail + status badge carry the actual on/off
+  signal, so color is never the only cue for state. `style.css` bumped to
+  `v=15.0`. Verified both on/off states in a real (not simulated) narrow
+  viewport this time — the browser tool's window resize worked in this
+  session (500x805), unlike the (5) session where it silently no-op'd.
+
 - **2026-07-29 (5)** — UI polish pass on the Hotspot Accounts toolbar per
   user feedback that it "looked old-fashioned": `.search-bar-inline` and
   `.count-badge` (used above the Hotspot Active Users, Hotspot Accounts, and
