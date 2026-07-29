@@ -159,6 +159,25 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29 (7)** — Follow-up on (6): user tested again and said it was
+  specifically the **toggle switch itself** that still looked unchanged —
+  correct, (6) only restyled the card around it, never the `.switch`/
+  `.slider` component (shared across the auto-cleanup toggle, the PPPoE
+  room-enabled toggle, and the site DNS-logging toggle). Redesigned the
+  switch itself: track now has a subtle `linear-gradient` + `inset`
+  shadow (reads as a groove instead of a flat pill) in both the off state
+  (grey) and the on state (indigo gradient matching `.btn-primary`, plus a
+  soft `var(--primary-glow)` halo around the track), thumb has a radial
+  highlight instead of flat white, and thumb travel now eases with a new
+  `--ease-spring` custom property instead of the browser-default linear
+  `.4s`. Applies globally to every `.switch` in the app, not just the
+  auto-cleanup one. `style.css` bumped to `v=16.0`. Verified both states
+  live via the same real narrow-viewport browser session as (6) — hit a
+  transient screenshot-capture glitch mid-session (a stale/tiled repaint
+  showing dozens of duplicate cards, worth remembering as "reload before
+  concluding a UI bug" if this class of tool artifact recurs) that cleared
+  on page reload and was not a real app bug.
+
 - **2026-07-29 (6)** — Follow-up on 2026-07-29 (5): user tested and said the
   auto-cleanup card "still looked the same... the whole card looks bland,
   not premium" (the search-bar-inline/count-badge fix from (5) had in fact
