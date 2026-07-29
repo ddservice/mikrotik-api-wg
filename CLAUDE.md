@@ -159,6 +159,13 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-29 (3)** — Pinned `@supabase/supabase-js` to `>=2.49.4 <2.110.0`
+  (was `^2.49.4`). `npm install` on the VPS had started emitting `EBADENGINE`
+  warnings because 2.110.0 bumped its required Node to `>=22.0.0`, while the
+  VPS runs Node 20.20.2; 2.109.0 (the version this range now resolves to)
+  still declares `>=20.0.0`. Was a warning, not a hard failure, but pinning
+  avoids it outright until the VPS's Node version is deliberately upgraded.
+
 - **2026-07-29 (2)** — Fixed the Hotspot "uptime limit" bug reported by the
   user: renewing/topping-up an existing coupon username left the old
   cumulative `uptime` counter in place, so it immediately read as over the
