@@ -1299,17 +1299,30 @@ if (btnPrintSelected) {
 }
 
 // Expired Cleanup Handlers
+function setAutoCleanupUI(enabled) {
+    const toggle = document.getElementById('toggle-auto-cleanup');
+    const card = document.getElementById('auto-cleanup-card');
+    const badge = document.getElementById('auto-cleanup-status-badge');
+    if (toggle) toggle.checked = enabled;
+    if (card) card.classList.toggle('is-on', enabled);
+    if (badge) {
+        badge.textContent = enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
+        badge.classList.toggle('on', enabled);
+        badge.classList.toggle('off', !enabled);
+    }
+}
+
 async function fetchAutoCleanupConfig() {
     try {
         const config = await apiFetch('/api/mikrotik/hotspot/cleanup-config');
-        const toggle = document.getElementById('toggle-auto-cleanup');
-        if (toggle) toggle.checked = config.autoCleanupExpired;
+        setAutoCleanupUI(!!config.autoCleanupExpired);
     } catch (e) {}
 }
 
 const toggleAutoCleanup = document.getElementById('toggle-auto-cleanup');
 if (toggleAutoCleanup) {
     toggleAutoCleanup.addEventListener('change', async (e) => {
+        setAutoCleanupUI(e.target.checked);
         try {
             await apiFetch('/api/mikrotik/hotspot/cleanup-config', {
                 method: 'POST',
@@ -1317,7 +1330,7 @@ if (toggleAutoCleanup) {
             });
         } catch (err) {
             alert(err.message);
-            e.target.checked = !e.target.checked;
+            setAutoCleanupUI(!e.target.checked);
         }
     });
 }
@@ -2078,7 +2091,9 @@ const hotspotError = document.getElementById('hotspot-error');
 
 function openHotspotModal(item = null) {
     fetchProfilesToDropdown();
-    
+    const renewWrapper = document.getElementById('hotspot-renew-wrapper');
+    const renewMode = document.getElementById('hotspot-renew-mode');
+
     if (item) {
         document.getElementById('hotspot-modal-title').textContent = 'แก้ไขบัญชีผู้ใช้ Hotspot';
         document.getElementById('hotspot-user-id').value = item.id;
@@ -2089,6 +2104,8 @@ function openHotspotModal(item = null) {
         document.getElementById('hotspot-limit-uptime').value = item.limitUptime === '00:00:00' ? '' : item.limitUptime;
         document.getElementById('hotspot-limit-bytes').value = item.limitBytesTotal === 0 ? '' : item.limitBytesTotal;
         document.getElementById('hotspot-comment').value = item.comment || '';
+        renewMode.value = '';
+        renewWrapper.style.display = 'block';
     } else {
         document.getElementById('hotspot-modal-title').textContent = 'เพิ่มผู้ใช้ Hotspot ใหม่';
         document.getElementById('hotspot-user-id').value = '';
@@ -2099,8 +2116,10 @@ function openHotspotModal(item = null) {
         document.getElementById('hotspot-limit-uptime').value = '';
         document.getElementById('hotspot-limit-bytes').value = '';
         document.getElementById('hotspot-comment').value = '';
+        renewMode.value = '';
+        renewWrapper.style.display = 'none';
     }
-    
+
     hotspotError.style.display = 'none';
     modalHotspot.classList.add('active');
 }
@@ -2125,19 +2144,22 @@ formHotspotUser.addEventListener('submit', async (e) => {
     const limitUptime = document.getElementById('hotspot-limit-uptime').value;
     const limitBytesTotal = document.getElementById('hotspot-limit-bytes').value;
     const comment = document.getElementById('hotspot-comment').value;
-    
+    const renewMode = id ? document.getElementById('hotspot-renew-mode').value : '';
+
     const body = {
         name,
         password,
         profile,
         limitUptime: limitUptime || undefined,
         limitBytesTotal: limitBytesTotal ? parseInt(limitBytesTotal) : undefined,
-        comment
+        comment,
+        resetCounters: renewMode === 'reset',
+        recreate: renewMode === 'recreate'
     };
-    
+
     const url = id ? `/api/mikrotik/hotspot/users/${id}` : '/api/mikrotik/hotspot/users';
     const method = id ? 'PUT' : 'POST';
-    
+
     try {
         await apiFetch(url, {
             method,

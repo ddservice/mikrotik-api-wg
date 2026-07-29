@@ -90,6 +90,24 @@ cannot write to `/root/` or `/var/log/`.
   (body `{ suspend: true|false }`), which disables the `/ppp/secret` entry and,
   when suspending, also kicks any live session so the cutoff is immediate. If
   the same pattern is added for Hotspot users later, reuse this wording.
+- **Renewing an existing Hotspot username**: `/ip/hotspot/user`'s `uptime`
+  counter is cumulative and RouterOS never resets it on its own — if a
+  customer tops up/buys a new coupon under the *same* username, re-applying
+  `limit-uptime` alone leaves the old accumulated uptime in place, so the
+  user immediately reads as already over the new package's limit.
+  `PUT /api/mikrotik/hotspot/users/:id` takes two opt-in renewal flags (both
+  default off, so a plain cosmetic edit — e.g. fixing a comment — doesn't
+  wipe usage stats): `resetCounters: true` runs
+  `/ip/hotspot/user/reset-counters` (param name `numbers`, not `.id`) before
+  applying the new limits; `recreate: true` instead removes and re-adds the
+  user outright (guarantees a clean slate, recommended for single-use
+  coupons). Either mode also kicks any active session for that username
+  first (`/ip/hotspot/active/print` filtered by `user=`, then
+  `/ip/hotspot/active/remove`) so the customer's next login picks up the
+  fresh counters immediately instead of continuing under the old session.
+  Selected via a "ต่ออายุ/เติมเงิน" dropdown that only appears in the Edit
+  Hotspot User modal (hidden when adding a brand-new user, since a fresh
+  `/user/add` already starts at uptime 0).
 
 ## Syntax-checking (no system Node available)
 
@@ -140,6 +158,21 @@ browser.
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-07-29 (2)** — Fixed the Hotspot "uptime limit" bug reported by the
+  user: renewing/topping-up an existing coupon username left the old
+  cumulative `uptime` counter in place, so it immediately read as over the
+  new package's `limit-uptime`. `PUT /api/mikrotik/hotspot/users/:id` now
+  accepts `resetCounters`/`recreate` flags (see the convention note above)
+  exposed via a new "ต่ออายุ/เติมเงิน" dropdown in the Edit Hotspot User
+  modal (only shown when editing, not when adding a new user); both modes
+  also kick any active session for that username so the renewal takes
+  effect immediately rather than waiting for the customer's current session
+  to end naturally. Also redesigned the Hotspot Accounts auto-cleanup
+  toggle from a plain status-bar row into a modern card (icon, description,
+  live status badge, toggle switch) — the "ลบหมดอายุทันที" manual-trigger
+  button now lives inside that card instead of the tab's header actions.
+  No DB schema changes — all RouterOS-side. `app.js` bumped to `v=25.0`.
 
 - **2026-07-29** — Repo cleanup after auditing tracked files against actual
   usage: removed `sqlite3`, `googleapis`, and `archiver` from

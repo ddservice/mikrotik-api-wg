@@ -1079,10 +1079,52 @@ app.post('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user'
 });
 
 // Edit Hotspot user
+// Also doubles as the "renew / top-up" endpoint for an existing username: RouterOS
+// never resets the accumulated `uptime` counter on its own, so re-applying a fresh
+// limit-uptime to a coupon that already has usage history makes it look instantly
+// expired. `resetCounters`/`recreate` (both opt-in, off by default so a plain
+// cosmetic edit doesn't wipe usage stats) fix that — see CLAUDE.md "Renewing an
+// existing Hotspot username" for the full explanation.
 app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
-    const { name, password, profile, limitUptime, limitBytesTotal, comment } = req.body;
+    const { name, password, profile, limitUptime, limitBytesTotal, comment, resetCounters, recreate } = req.body;
     try {
         const result = await executeOnRouter(async (client) => {
+            // Renewal: kick any active session first so RouterOS doesn't keep counting
+            // uptime against a user record we're about to reset/replace underneath it.
+            if ((resetCounters || recreate) && name) {
+                try {
+                    const active = await client.exec('/ip/hotspot/active/print');
+                    for (const s of active.filter(a => a.user === name)) {
+                        await client.exec('/ip/hotspot/active/remove', { '.id': s['.id'] });
+                    }
+                } catch (e) { /* not fatal — continue applying the new limits */ }
+            }
+
+            if (recreate) {
+                // Delete + recreate: simplest way to guarantee a fully clean uptime/byte
+                // counter, recommended for single-use coupon codes.
+                await client.exec('/ip/hotspot/user/remove', { '.id': req.params.id });
+                const addParams = {
+                    name,
+                    password: password || '',
+                    profile: profile || 'default',
+                    comment: comment || ''
+                };
+                if (limitUptime) addParams['limit-uptime'] = limitUptime;
+                if (limitBytesTotal) addParams['limit-bytes-total'] = limitBytesTotal;
+                return await client.exec('/ip/hotspot/user/add', addParams);
+            }
+
+            if (resetCounters) {
+                // /ip/hotspot/user/reset-counters zeroes uptime + bytes-in/out for this
+                // user — must run BEFORE the new limit-uptime is applied below, or the
+                // still-accumulated old uptime gets compared against the new (often
+                // smaller) limit and the user is treated as already expired.
+                try {
+                    await client.exec('/ip/hotspot/user/reset-counters', { numbers: req.params.id });
+                } catch (e) { /* older RouterOS may reject this if the user never logged in yet */ }
+            }
+
             const params = {
                 '.id': req.params.id,
                 name,
@@ -1090,7 +1132,7 @@ app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'us
                 comment: comment || ''
             };
             if (password !== undefined) params.password = password;
-            
+
             // Set limit properties (empty value removes limits in RouterOS depending on version,
             // but setting limit-uptime="0" or "00:00:00" might clear it, or leaving it out is standard)
             params['limit-uptime'] = limitUptime || '00:00:00';
@@ -1098,7 +1140,8 @@ app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'us
 
             return await client.exec('/ip/hotspot/user/set', params);
         });
-        db.addLog(req.user.username, 'แก้ไขบัญชี Hotspot', 'แก้ไขผู้ใช้ ID: ' + req.params.id + ' เป็นชื่อ ' + name + ' (โปรไฟล์: ' + profile + ')');
+        const renewSuffix = recreate ? ' [ต่ออายุ: ลบและสร้างใหม่]' : (resetCounters ? ' [ต่ออายุ: รีเซ็ตเวลาใช้งาน]' : '');
+        db.addLog(req.user.username, 'แก้ไขบัญชี Hotspot', 'แก้ไขผู้ใช้ ID: ' + req.params.id + ' เป็นชื่อ ' + name + ' (โปรไฟล์: ' + profile + ')' + renewSuffix);
         res.json({ success: true, result });
     } catch (err) {
         res.status(500).json({ error: err.message });
