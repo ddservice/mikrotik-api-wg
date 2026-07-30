@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=16.0">
+    <link rel="stylesheet" href="style.css?v=17.0">
 </head>
 <body>
 
@@ -366,11 +366,14 @@
                                     </div>
                                     <div class="auto-cleanup-actions">
                                         <button class="btn btn-secondary btn-sm" id="btn-clean-expired-now"><i class="fa-solid fa-broom"></i> ลบหมดอายุทันที</button>
-                                        <span class="auto-cleanup-status-badge off" id="auto-cleanup-status-badge">ปิดใช้งาน</span>
-                                        <label class="switch switch-sm">
-                                            <input type="checkbox" id="toggle-auto-cleanup">
-                                            <span class="slider"></span>
-                                        </label>
+                                        <span class="auto-cleanup-divider" aria-hidden="true"></span>
+                                        <div class="auto-cleanup-toggle-group">
+                                            <span class="auto-cleanup-status-badge off" id="auto-cleanup-status-badge">ปิดใช้งาน</span>
+                                            <label class="switch switch-sm">
+                                                <input type="checkbox" id="toggle-auto-cleanup">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
 

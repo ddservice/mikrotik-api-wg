@@ -1131,8 +1131,36 @@ select.form-control {
 .auto-cleanup-actions {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     flex-wrap: wrap;
+}
+
+/* Separates the manual "run now" action (a one-off command) from the
+   status+toggle pill (the actual on/off control) — they're different
+   kinds of actions and shouldn't blend into one undifferentiated cluster. */
+.auto-cleanup-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--border-color);
+    flex-shrink: 0;
+}
+
+/* Status badge + switch joined into a single grouped pill, so they read
+   as one control rather than two loose elements floating at the edge. */
+.auto-cleanup-toggle-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 6px 5px 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    transition: background var(--transition-normal), border-color var(--transition-normal);
+}
+
+.auto-cleanup-card.is-on .auto-cleanup-toggle-group {
+    background: var(--success-glow);
+    border-color: rgba(5, 150, 105, 0.25);
 }
 
 .auto-cleanup-status-badge {
@@ -1141,13 +1169,9 @@ select.form-control {
     gap: 6px;
     font-size: 0.72rem;
     font-weight: 700;
-    padding: 5px 13px;
-    border-radius: 20px;
     white-space: nowrap;
-    background: #f1f5f9;
     color: var(--text-muted);
-    border: 1px solid var(--border-color);
-    transition: all var(--transition-normal);
+    transition: color var(--transition-normal);
 }
 
 .auto-cleanup-status-badge::before {
@@ -1160,9 +1184,7 @@ select.form-control {
 }
 
 .auto-cleanup-status-badge.on {
-    background: var(--success-glow);
     color: #047857;
-    border-color: rgba(5, 150, 105, 0.2);
 }
 
 .auto-cleanup-status-badge.on::before {
@@ -1178,6 +1200,10 @@ select.form-control {
 
     .auto-cleanup-actions {
         justify-content: space-between;
+    }
+
+    .auto-cleanup-divider {
+        display: none;
     }
 }
 

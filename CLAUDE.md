@@ -243,6 +243,23 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-07-30 (2)** — Regrouped the auto-cleanup card's action cluster
+  per user feedback ("toggle ไม่สวย จัดใหม่ให้มืออาชีพ"): the manual
+  "ลบหมดอายุทันที" button (a one-off command) now sits visually separated
+  by a vertical divider from a new joined pill container
+  (`.auto-cleanup-toggle-group`) holding the status badge + switch
+  together as one control, instead of three loose elements floating at
+  the card's edge. `style.css` bumped to `v=17.0`. Also: this is the
+  first UI test done *after* the db/config.json untracking below, so
+  established the safe local-testing pattern this project should keep
+  using going forward — temporarily point `db/config.json`'s `host` at
+  an unreachable address (e.g. `127.0.0.1`) before testing anything that
+  touches `executeOnRouter`, since it's gitignored now and a plain
+  JSON-fallback run otherwise talks to the real production router. Also
+  note: **`git checkout -- db/users.json` (etc.) no longer reverts
+  anything** now that these files are untracked — manually `cp` them to a
+  backup path first and restore from that copy instead.
+
 - **2026-07-30** — **Security: removed `db/config.json` and
   `db/users.json` from git tracking.** Discovered while locally testing a
   UI change (following the (8) entry's own local-dev instructions) that
