@@ -108,6 +108,21 @@ cannot write to `/root/` or `/var/log/`.
   Selected via a "ต่ออายุ/เติมเงิน" dropdown that only appears in the Edit
   Hotspot User modal (hidden when adding a brand-new user, since a fresh
   `/user/add` already starts at uptime 0).
+- **`db/config.json` and `db/users.json` must never be git-tracked** — the
+  former holds the real MikroTik router host/port/username/password in
+  plaintext, the latter holds dashboard login password hashes. Both
+  matched the `db/*.json` `.gitignore` pattern but were still tracked
+  because they'd been committed *before* that pattern was added (git
+  doesn't retroactively untrack a path just because a later `.gitignore`
+  rule matches it) — discovered 2026-07-30 when a local JSON-fallback
+  test run turned out to hold a real, reachable router credential and
+  connected to the live device instead of a sandbox. Untracked via
+  `git rm --cached` (see changelog); **the exposed router password was
+  already burned the moment it was committed, so removing it from
+  tracking does not substitute for rotating it on the router itself.**
+  If you ever need to seed these files, let `db.js`'s `initDB()` create
+  them on first run (default admin `admin`/`admin1234`, empty site) —
+  never hand-edit them back into a commit.
 
 ## Local development setup
 
@@ -129,23 +144,21 @@ Code session starting cold):
     need a local PM2-managed run) to hit the real production database
     instead. Only do this deliberately; JSON mode is safer for
     experimentation.
-- **Logging in locally**: the repo's checked-in `db/users.json` has real
-  seeded accounts (`admin`, `test`) whose actual passwords are unknown/not
-  documented — they're legacy SHA-256 hashes (`hashPasswordLegacy` in
-  `db.js`) that auto-upgrade to salted PBKDF2 on next successful login.
-  To log in locally for testing, either:
-  1. Delete `db/users.json` and restart the server — `db.js`'s `initDB()`
-     recreates it with a fresh default `admin` / `admin1234` account, or
-  2. Temporarily swap in a known password hash to keep the existing seed
-     data (username unchanged), e.g.:
-     ```
-     node -e "const c=require('crypto');console.log(c.createHash('sha256').update('yourpassword'+'mikrotik_gatekeeper_salt_secure_2026').digest('hex'))"
-     ```
-     paste the result into `db/users.json`'s `passwordHash` field, test,
-     then **always run `git checkout -- db/users.json` (and
-     `db/logs.json`/`db/settings.json`, which login/toggle actions also
-     touch) before committing** — never leave a known-password local hash
-     or test-session log noise in a commit.
+- **Logging in locally**: `db/config.json` and `db/users.json` are
+  gitignored and no longer tracked at all (see the critical-conventions
+  note above) — a fresh clone won't have them. Just run `node server.js`
+  once; `db.js`'s `initDB()` creates both automatically: an empty site
+  (host/username/password blank — fill them in via the Router Settings
+  page, or leave blank if you only need to test UI that doesn't call
+  `executeOnRouter`) and a default `admin` / `admin1234` login. If your
+  checkout *does* still have a real `db/config.json` from before this was
+  untracked (e.g. an existing clone made before 2026-07-30), be aware
+  running the app against it talks to whatever real router is configured
+  in there, not a sandbox — check the file's contents before assuming
+  it's safe to click around freely, and don't commit any temporary
+  changes to it (it's gitignored now, so `git status` should stay quiet,
+  but double-check with `git status` anyway before any commit that
+  touches `db/`).
 - **Visually verifying UI/CSS changes**: don't just read the CSS — run the
   app locally per above, log in, and actually click through the affected
   page. If browser automation is available, prefer it over guessing;
@@ -188,6 +201,22 @@ git pull origin main && pm2 reload ecosystem.config.js --update-env
 repo contains only placeholder values. **Never overwrite the VPS copy carelessly**;
 if `git pull` would clobber it, stash or back it up first.
 
+Same caution applies to `db/config.json` and `db/users.json` now that
+they're untracked (2026-07-30): **before pulling the commit that removes
+them from tracking**, back them up first —
+```
+cp db/config.json ~/db-config.json.bak && cp db/users.json ~/db-users.json.bak
+```
+If the real files on the VPS differ from what git last had (near-certain —
+real usage updates them), `git pull` will refuse with "would be removed by
+merge" exactly like the `ecosystem.config.js` rename did, which is
+harmless: just re-run `git pull` after nothing needs resolving, since the
+files are gitignored going forward and Git leaves untracked files alone.
+If for any reason `git pull` succeeds *silently* and the files vanish
+instead, restore immediately from the `.bak` copies above — otherwise the
+app restarts with a blank site config and a reset `admin`/`admin1234`
+login.
+
 **Auto-start after reboot** is configured via systemd (`pm2 startup` +
 `pm2 save`). If PM2 is not running after a VPS reboot/crash, run:
 ```
@@ -213,6 +242,27 @@ browser.
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-07-30** — **Security: removed `db/config.json` and
+  `db/users.json` from git tracking.** Discovered while locally testing a
+  UI change (following the (8) entry's own local-dev instructions) that
+  `db/config.json` held the real production MikroTik router's
+  host/port/username/password in plaintext — a local JSON-fallback test
+  run connected straight to the live router instead of a sandbox, and
+  `db/users.json` similarly held real dashboard login password hashes.
+  Both matched the pre-existing `db/*.json` `.gitignore` pattern but had
+  been committed before that pattern existed, so git kept tracking them
+  regardless (adding a gitignore rule doesn't retroactively untrack a
+  path). Ran `git rm --cached db/config.json db/users.json` — the actual
+  files are untouched on disk (site config and admin login keep working
+  exactly as before), only git stops tracking them going forward. **This
+  does not undo the exposure**: the credential was already committed to
+  git history, so it must be treated as burned regardless — rotating the
+  router's `ddserviceapi` password is the real fix and is on the user to
+  do, not something this change can accomplish. See the new
+  critical-conventions bullet and the Deploy workflow section for the
+  backup-first pull procedure needed for this specific commit. No
+  functional code changed.
 
 - **2026-07-29 (8)** — Added the "## Local development setup" section per
   user request, so someone else picking this project up on a different
