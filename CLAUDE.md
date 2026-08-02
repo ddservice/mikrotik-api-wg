@@ -243,6 +243,14 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-03** — Added 1-Click Hotspot Quick Renewal and Status Badges.
+  Added `POST /api/mikrotik/hotspot/users/:id/renew` endpoint that auto-kicks
+  active sessions, resets cumulative uptime/byte counters via
+  `/ip/hotspot/user/reset-counters`, and sets fresh `limit-uptime`.
+  Added Quick Status Filter Pills (`All`, `Active`, `Expired`, `Expiring Soon`)
+  and Status Badges (🔴 Expired, 🟡 <10% remaining, 🟢 Active) to the Hotspot
+  Accounts table, along with a 1-Click `[ 🔄 ต่ออายุ ]` action button per row.
+
 - **2026-08-02 (3)** — Changed default app port from `3000` to `3001` in
   `ecosystem.config.example.js` and `nginx.conf.example`. Diagnosed live
   routing conflict: `cnxhaircutz` (a Next.js app) runs on port `3000` on the
