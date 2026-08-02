@@ -47,7 +47,7 @@ server {
 
     # ---- Proxy to Node.js ----
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
 
         # WebSocket support (สำหรับ real-time features)
@@ -78,7 +78,7 @@ server {
 
     # ---- Static file caching ----
     location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3001;
         expires 7d;
         add_header Cache-Control "public, immutable";
     }

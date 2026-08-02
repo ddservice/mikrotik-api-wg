@@ -243,6 +243,28 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-02 (3)** — Changed default app port from `3000` to `3001` in
+  `ecosystem.config.example.js` and `nginx.conf.example`. Diagnosed live
+  routing conflict: `cnxhaircutz` (a Next.js app) runs on port `3000` on the
+  same VPS, so Nginx proxying `api.ddserviceth.com` to `127.0.0.1:3000` was
+  hitting Next.js instead of MikroTik Dashboard. Switching MikroTik Dashboard
+  to port `3001` resolves the port collision.
+
+- **2026-08-02 (2)** — **Router-side config change (not a code change)**: added
+  `http-pap` as a login fallback on the live Hotspot Server Profile
+  `hsprof1` (the profile actually bound to the `hotspot1` server — the
+  `default` profile exists but isn't attached to any server, left
+  untouched). `login-by` was `http-chap,mac-cookie`; now
+  `http-chap,http-pap,mac-cookie`. Applied directly via a one-off RouterOS
+  API script (not through this app's UI — there's no login-by control in
+  the dashboard) after confirming the change with the user, as part of
+  investigating the "web browser did not send challenge response (try
+  again, enable javascript)" customer complaint from the 2026-08-02 entry
+  above. Also confirmed while investigating: router's system clock/NTP is
+  healthy (Asia/Bangkok, synced within ~5ms), so clock skew was ruled out
+  as a cause. This change lives only on the router itself — nothing to
+  `git pull`/deploy for it, noted here only so the *why* is on record.
+
 - **2026-08-02** — Investigated a recurring customer complaint ("user rm218
   has reached uptime limit" right after topping up, plus separately "web
   browser did not send challenge response (try again, enable javascript)").
