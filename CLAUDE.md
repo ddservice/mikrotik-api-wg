@@ -243,6 +243,62 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-02** — Investigated a recurring customer complaint ("user rm218
+  has reached uptime limit" right after topping up, plus separately "web
+  browser did not send challenge response (try again, enable javascript)").
+  Findings:
+  - The renewal server logic added 2026-07-29 (2) (`resetCounters`/
+    `recreate` flags on `PUT /api/mikrotik/hotspot/users/:id`) is correct —
+    order of operations (kick session → reset/recreate → apply new limit)
+    matches the intended fix. The recurring "reached uptime limit" reports
+    are almost certainly **operational**, not a leftover code bug: staff
+    must remember to pick the "ต่ออายุ/เติมเงิน" dropdown when topping up an
+    *existing* username, and it's easy to forget since it's a separate
+    control from the Uptime Limit field itself.
+  - Fixed the root cause of the forgetting: `public/app.js`'s
+    `openHotspotModal` now stores the original `limitUptime` value on the
+    input (`dataset.original`) when opening Edit. A new `input` listener on
+    `#hotspot-limit-uptime` auto-selects "รีเซ็ตเวลาใช้งานสะสม" the moment
+    staff changes that field to a different value than it started with
+    (the actual real-world signature of "topping up"), and shows a new
+    inline hint (`#hotspot-renew-auto-hint` in `index.html`) so it's visible
+    rather than silent. If staff manually picks a different dropdown option
+    themselves (`change` event), a `renewModeManuallyChanged` flag stops the
+    auto-behavior from overwriting their explicit choice for the rest of
+    that modal session. Deliberately did **not** implement this by parsing
+    and comparing RouterOS's `uptime`/`limit-uptime` duration strings
+    server-side — this app's own `parseUptimeToMs` helper only understands
+    the `w/d/h/m/s`-suffixed format, while the Edit form's limit-uptime
+    input (and the `/ip/hotspot/user/profile` dropdown presets) use
+    `HH:MM:SS` — mixing the two formats risked either silently never
+    triggering or misfiring, so the fix stays entirely in the frontend and
+    format-agnostic (plain string-changed comparison, no duration parsing).
+    `app.js` bumped to `v=26.0`. No `server.js`/DB changes.
+  - The **"web browser did not send challenge response (try again, enable
+    javascript)"** error is unrelated to this app's code — it's generated
+    by RouterOS's own Hotspot Server Profile / login page (CHAP
+    challenge-response), which this dashboard does not manage or template
+    (confirmed via grep — no `login.html`/CHAP handling anywhere in this
+    repo). Likely causes worth checking directly on the router: the Hotspot
+    Server Profile's login method being CHAP-only (some in-app/webview
+    browsers — LINE, Facebook — block the JS that submits the CHAP
+    challenge; adding `http-pap` as a fallback login method usually fixes
+    this), a wrong system clock on the router (challenge tokens are
+    time-sensitive), or a stale session cookie in the customer's browser
+    left over from before a `recreate`-mode renewal (deleting and re-adding
+    the user changes internal RouterOS state out from under a cookie the
+    browser already held) — worth telling affected customers to fully
+    close/reopen their browser or clear cookies for the hotspot IP after a
+    renewal. Not something to "fix" in this repo; flagged for the user to
+    check on the router itself.
+  - Verified: syntax-checked both modified files with the Playwright node
+    binary; confirmed via a local JSON-fallback run that the served
+    `index.html`/`app.js` contain the new hint element and listener code.
+    Could not do a full interactive click-through this session (Chrome
+    browser extension wasn't connected) — this was verified by code trace,
+    not by clicking through the modal in a live browser; worth a real
+    click-through next session before considering it fully confirmed.
+
 - **2026-07-30 (2)** — Regrouped the auto-cleanup card's action cluster
   per user feedback ("toggle ไม่สวย จัดใหม่ให้มืออาชีพ"): the manual
   "ลบหมดอายุทันที" button (a one-off command) now sits visually separated

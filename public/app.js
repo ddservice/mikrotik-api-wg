@@ -2088,6 +2088,26 @@ document.getElementById('btn-copy-pppoe-script')?.addEventListener('click', () =
 const modalHotspot = document.getElementById('modal-hotspot');
 const formHotspotUser = document.getElementById('form-hotspot-user');
 const hotspotError = document.getElementById('hotspot-error');
+let renewModeManuallyChanged = false;
+
+// รู้ทันพนักงาน: ถ้าแก้ไข Uptime Limit ของ Username เดิม (=กำลังต่ออายุ/เติมเงิน)
+// แต่ลืมเลือก dropdown "ต่ออายุ" ด้านล่าง ระบบจะเลือก "รีเซ็ตเวลาใช้งานสะสม" ให้อัตโนมัติ
+// ป้องกันปัญหาลูกค้าเจอ "reached uptime limit" ทันทีหลังเติมเงิน เพราะเวลาที่สะสมไว้เดิม
+// ไม่ได้ถูกล้างค่า (ยังเลือกตัวเลือกอื่นเองได้ตามปกติ ถ้าเลือกเอง ระบบจะไม่เขียนทับอีก)
+document.getElementById('hotspot-limit-uptime').addEventListener('input', (e) => {
+    const id = document.getElementById('hotspot-user-id').value;
+    if (!id || renewModeManuallyChanged) return;
+    const renewMode = document.getElementById('hotspot-renew-mode');
+    const hint = document.getElementById('hotspot-renew-auto-hint');
+    const changed = e.target.value !== (e.target.dataset.original || '');
+    renewMode.value = changed ? 'reset' : '';
+    hint.style.display = changed ? 'block' : 'none';
+});
+
+document.getElementById('hotspot-renew-mode').addEventListener('change', () => {
+    renewModeManuallyChanged = true;
+    document.getElementById('hotspot-renew-auto-hint').style.display = 'none';
+});
 
 function openHotspotModal(item = null) {
     fetchProfilesToDropdown();
@@ -2101,10 +2121,14 @@ function openHotspotModal(item = null) {
         document.getElementById('hotspot-name').readOnly = true; // RouterOS does not allow renaming easily
         document.getElementById('hotspot-password').value = item.password || '';
         document.getElementById('hotspot-profile').value = item.profile;
-        document.getElementById('hotspot-limit-uptime').value = item.limitUptime === '00:00:00' ? '' : item.limitUptime;
+        const originalLimitUptime = item.limitUptime === '00:00:00' ? '' : item.limitUptime;
+        document.getElementById('hotspot-limit-uptime').value = originalLimitUptime;
+        document.getElementById('hotspot-limit-uptime').dataset.original = originalLimitUptime;
         document.getElementById('hotspot-limit-bytes').value = item.limitBytesTotal === 0 ? '' : item.limitBytesTotal;
         document.getElementById('hotspot-comment').value = item.comment || '';
         renewMode.value = '';
+        renewModeManuallyChanged = false;
+        document.getElementById('hotspot-renew-auto-hint').style.display = 'none';
         renewWrapper.style.display = 'block';
     } else {
         document.getElementById('hotspot-modal-title').textContent = 'เพิ่มผู้ใช้ Hotspot ใหม่';
@@ -2114,9 +2138,11 @@ function openHotspotModal(item = null) {
         document.getElementById('hotspot-password').value = '';
         document.getElementById('hotspot-profile').value = 'default';
         document.getElementById('hotspot-limit-uptime').value = '';
+        document.getElementById('hotspot-limit-uptime').dataset.original = '';
         document.getElementById('hotspot-limit-bytes').value = '';
         document.getElementById('hotspot-comment').value = '';
         renewMode.value = '';
+        renewModeManuallyChanged = false;
         renewWrapper.style.display = 'none';
     }
 
