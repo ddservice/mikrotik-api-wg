@@ -995,6 +995,67 @@ select.form-control {
     color: #64748b;
 }
 
+/* Hotspot Unified Control Toolbar */
+.hotspot-control-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+    border: 1px solid var(--border-color);
+    padding: 10px 16px;
+    border-radius: var(--border-radius-lg);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.hotspot-control-bar .control-group-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    flex: 1;
+}
+
+.hotspot-control-bar .control-group-right {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+}
+
+.hotspot-control-bar .search-input-box {
+    width: 240px;
+}
+
+.hotspot-control-bar .search-input-box input {
+    height: 36px;
+    font-size: 0.85rem;
+}
+
+.hotspot-control-bar .profile-filter-select {
+    width: 155px;
+    height: 36px;
+    font-size: 0.85rem;
+}
+
+.hotspot-control-bar .control-divider {
+    width: 1px;
+    height: 22px;
+    background-color: var(--border-color);
+    margin: 0 4px;
+}
+
+@media (max-width: 991px) {
+    .hotspot-control-bar .control-divider {
+        display: none;
+    }
+    .hotspot-control-bar .search-input-box,
+    .hotspot-control-bar .profile-filter-select {
+        width: 100%;
+        max-width: none;
+    }
+}
+
 /* Quick Status Filter Pills for Hotspot Accounts */
 .quick-status-filter-bar {
     display: flex;

@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20.0">
+    <link rel="stylesheet" href="style.css?v=21.0">
 </head>
 <body>
 
@@ -344,24 +344,27 @@
                                 </div>
                             </div>
                             <div class="card-body">
-                                <!-- P3: Search bar for accounts -->
-                                <div class="search-bar-inline mb-12">
-                                    <div class="input-with-icon" style="max-width:300px;">
-                                        <i class="fa-solid fa-magnifying-glass"></i>
-                                        <input type="text" id="search-hotspot-accounts" class="form-control" placeholder="ค้นหา username, โปรไฟล์, หมายเหตุ...">
+                                <!-- Hotspot Accounts Control Toolbar -->
+                                <div class="hotspot-control-bar mb-16">
+                                    <div class="control-group-left">
+                                        <div class="input-with-icon search-input-box">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" id="search-hotspot-accounts" class="form-control" placeholder="ค้นหา username, โปรไฟล์, หมายเหตุ...">
+                                        </div>
+                                        <select id="filter-hotspot-profile" class="form-control select-sm profile-filter-select">
+                                            <option value="">-- ทุกโปรไฟล์ --</option>
+                                        </select>
+                                        <span class="control-divider" aria-hidden="true"></span>
+                                        <div class="quick-status-filter-bar">
+                                            <button type="button" class="status-filter-pill active" data-filter="all"><i class="fa-solid fa-layer-group"></i> ทั้งหมด</button>
+                                            <button type="button" class="status-filter-pill" data-filter="active"><i class="fa-solid fa-circle-check text-success"></i> กำลังใช้งาน</button>
+                                            <button type="button" class="status-filter-pill" data-filter="expired"><i class="fa-solid fa-clock-rotate-left text-danger"></i> หมดอายุแล้ว</button>
+                                            <button type="button" class="status-filter-pill" data-filter="warning"><i class="fa-solid fa-triangle-exclamation text-warning"></i> ใกล้หมดเวลา (&lt;10%)</button>
+                                        </div>
                                     </div>
-                                    <select id="filter-hotspot-profile" class="form-control select-sm" style="max-width:180px;">
-                                        <option value="">-- ทุกโปรไฟล์ --</option>
-                                    </select>
-                                    <span id="accounts-count" class="count-badge"></span>
-                                </div>
-                                
-                                <!-- Quick Status Filter Pills -->
-                                <div class="quick-status-filter-bar mb-16">
-                                    <button type="button" class="status-filter-pill active" data-filter="all"><i class="fa-solid fa-layer-group"></i> ทั้งหมด</button>
-                                    <button type="button" class="status-filter-pill" data-filter="active"><i class="fa-solid fa-circle-check text-success"></i> 🟢 กำลังใช้งาน</button>
-                                    <button type="button" class="status-filter-pill" data-filter="expired"><i class="fa-solid fa-clock-rotate-left text-danger"></i> 🔴 หมดอายุแล้ว (Limit)</button>
-                                    <button type="button" class="status-filter-pill" data-filter="warning"><i class="fa-solid fa-triangle-exclamation text-warning"></i> 🟡 ใกล้หมดเวลา (&lt;10%)</button>
+                                    <div class="control-group-right">
+                                        <span id="accounts-count" class="count-badge"></span>
+                                    </div>
                                 </div>
 
                                 <!-- Expired Auto Cleanup Card -->
