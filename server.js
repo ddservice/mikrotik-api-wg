@@ -1148,6 +1148,43 @@ app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'us
     }
 });
 
+// Quick Renew Hotspot user (1-Click Renew & Reset Counters)
+app.post('/api/mikrotik/hotspot/users/:id/renew', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, limitUptime, limitBytesTotal } = req.body;
+    try {
+        await executeOnRouter(async (client) => {
+            // 1. Kick active sessions for this username
+            if (name) {
+                try {
+                    const active = await client.exec('/ip/hotspot/active/print');
+                    for (const s of active.filter(a => a.user === name)) {
+                        await client.exec('/ip/hotspot/active/remove', { '.id': s['.id'] });
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            // 2. Reset counters (uptime & bytes)
+            try {
+                await client.exec('/ip/hotspot/user/reset-counters', { numbers: req.params.id });
+            } catch (e) { /* ignore */ }
+
+            // 3. Update limit-uptime / limit-bytes if specified
+            const setParams = { '.id': req.params.id };
+            if (limitUptime !== undefined) setParams['limit-uptime'] = limitUptime;
+            if (limitBytesTotal !== undefined) setParams['limit-bytes-total'] = limitBytesTotal;
+
+            if (Object.keys(setParams).length > 1) {
+                await client.exec('/ip/hotspot/user/set', setParams);
+            }
+        });
+
+        db.addLog(req.user.username, 'ต่ออายุคูปอง Hotspot', `ต่ออายุ/รีเซ็ตเวลาบัญชี ID: ${req.params.id} (${name || ''})`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Delete Hotspot user
 app.delete('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {

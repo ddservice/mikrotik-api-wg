@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=18.0">
+    <link rel="stylesheet" href="style.css?v=19.0">
 </head>
 <body>
 
@@ -355,6 +355,15 @@
                                     </select>
                                     <span id="accounts-count" class="count-badge"></span>
                                 </div>
+                                
+                                <!-- Quick Status Filter Pills -->
+                                <div class="quick-status-filter-bar mb-16">
+                                    <button type="button" class="status-filter-pill active" data-filter="all"><i class="fa-solid fa-layer-group"></i> ทั้งหมด</button>
+                                    <button type="button" class="status-filter-pill" data-filter="active"><i class="fa-solid fa-circle-check text-success"></i> 🟢 กำลังใช้งาน</button>
+                                    <button type="button" class="status-filter-pill" data-filter="expired"><i class="fa-solid fa-clock-rotate-left text-danger"></i> 🔴 หมดอายุแล้ว (Limit)</button>
+                                    <button type="button" class="status-filter-pill" data-filter="warning"><i class="fa-solid fa-triangle-exclamation text-warning"></i> 🟡 ใกล้หมดเวลา (&lt;10%)</button>
+                                </div>
+
                                 <!-- Expired Auto Cleanup Card -->
                                 <div class="auto-cleanup-card mb-16" id="auto-cleanup-card">
                                     <div class="auto-cleanup-card-main">
@@ -2373,6 +2382,50 @@
                     <div class="modal-footer mt-16">
                         <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
                         <button type="submit" class="btn btn-primary">บันทึกโปรไฟล์</button>
+    <!-- ========================================== -->
+    <!-- MODAL: QUICK RENEW HOTSPOT USER -->
+    <!-- ========================================== -->
+    <div id="modal-hotspot-renew" class="modal-wrapper">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-rotate text-primary"></i> ต่ออายุ / เติมเวลาคูปอง Hotspot</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-hotspot-renew">
+                    <input type="hidden" id="renew-user-id">
+                    <input type="hidden" id="renew-user-name">
+                    <input type="hidden" id="renew-user-profile">
+                    
+                    <div class="renew-user-summary mb-16 p-12" style="background:#f8fafc; border:1px solid var(--border-color); border-radius:var(--border-radius-md);">
+                        <div style="font-weight:700; font-size:1.05rem; color:var(--text-main);" id="renew-display-name">Username</div>
+                        <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">
+                            โปรไฟล์: <span id="renew-display-profile" style="font-weight:700; color:var(--primary);">-</span> | 
+                            เวลาสะสมเดิม: <span id="renew-display-uptime" style="font-weight:600; color:var(--danger);">-</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-16">
+                        <label>เลือกเวลาที่ต้องการเติม / ต่ออายุ *</label>
+                        <div class="renew-preset-grid mt-8" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <button type="button" class="btn btn-secondary btn-renew-preset active" data-uptime="30d">⚡ ต่อ 30 วัน (ตามโปรไฟล์)</button>
+                            <button type="button" class="btn btn-secondary btn-renew-preset" data-uptime="7d">📅 ต่อ 7 วัน</button>
+                            <button type="button" class="btn btn-secondary btn-renew-preset" data-uptime="1d">⏱️ ต่อ 1 วัน</button>
+                            <button type="button" class="btn btn-secondary btn-renew-preset" data-uptime="00:00:00">♾️ ไม่จำกัดเวลา</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="renew-custom-uptime">หรือกำหนดจำกัดเวลาใช้งานเอง (Limit Uptime)</label>
+                        <input type="text" id="renew-custom-uptime" class="form-control" placeholder="เช่น 30d หรือ 12:00:00" value="30d">
+                        <p class="help-text">ระบบจะทำการล้างเวลาใช้งานสะสม (Reset Counters) และเตะเซสชันเดิมให้อัตโนมัติ เพื่อให้เริ่มใช้งานเวลาใหม่ได้ทันที 100%</p>
+                    </div>
+
+                    <div id="hotspot-renew-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+
+                    <div class="modal-footer mt-16" style="padding: 12px 0 0 0; border-top: 1px solid var(--border-color);">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-bolt"></i> ยืนยันต่ออายุทันที</button>
                     </div>
                 </form>
             </div>
@@ -2390,7 +2443,7 @@
 
 
     <!-- Script loading -->
-    <script src="app.js?v=26.0"></script>
+    <script src="app.js?v=27.0"></script>
 </body>
 </html>
 

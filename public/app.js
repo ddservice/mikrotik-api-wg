@@ -1143,6 +1143,37 @@ async function fetchHotspotAccounts() {
     }
 }
 
+let _activeHotspotStatusFilter = 'all';
+
+function parseUptimeToMs(uptime) {
+    if (!uptime || uptime === 'Unlimited' || uptime === '00:00:00') return 0;
+    let ms = 0;
+    const wMatch = uptime.match(/(\d+)w/); if (wMatch) ms += parseInt(wMatch[1]) * 7 * 24 * 3600000;
+    const dMatch = uptime.match(/(\d+)d/); if (dMatch) ms += parseInt(dMatch[1]) * 24 * 3600000;
+    const hMatch = uptime.match(/(\d+)h/); if (hMatch) ms += parseInt(hMatch[1]) * 3600000;
+    const mMatch = uptime.match(/(\d+)m/); if (mMatch) ms += parseInt(mMatch[1]) * 60000;
+    const sMatch = uptime.match(/(\d+)s/); if (sMatch) ms += parseInt(sMatch[1]) * 1000;
+    if (ms === 0 && uptime.includes(':')) {
+        const parts = uptime.split(':').map(Number);
+        if (parts.length === 3 && !parts.some(isNaN)) {
+            ms = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+        }
+    }
+    return ms;
+}
+
+function getHotspotUserStatus(item) {
+    const uptimeMs = parseUptimeToMs(item.uptime);
+    const limitMs = parseUptimeToMs(item.limitUptime);
+    const hasLimit = limitMs > 0;
+    const isExpired = hasLimit && (uptimeMs >= limitMs || (item.comment || '').includes('expired'));
+    const isWarning = hasLimit && !isExpired && (uptimeMs >= limitMs * 0.9);
+
+    if (isExpired) return 'expired';
+    if (isWarning) return 'warning';
+    return 'active';
+}
+
 function renderHotspotAccounts(users) {
     const searchVal = (document.getElementById('search-hotspot-accounts')?.value || '').toLowerCase().trim();
     const profileVal = document.getElementById('filter-hotspot-profile')?.value || '';
@@ -1157,6 +1188,9 @@ function renderHotspotAccounts(users) {
     if (profileVal) {
         filtered = filtered.filter(u => u.profile === profileVal);
     }
+    if (_activeHotspotStatusFilter !== 'all') {
+        filtered = filtered.filter(u => getHotspotUserStatus(u) === _activeHotspotStatusFilter);
+    }
 
     const tbody = document.querySelector('#table-hotspot-users tbody');
     if (!tbody) return;
@@ -1165,7 +1199,7 @@ function renderHotspotAccounts(users) {
     // count badge
     const countEl = document.getElementById('accounts-count');
     if (countEl) {
-        countEl.textContent = (searchVal || profileVal)
+        countEl.textContent = (searchVal || profileVal || _activeHotspotStatusFilter !== 'all')
             ? `พบ ${filtered.length} จาก ${users.length} บัญชี`
             : `${users.length} บัญชีทั้งหมด`;
     }
@@ -1185,19 +1219,31 @@ function renderHotspotAccounts(users) {
     if (hasMaskedPassword && warningContainer) warningContainer.style.display = 'flex';
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">${(searchVal || profileVal) ? 'ไม่พบบัญชีที่ค้นหา' : 'ไม่พบข้อมูลบัญชี Hotspot'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">${(searchVal || profileVal || _activeHotspotStatusFilter !== 'all') ? 'ไม่พบบัญชีที่ค้นหา' : 'ไม่พบข้อมูลบัญชี Hotspot'}</td></tr>`;
         return;
     }
 
     filtered.forEach(item => {
         const limitTimeText = item.limitUptime === '00:00:00' ? 'ไม่จำกัด' : item.limitUptime;
         const limitBytesText = item.limitBytesTotal === 0 ? 'ไม่จำกัด' : formatBytes(item.limitBytesTotal);
+        
+        const statusType = getHotspotUserStatus(item);
+        let statusBadgeHTML = '';
+        if (statusType === 'expired') {
+            statusBadgeHTML = `<span class="badge" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-clock-rotate-left"></i> หมดอายุแล้ว</span>`;
+        } else if (statusType === 'warning') {
+            statusBadgeHTML = `<span class="badge" style="background:#fef3c7; color:#d97706; border:1px solid #fde68a; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> เหลือ <10%</span>`;
+        } else {
+            statusBadgeHTML = `<span class="badge" style="background:#dcfce7; color:#16a34a; border:1px solid #86efac; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-circle-check"></i> ปกติ</span>`;
+        }
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="text-align:center;"><input type="checkbox" class="chk-user-select" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' ></td>
             <td><strong>${item.name}</strong></td>
             <td><code>${item.password || '(ไม่มี)'}</code></td>
             <td><span class="badge badge-profile">${item.profile}</span></td>
+            <td>${statusBadgeHTML}</td>
             <td>${limitTimeText}</td>
             <td>${limitBytesText}</td>
             <td>${item.uptime}</td>
@@ -1205,6 +1251,9 @@ function renderHotspotAccounts(users) {
             <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
             <td class="text-center">
                 <div style="display:flex; gap:6px; justify-content:center;">
+                    <button class="btn btn-warning btn-sm btn-quick-renew" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="ต่ออายุ / เติมเวลา (1-Click)">
+                        <i class="fa-solid fa-rotate"></i> ต่ออายุ
+                    </button>
                     <button class="btn btn-primary btn-sm btn-print-single-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="พิมพ์คูปอง">
                         <i class="fa-solid fa-print"></i>
                     </button>
@@ -1225,6 +1274,9 @@ function renderHotspotAccounts(users) {
             document.querySelectorAll('.chk-user-select').forEach(chk => { chk.checked = e.target.checked; });
         });
     }
+    document.querySelectorAll('.btn-quick-renew').forEach(btn => {
+        btn.addEventListener('click', () => { openQuickRenewModal(JSON.parse(btn.getAttribute('data-item'))); });
+    });
     document.querySelectorAll('.btn-print-single-user').forEach(btn => {
         btn.addEventListener('click', () => { openSinglePrintModal(JSON.parse(btn.getAttribute('data-item'))); });
     });
@@ -1244,6 +1296,91 @@ function renderHotspotAccounts(users) {
         });
     });
 }
+
+// Quick Renew Modal Logic
+function openQuickRenewModal(user) {
+    const modal = document.getElementById('modal-hotspot-renew');
+    if (!modal) return;
+
+    document.getElementById('renew-user-id').value = user.id;
+    document.getElementById('renew-user-name').value = user.name;
+    document.getElementById('renew-user-profile').value = user.profile;
+
+    document.getElementById('renew-display-name').textContent = user.name;
+    document.getElementById('renew-display-profile').textContent = user.profile;
+    document.getElementById('renew-display-uptime').textContent = user.uptime || '0s';
+
+    let defaultUptime = '30d';
+    if (user.limitUptime && user.limitUptime !== '00:00:00' && user.limitUptime !== 'Unlimited') {
+        defaultUptime = user.limitUptime;
+    }
+
+    const inputCustom = document.getElementById('renew-custom-uptime');
+    if (inputCustom) inputCustom.value = defaultUptime;
+
+    document.querySelectorAll('.btn-renew-preset').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-uptime') === defaultUptime);
+    });
+
+    const errorEl = document.getElementById('hotspot-renew-error');
+    if (errorEl) errorEl.style.display = 'none';
+
+    modal.classList.add('active');
+}
+
+function closeQuickRenewModal() {
+    const modal = document.getElementById('modal-hotspot-renew');
+    if (modal) modal.classList.remove('active');
+}
+
+document.querySelectorAll('.btn-renew-preset').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('.btn-renew-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const val = btn.getAttribute('data-uptime');
+        const inputCustom = document.getElementById('renew-custom-uptime');
+        if (inputCustom) inputCustom.value = val;
+    });
+});
+
+const formRenew = document.getElementById('form-hotspot-renew');
+if (formRenew) {
+    formRenew.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('renew-user-id').value;
+        const name = document.getElementById('renew-user-name').value;
+        const limitUptime = document.getElementById('renew-custom-uptime').value;
+        const errorEl = document.getElementById('hotspot-renew-error');
+
+        try {
+            await apiFetch(`/api/mikrotik/hotspot/users/${id}/renew`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name,
+                    limitUptime: limitUptime || '00:00:00'
+                })
+            });
+            closeQuickRenewModal();
+            fetchHotspotAccounts();
+        } catch (err) {
+            if (errorEl) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+    });
+}
+
+// Status Filter Pills Listener
+document.querySelectorAll('.status-filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+        document.querySelectorAll('.status-filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        _activeHotspotStatusFilter = pill.getAttribute('data-filter') || 'all';
+        renderHotspotAccounts(_allHotspotAccounts);
+    });
+});
 
 // P3: Search/filter listeners for Hotspot Accounts
 document.getElementById('search-hotspot-accounts')?.addEventListener('input', () => renderHotspotAccounts(_allHotspotAccounts));
