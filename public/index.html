@@ -2421,6 +2421,12 @@
                         <p class="help-text">ระบบจะทำการล้างเวลาใช้งานสะสม (Reset Counters) และเตะเซสชันเดิมให้อัตโนมัติ เพื่อให้เริ่มใช้งานเวลาใหม่ได้ทันที 100%</p>
                     </div>
 
+                    <div class="form-group mt-16 p-12" style="background:#fff5f5; border:1px dashed #fca5a5; border-radius:var(--border-radius-md);">
+                        <label style="color:#b91c1c; font-size:0.8rem; font-weight:600;"><i class="fa-solid fa-rotate-left"></i> กรณีกดต่ออายุผิดคน (ย้อนกลับ):</label>
+                        <p class="help-text" style="color:#7f1d1d; margin-bottom:8px; font-size:0.78rem;">หากสแตฟฟ์กดต่ออายุผิดบัญชี สามารถกดปุ่มด้านล่างเพื่อบังคับให้บัญชีนี้กลับไปเป็นสถานะหมดอายุทันทีได้</p>
+                        <button type="button" class="btn btn-danger btn-sm" id="btn-force-expire-user"><i class="fa-solid fa-ban"></i> บังคับตั้งเป็นหมดอายุทันที (Force Expire)</button>
+                    </div>
+
                     <div id="hotspot-renew-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
 
                     <div class="modal-footer mt-16" style="padding: 12px 0 0 0; border-top: 1px solid var(--border-color);">

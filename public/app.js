@@ -1353,6 +1353,11 @@ if (formRenew) {
         const limitUptime = document.getElementById('renew-custom-uptime').value;
         const errorEl = document.getElementById('hotspot-renew-error');
 
+        const uptimeLabel = limitUptime === '00:00:00' ? 'ไม่จำกัดเวลา' : limitUptime;
+        const confirmMsg = `⚡ ยืนยันการต่ออายุคูปอง Hotspot\n\nชื่อผู้ใช้: ${name}\nระยะเวลาใหม่: ${uptimeLabel}\n\nคำเตือน: ระบบจะทำการล้างเวลาใช้งานสะสมเดิมเป็น 0s และตัดการเชื่อมต่อเดิมให้อัตโนมัติ\n\nคุณยืนยันต้องการดำเนินการต่อใช่หรือไม่?`;
+        
+        if (!confirm(confirmMsg)) return;
+
         try {
             await apiFetch(`/api/mikrotik/hotspot/users/${id}/renew`, {
                 method: 'POST',
@@ -1367,6 +1372,32 @@ if (formRenew) {
             if (errorEl) {
                 errorEl.textContent = err.message;
                 errorEl.style.display = 'block';
+            }
+        }
+    });
+}
+
+// Force Expire / Revert button for accidental renewals
+const btnForceExpireUser = document.getElementById('btn-force-expire-user');
+if (btnForceExpireUser) {
+    btnForceExpireUser.addEventListener('click', async () => {
+        const id = document.getElementById('renew-user-id').value;
+        const name = document.getElementById('renew-user-name').value;
+        if (!id || !name) return;
+
+        if (confirm(`คุณต้องการบังคับย้อนกลับให้บัญชี "${name}" เป็นสถานะ "หมดอายุแล้ว" ทันทีใช่หรือไม่?\n\n(ใช้สำหรับกรณีกดต่ออายุผิดคน)`)) {
+            try {
+                await apiFetch(`/api/mikrotik/hotspot/users/${id}/renew`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name,
+                        limitUptime: '00:00:01'
+                    })
+                });
+                closeQuickRenewModal();
+                fetchHotspotAccounts();
+            } catch (err) {
+                alert('เกิดข้อผิดพลาด: ' + err.message);
             }
         }
     });
