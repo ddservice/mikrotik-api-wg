@@ -243,6 +243,10 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-03 (2)** — Fixed Hotspot Auto-Cleanup uptime detection logic and redesigned table layout.
+  - Fixed `runExpiredCleanup` in `server.js` by parsing both `uptime` and `limit-uptime` to milliseconds instead of strict string equality (`uptime === limitUptime`), which failed due to RouterOS string formatting differences.
+  - Redesigned Hotspot Accounts table from 11 cluttered columns down to 7 compact stacked columns (`Username & Password`, `Profile & Status`, `Accumulated / Limit Uptime`, `Accumulated / Limit Bytes`, `Comment`, `Actions`), eliminating horizontal scroll overflow.
+
 - **2026-08-03** — Added 1-Click Hotspot Quick Renewal and Status Badges.
   Added `POST /api/mikrotik/hotspot/users/:id/renew` endpoint that auto-kicks
   active sessions, resets cumulative uptime/byte counters via
