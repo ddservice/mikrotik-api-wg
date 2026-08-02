@@ -1219,48 +1219,58 @@ function renderHotspotAccounts(users) {
     if (hasMaskedPassword && warningContainer) warningContainer.style.display = 'flex';
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">${(searchVal || profileVal || _activeHotspotStatusFilter !== 'all') ? 'ไม่พบบัญชีที่ค้นหา' : 'ไม่พบข้อมูลบัญชี Hotspot'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${(searchVal || profileVal || _activeHotspotStatusFilter !== 'all') ? 'ไม่พบบัญชีที่ค้นหา' : 'ไม่พบข้อมูลบัญชี Hotspot'}</td></tr>`;
         return;
     }
 
     filtered.forEach(item => {
-        const limitTimeText = item.limitUptime === '00:00:00' ? 'ไม่จำกัด' : item.limitUptime;
-        const limitBytesText = item.limitBytesTotal === 0 ? 'ไม่จำกัด' : formatBytes(item.limitBytesTotal);
+        const timeUsed = item.uptime || '0s';
+        const bytesUsed = formatBytes(item.bytesOut + item.bytesIn);
+        const limitTimeText = (item.limitUptime && item.limitUptime !== '00:00:00') ? item.limitUptime : 'ไม่จำกัด';
+        const limitBytesText = (item.limitBytesTotal && item.limitBytesTotal > 0) ? formatBytes(item.limitBytesTotal) : 'ไม่จำกัด';
         
         const statusType = getHotspotUserStatus(item);
         let statusBadgeHTML = '';
         if (statusType === 'expired') {
-            statusBadgeHTML = `<span class="badge" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-clock-rotate-left"></i> หมดอายุแล้ว</span>`;
+            statusBadgeHTML = `<span class="badge" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-clock-rotate-left"></i> หมดอายุแล้ว</span>`;
         } else if (statusType === 'warning') {
-            statusBadgeHTML = `<span class="badge" style="background:#fef3c7; color:#d97706; border:1px solid #fde68a; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> เหลือ <10%</span>`;
+            statusBadgeHTML = `<span class="badge" style="background:#fef3c7; color:#d97706; border:1px solid #fde68a; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> เหลือ <10%</span>`;
         } else {
-            statusBadgeHTML = `<span class="badge" style="background:#dcfce7; color:#16a34a; border:1px solid #86efac; padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;"><i class="fa-solid fa-circle-check"></i> ปกติ</span>`;
+            statusBadgeHTML = `<span class="badge" style="background:#dcfce7; color:#16a34a; border:1px solid #86efac; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-circle-check"></i> ปกติ</span>`;
         }
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td style="text-align:center;"><input type="checkbox" class="chk-user-select" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' ></td>
-            <td><strong>${item.name}</strong></td>
-            <td><code>${item.password || '(ไม่มี)'}</code></td>
-            <td><span class="badge badge-profile">${item.profile}</span></td>
-            <td>${statusBadgeHTML}</td>
-            <td>${limitTimeText}</td>
-            <td>${limitBytesText}</td>
-            <td>${item.uptime}</td>
-            <td>${formatBytes(item.bytesOut + item.bytesIn)}</td>
-            <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
-            <td class="text-center">
-                <div style="display:flex; gap:6px; justify-content:center;">
-                    <button class="btn btn-warning btn-sm btn-quick-renew" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="ต่ออายุ / เติมเวลา (1-Click)">
-                        <i class="fa-solid fa-rotate"></i> ต่ออายุ
+            <td style="text-align:center; vertical-align:middle;"><input type="checkbox" class="chk-user-select" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' ></td>
+            <td style="vertical-align:middle;">
+                <div style="font-weight:700; color:var(--text-main); font-size:0.9rem;">${item.name}</div>
+                <div style="font-size:0.78rem; color:var(--text-muted); font-family:monospace; margin-top:2px;">PW: ${item.password || '(ไม่มี)'}</div>
+            </td>
+            <td style="vertical-align:middle;">
+                <div style="margin-bottom:3px;"><span class="badge badge-profile">${item.profile}</span></div>
+                <div>${statusBadgeHTML}</div>
+            </td>
+            <td style="vertical-align:middle;">
+                <div style="font-size:0.82rem; font-weight:600; color:var(--text-main);">สะสม: ${timeUsed}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">โควตา: ${limitTimeText}</div>
+            </td>
+            <td style="vertical-align:middle;">
+                <div style="font-size:0.82rem; font-weight:600; color:var(--text-main);">ใช้ไป: ${bytesUsed}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">โควตา: ${limitBytesText}</div>
+            </td>
+            <td style="vertical-align:middle;"><span style="font-size:0.78rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
+            <td class="text-center" style="vertical-align:middle;">
+                <div style="display:flex; gap:4px; justify-content:center;">
+                    <button class="btn btn-warning btn-sm btn-quick-renew" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="ต่ออายุ (1-Click)" style="padding:5px 8px; font-size:0.8rem;">
+                        <i class="fa-solid fa-rotate"></i>
                     </button>
-                    <button class="btn btn-primary btn-sm btn-print-single-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="พิมพ์คูปอง">
+                    <button class="btn btn-primary btn-sm btn-print-single-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="พิมพ์คูปอง" style="padding:5px 8px; font-size:0.8rem;">
                         <i class="fa-solid fa-print"></i>
                     </button>
-                    <button class="btn btn-secondary btn-sm btn-edit-hotspot" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข">
+                    <button class="btn btn-secondary btn-sm btn-edit-hotspot" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="แก้ไข" style="padding:5px 8px; font-size:0.8rem;">
                         <i class="fa-solid fa-pen-to-square"></i>
                     </button>
-                    <button class="btn btn-danger btn-sm btn-del-hotspot" data-id="${item.id}" data-user="${item.name}" title="ลบ">
+                    <button class="btn btn-danger btn-sm btn-del-hotspot" data-id="${item.id}" data-user="${item.name}" title="ลบ" style="padding:5px 8px; font-size:0.8rem;">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>

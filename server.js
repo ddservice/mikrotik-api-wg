@@ -1654,11 +1654,14 @@ async function runExpiredCleanup(logUsername = 'System Auto') {
             const limitBytesTotal = parseInt(u['limit-bytes-total']) || 0;
             const comment = (u.comment || '').toLowerCase();
 
+            const uptimeMs = parseUptimeToMs(u.uptime);
+            const limitUptimeMs = parseUptimeToMs(u['limit-uptime']);
+
             let isExpired = false;
             if (comment.includes('expired') || comment.includes('หมดอายุ')) {
                 isExpired = true;
             }
-            if (limitUptime && limitUptime !== '00:00:00' && limitUptime !== '0s' && uptime === limitUptime) {
+            if (limitUptimeMs > 0 && uptimeMs >= limitUptimeMs) {
                 isExpired = true;
             }
             if (limitBytesTotal > 0 && totalBytes >= limitBytesTotal) {
@@ -2291,13 +2294,19 @@ function parseDnsLogMessage(msg) {
 
 // แปลง RouterOS uptime string เป็น milliseconds
 function parseUptimeToMs(uptime) {
-    if (!uptime) return 0;
+    if (!uptime || uptime === 'Unlimited' || uptime === '00:00:00') return 0;
     let ms = 0;
     const wMatch = uptime.match(/(\d+)w/); if (wMatch) ms += parseInt(wMatch[1]) * 7 * 24 * 3600000;
     const dMatch = uptime.match(/(\d+)d/); if (dMatch) ms += parseInt(dMatch[1]) * 24 * 3600000;
     const hMatch = uptime.match(/(\d+)h/); if (hMatch) ms += parseInt(hMatch[1]) * 3600000;
     const mMatch = uptime.match(/(\d+)m/); if (mMatch) ms += parseInt(mMatch[1]) * 60000;
     const sMatch = uptime.match(/(\d+)s/); if (sMatch) ms += parseInt(sMatch[1]) * 1000;
+    if (ms === 0 && uptime.includes(':')) {
+        const parts = uptime.split(':').map(Number);
+        if (parts.length === 3 && !parts.some(isNaN)) {
+            ms = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+        }
+    }
     return ms;
 }
 
