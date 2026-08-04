@@ -532,11 +532,41 @@ async function saveMenuPermissions(config) {
         'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
         'user': Array.isArray(config['user']) ? config['user'] : []
     };
-    await supabase.from('app_settings').upsert({ key: 'menu_permissions', value: updated, updated_at: new Date().toISOString() });
+async function getMultiWanConfig(siteId) {
+    try {
+        var key = 'multiwan_' + (siteId || 'default');
+        var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
+        var defaults = {
+            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
+            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
+            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
+            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
+            telegramToken: '', telegramChatId: '',
+            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
+        };
+        return Object.assign({}, defaults, (res.data && res.data.value) || {});
+    } catch(e) {
+        return {
+            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
+            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
+            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
+            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
+            telegramToken: '', telegramChatId: '',
+            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
+        };
+    }
+}
+
+async function saveMultiWanConfig(siteId, config) {
+    var key = 'multiwan_' + (siteId || 'default');
+    var current = await getMultiWanConfig(siteId);
+    var updated = Object.assign({}, current, config);
+    await supabase.from('app_settings').upsert({ key: key, value: updated, updated_at: new Date().toISOString() });
     return updated;
 }
 
 module.exports = {
+    getMultiWanConfig: getMultiWanConfig, saveMultiWanConfig: saveMultiWanConfig,
     getConfig: getConfig, saveConfig: saveConfig,
     getSites: getSites, setActiveSite: setActiveSite,
     addSite: addSite, updateSite: updateSite, deleteSite: deleteSite,

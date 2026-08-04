@@ -80,6 +80,9 @@
                 <a href="#" class="menu-item" data-target="page-pppoe" id="nav-pppoe" style="display: none;">
                     <i class="fa-solid fa-door-open"></i> <span>จัดการระบบ PPPoE</span>
                 </a>
+                <a href="#" class="menu-item" data-target="page-multiwan" id="nav-multiwan" style="display: none;">
+                    <i class="fa-solid fa-network-wired"></i> <span>เครื่องมือ Multi-WAN (2-WAN)</span>
+                </a>
                 <a href="#" class="menu-item" data-target="page-firewall" id="nav-firewall" style="display: none;">
                     <i class="fa-solid fa-fire-burner"></i> <span>จัดการบล็อกเว็บ (Firewall)</span>
                 </a>
@@ -1852,6 +1855,153 @@
                         </div>
                     </div>
 
+                </section>
+
+                <!-- 4. MULTI-WAN TOOL PAGE -->
+                <section id="page-multiwan" class="page-section" style="display: none;">
+                    <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+                        <div>
+                            <h2 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin-bottom:4px;">
+                                <i class="fa-solid fa-network-wired text-primary"></i> เครื่องมือจัดการและสร้างสคริปต์ Multi-WAN (RouterOS v7+)
+                            </h2>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:0;">
+                                กำหนดค่า Multi-WAN, PCC Load Balancing (2:1), Policy Routing (PBR) และ Telegram Netwatch ประจำไซต์งาน
+                            </p>
+                        </div>
+                        <div class="active-site-pill-badge" style="background:var(--card-bg); padding:6px 14px; border-radius:20px; border:1px solid var(--border-color); font-size:0.85rem;">
+                            <i class="fa-solid fa-location-dot text-primary"></i> ไซต์งานปัจจุบัน: <strong id="multiwan-active-site-name">กำลังโหลด...</strong>
+                        </div>
+                    </div>
+
+                    <form id="form-multiwan-config">
+                        <div class="row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:20px;">
+                            
+                            <!-- WAN1 Card -->
+                            <div class="card" style="padding:20px;">
+                                <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                                    <i class="fa-solid fa-bolt text-primary"></i> WAN 1 (Primary / PPPoE)
+                                </h3>
+                                <div class="form-group mb-12">
+                                    <label for="mw-wan1-interface">Interface Name *</label>
+                                    <input type="text" id="mw-wan1-interface" class="form-control" value="pppoe-out1" required placeholder="เช่น pppoe-out1">
+                                </div>
+                                <div class="form-row-2 mb-12">
+                                    <div class="form-group">
+                                        <label for="mw-wan1-speed">ความเร็ว (Mbps)</label>
+                                        <input type="number" id="mw-wan1-speed" class="form-control" value="1000" placeholder="1000">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="mw-wan1-weight">อัตราส่วน Weight (PCC)</label>
+                                        <input type="number" id="mw-wan1-weight" class="form-control" value="2" placeholder="2">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mw-dns-wan1">Target Host Check (Recursive DNS)</label>
+                                    <input type="text" id="mw-dns-wan1" class="form-control" value="8.8.8.8">
+                                </div>
+                            </div>
+
+                            <!-- WAN2 Card -->
+                            <div class="card" style="padding:20px;">
+                                <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                                    <i class="fa-solid fa-server text-success"></i> WAN 2 (Backup / DHCP)
+                                </h3>
+                                <div class="form-group mb-12">
+                                    <label for="mw-wan2-interface">Interface Name *</label>
+                                    <input type="text" id="mw-wan2-interface" class="form-control" value="ether2-WAN2" required placeholder="เช่น ether2-WAN2">
+                                </div>
+                                <div class="form-row-2 mb-12">
+                                    <div class="form-group">
+                                        <label for="mw-wan2-gateway">Gateway IP *</label>
+                                        <input type="text" id="mw-wan2-gateway" class="form-control" value="192.168.2.1" required placeholder="เช่น 192.168.2.1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="mw-wan2-weight">อัตราส่วน Weight (PCC)</label>
+                                        <input type="number" id="mw-wan2-weight" class="form-control" value="1" placeholder="1">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mw-dns-wan2">Target Host Check (Recursive DNS)</label>
+                                    <input type="text" id="mw-dns-wan2" class="form-control" value="1.1.1.1">
+                                </div>
+                            </div>
+
+                            <!-- Policy Routing & VLAN Card -->
+                            <div class="card" style="padding:20px;">
+                                <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                                    <i class="fa-solid fa-route text-warning"></i> Policy-Based Routing (PBR VLAN)
+                                </h3>
+                                <div class="form-group mb-12">
+                                    <label for="mw-vlan10-subnet">VLAN 10 Hotspot Subnet (ออก WAN1)</label>
+                                    <input type="text" id="mw-vlan10-subnet" class="form-control" value="192.168.10.0/24">
+                                </div>
+                                <div class="form-group mb-12">
+                                    <label for="mw-vlan20-subnet">VLAN 20 PPPoE Subnet (ออก WAN2)</label>
+                                    <input type="text" id="mw-vlan20-subnet" class="form-control" value="192.168.20.0/24">
+                                </div>
+                            </div>
+
+                            <!-- Telegram Alerting Card -->
+                            <div class="card" style="padding:20px;">
+                                <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                                    <i class="fa-brands fa-telegram text-primary"></i> Telegram Netwatch Alerts
+                                </h3>
+                                <div class="form-group mb-12">
+                                    <label for="mw-telegram-token">Telegram Bot Token</label>
+                                    <input type="text" id="mw-telegram-token" class="form-control" placeholder="เช่น 123456789:ABCdefGhIJKlmNoPQ">
+                                </div>
+                                <div class="form-group mb-12">
+                                    <label for="mw-telegram-chatid">Telegram Chat ID</label>
+                                    <input type="text" id="mw-telegram-chatid" class="form-control" placeholder="เช่น -1001234567890 หรือ 98765432">
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Enterprise Optimization Options -->
+                        <div class="card mt-20" style="padding:20px;">
+                            <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                                <i class="fa-solid fa-sliders text-info"></i> Enterprise Optimization & Protection Toggles
+                            </h3>
+                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
+                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                    <input type="checkbox" id="mw-toggle-mss" checked> <span>TCP MSS Clamping (PMTU Fix)</span>
+                                </label>
+                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                    <input type="checkbox" id="mw-toggle-fasttrack" checked> <span>Bypass FastTrack for Mangle</span>
+                                </label>
+                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                    <input type="checkbox" id="mw-toggle-dnshijack" checked> <span>DNS Hijack (Prevent Leak)</span>
+                                </label>
+                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                    <input type="checkbox" id="mw-toggle-hairpin" checked> <span>Hairpin NAT (Internal CCTV)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="mt-20 text-right" style="display:flex; justify-content:flex-end; gap:12px;">
+                            <button type="button" id="btn-save-multiwan-config" class="btn btn-secondary">
+                                <i class="fa-solid fa-floppy-disk"></i> บันทึกค่าประจำไซต์
+                            </button>
+                            <button type="submit" id="btn-generate-multiwan-script" class="btn btn-primary">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> สร้างสคริปต์ RouterOS v7
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Script Output Box -->
+                    <div id="multiwan-script-output-card" class="card mt-24" style="display:none; padding:20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h3 style="font-size:1.05rem; font-weight:600; margin:0;">
+                                <i class="fa-solid fa-code text-success"></i> สคริปต์ RouterOS v7 CLI (พร้อมคัดลอกรันใน WinBox Terminal)
+                            </h3>
+                            <button type="button" id="btn-copy-multiwan-script" class="btn btn-success btn-sm">
+                                <i class="fa-solid fa-copy"></i> คัดลอกสคริปต์
+                            </button>
+                        </div>
+                        <textarea id="multiwan-script-textarea" class="form-control" rows="16" readonly style="font-family:monospace; font-size:0.82rem; background:#0f172a; color:#38bdf8; padding:16px; border-radius:8px; line-height:1.4;"></textarea>
+                    </div>
                 </section>
 
 

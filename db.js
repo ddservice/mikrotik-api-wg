@@ -777,8 +777,42 @@ function saveMenuPermissions(config) {
         'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
         'user': Array.isArray(config['user']) ? config['user'] : []
     };
-    fs.writeFileSync(MENU_PERMISSIONS_FILE, JSON.stringify(updated, null, 4), 'utf8');
-    return updated;
+const MULTIWAN_FILE = path.join(__dirname, 'data', 'multiwan.json');
+
+function getMultiWanConfig(siteId) {
+    try {
+        if (!fs.existsSync(MULTIWAN_FILE)) fs.writeFileSync(MULTIWAN_FILE, '{}', 'utf8');
+        const data = JSON.parse(fs.readFileSync(MULTIWAN_FILE, 'utf8'));
+        const key = siteId || 'default';
+        const defaults = {
+            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
+            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
+            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
+            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
+            telegramToken: '', telegramChatId: '',
+            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
+        };
+        return Object.assign({}, defaults, data[key] || {});
+    } catch(e) {
+        return {
+            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
+            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
+            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
+            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
+            telegramToken: '', telegramChatId: '',
+            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
+        };
+    }
+}
+
+function saveMultiWanConfig(siteId, config) {
+    if (!fs.existsSync(MULTIWAN_FILE)) fs.writeFileSync(MULTIWAN_FILE, '{}', 'utf8');
+    const data = JSON.parse(fs.readFileSync(MULTIWAN_FILE, 'utf8'));
+    const key = siteId || 'default';
+    const current = getMultiWanConfig(siteId);
+    data[key] = Object.assign({}, current, config);
+    fs.writeFileSync(MULTIWAN_FILE, JSON.stringify(data, null, 4), 'utf8');
+    return data[key];
 }
 
 module.exports = {
@@ -813,6 +847,8 @@ module.exports = {
     getAutoCleanupConfig,
     saveAutoCleanupConfig,
     getMenuPermissions,
-    saveMenuPermissions
+    saveMenuPermissions,
+    getMultiWanConfig,
+    saveMultiWanConfig
 };
 

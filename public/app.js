@@ -231,6 +231,7 @@ function logout() {
 const MENU_PERMISSION_NAV_IDS = {
     hotspot: 'nav-hotspot',
     pppoe: 'nav-pppoe',
+    multiwan: 'nav-multiwan',
     firewall: 'nav-firewall',
     logs: 'nav-logs'
 };
@@ -239,7 +240,7 @@ const MENU_PERMISSION_NAV_IDS = {
 // server (db.js/db-supabase.js DEFAULT_MENU_PERMISSIONS) so the app doesn't
 // look broken while offline/erroring.
 const DEFAULT_MENU_PERMISSIONS_FALLBACK = {
-    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'co-admin': ['hotspot', 'pppoe', 'multiwan', 'firewall', 'logs'],
     'user': ['hotspot', 'firewall']
 };
 
@@ -247,6 +248,7 @@ function configureMenuRoles(role) {
     // Hide all role-restricted menu items first
     document.getElementById('nav-hotspot').style.display = 'none';
     document.getElementById('nav-pppoe').style.display = 'none';
+    document.getElementById('nav-multiwan').style.display = 'none';
     document.getElementById('nav-firewall').style.display = 'none';
     document.getElementById('nav-admins').style.display = 'none';
     document.getElementById('nav-settings').style.display = 'none';
@@ -256,6 +258,7 @@ function configureMenuRoles(role) {
         // admin always sees everything — not configurable
         document.getElementById('nav-hotspot').style.display = 'flex';
         document.getElementById('nav-pppoe').style.display = 'flex';
+        document.getElementById('nav-multiwan').style.display = 'flex';
         document.getElementById('nav-firewall').style.display = 'flex';
         document.getElementById('nav-admins').style.display = 'flex';
         document.getElementById('nav-settings').style.display = 'flex';
@@ -360,6 +363,7 @@ function switchPage(targetPageId) {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
         'page-hotspot': { title: 'จัดการระบบ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-pppoe': { title: 'จัดการระบบ PPPoE', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
+        'page-multiwan': { title: 'เครื่องมือ Multi-WAN (2-WAN)', desc: 'สร้างและจัดการสคริปต์ Multi-WAN, PCC Load Balancing (2:1), PBR และ Telegram Netwatch ประจำไซต์งาน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
         'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
@@ -381,6 +385,8 @@ function loadPageData(pageId) {
         loadHotspotTab(activeHotspotTab);
     } else if (pageId === 'page-pppoe') {
         loadPppoeTab(activePppoeTab);
+    } else if (pageId === 'page-multiwan') {
+        renderMultiWanPage();
     } else if (pageId === 'page-firewall') {
         fetchFirewallStatus();
     } else if (pageId === 'page-admins') {
@@ -3768,6 +3774,109 @@ document.getElementById('btn-menu-toggle').addEventListener('click', () => {
 document.getElementById('sidebar-overlay').addEventListener('click', () => {
     document.querySelector('.sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
+});
+
+// ==========================================
+// MULTI-WAN TOOL CONTROLLER
+// ==========================================
+async function renderMultiWanPage() {
+    const activeSiteNameEl = document.getElementById('multiwan-active-site-name');
+    if (activeSiteNameEl) {
+        activeSiteNameEl.textContent = getCurrentSiteName() || 'Default Site';
+    }
+
+    try {
+        const config = await apiFetch('/api/multiwan');
+        if (config) {
+            if (document.getElementById('mw-wan1-interface')) document.getElementById('mw-wan1-interface').value = config.wan1Interface || 'pppoe-out1';
+            if (document.getElementById('mw-wan1-speed')) document.getElementById('mw-wan1-speed').value = config.wan1Speed || 1000;
+            if (document.getElementById('mw-wan1-weight')) document.getElementById('mw-wan1-weight').value = config.wan1Weight || 2;
+            if (document.getElementById('mw-dns-wan1')) document.getElementById('mw-dns-wan1').value = config.dnsCheckWan1 || '8.8.8.8';
+
+            if (document.getElementById('mw-wan2-interface')) document.getElementById('mw-wan2-interface').value = config.wan2Interface || 'ether2-WAN2';
+            if (document.getElementById('mw-wan2-gateway')) document.getElementById('mw-wan2-gateway').value = config.wan2Gateway || '192.168.2.1';
+            if (document.getElementById('mw-wan2-weight')) document.getElementById('mw-wan2-weight').value = config.wan2Weight || 1;
+            if (document.getElementById('mw-dns-wan2')) document.getElementById('mw-dns-wan2').value = config.dnsCheckWan2 || '1.1.1.1';
+
+            if (document.getElementById('mw-vlan10-subnet')) document.getElementById('mw-vlan10-subnet').value = config.pbrVlan10Subnet || '192.168.10.0/24';
+            if (document.getElementById('mw-vlan20-subnet')) document.getElementById('mw-vlan20-subnet').value = config.pbrVlan20Subnet || '192.168.20.0/24';
+
+            if (document.getElementById('mw-telegram-token')) document.getElementById('mw-telegram-token').value = config.telegramToken || '';
+            if (document.getElementById('mw-telegram-chatid')) document.getElementById('mw-telegram-chatid').value = config.telegramChatId || '';
+
+            if (document.getElementById('mw-toggle-mss')) document.getElementById('mw-toggle-mss').checked = config.mssClamping !== false;
+            if (document.getElementById('mw-toggle-fasttrack')) document.getElementById('mw-toggle-fasttrack').checked = config.fasttrackBypass !== false;
+            if (document.getElementById('mw-toggle-dnshijack')) document.getElementById('mw-toggle-dnshijack').checked = config.dnsHijack !== false;
+            if (document.getElementById('mw-toggle-hairpin')) document.getElementById('mw-toggle-hairpin').checked = config.hairpinNat !== false;
+        }
+    } catch (err) {
+        console.error('Failed to load Multi-WAN config:', err);
+    }
+}
+
+function getMultiWanFormPayload() {
+    return {
+        wan1Interface: (document.getElementById('mw-wan1-interface')?.value || '').trim(),
+        wan1Speed: parseInt(document.getElementById('mw-wan1-speed')?.value) || 1000,
+        wan1Weight: parseInt(document.getElementById('mw-wan1-weight')?.value) || 2,
+        dnsCheckWan1: (document.getElementById('mw-dns-wan1')?.value || '').trim(),
+        wan2Interface: (document.getElementById('mw-wan2-interface')?.value || '').trim(),
+        wan2Gateway: (document.getElementById('mw-wan2-gateway')?.value || '').trim(),
+        wan2Weight: parseInt(document.getElementById('mw-wan2-weight')?.value) || 1,
+        dnsCheckWan2: (document.getElementById('mw-dns-wan2')?.value || '').trim(),
+        pbrVlan10Subnet: (document.getElementById('mw-vlan10-subnet')?.value || '').trim(),
+        pbrVlan20Subnet: (document.getElementById('mw-vlan20-subnet')?.value || '').trim(),
+        telegramToken: (document.getElementById('mw-telegram-token')?.value || '').trim(),
+        telegramChatId: (document.getElementById('mw-telegram-chatid')?.value || '').trim(),
+        mssClamping: !!document.getElementById('mw-toggle-mss')?.checked,
+        fasttrackBypass: !!document.getElementById('mw-toggle-fasttrack')?.checked,
+        dnsHijack: !!document.getElementById('mw-toggle-dnshijack')?.checked,
+        hairpinNat: !!document.getElementById('mw-toggle-hairpin')?.checked
+    };
+}
+
+document.getElementById('btn-save-multiwan-config')?.addEventListener('click', async () => {
+    try {
+        const payload = getMultiWanFormPayload();
+        await apiFetch('/api/multiwan', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        alert('บันทึกการตั้งค่า Multi-WAN ประจำไซต์งานเรียบร้อยแล้ว!');
+    } catch (err) {
+        alert('ไม่สามารถบันทึกค่าได้: ' + err.message);
+    }
+});
+
+document.getElementById('form-multiwan-config')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+        const payload = getMultiWanFormPayload();
+        await apiFetch('/api/multiwan', { method: 'POST', body: JSON.stringify(payload) });
+        const res = await apiFetch('/api/multiwan/generate-script', { method: 'POST', body: JSON.stringify(payload) });
+        const outputCard = document.getElementById('multiwan-script-output-card');
+        const textarea = document.getElementById('multiwan-script-textarea');
+        if (outputCard && textarea) {
+            textarea.value = res.script;
+            outputCard.style.display = 'block';
+            outputCard.scrollIntoView({ behavior: 'smooth' });
+        }
+    } catch (err) {
+        alert('ไม่สามารถสร้างสคริปต์ได้: ' + err.message);
+    }
+});
+
+document.getElementById('btn-copy-multiwan-script')?.addEventListener('click', () => {
+    const textarea = document.getElementById('multiwan-script-textarea');
+    if (textarea && textarea.value) {
+        navigator.clipboard.writeText(textarea.value).then(() => {
+            alert('คัดลอกสคริปต์ Multi-WAN เรียบร้อยแล้ว! สามารถนำไปวางใน WinBox -> Terminal ได้ทันที');
+        }).catch(err => {
+            textarea.select();
+            document.execCommand('copy');
+            alert('คัดลอกสคริปต์เรียบร้อยแล้ว!');
+        });
+    }
 });
 
 // Initialize on page load
