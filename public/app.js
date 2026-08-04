@@ -363,7 +363,7 @@ function switchPage(targetPageId) {
         'page-overview': { title: 'ข้อมูลทั่วไป (Overview)', desc: 'ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส' },
         'page-hotspot': { title: 'จัดการระบบ Hotspot', desc: 'ควบคุมระบบคูปองอินเตอร์เน็ตและผู้ใช้งานทั้งหมด' },
         'page-pppoe': { title: 'จัดการระบบ PPPoE', desc: 'จัดการบัญชี router ตามห้อง แพ็กเกจความเร็ว และการใช้งานสำหรับเก็บเงิน' },
-        'page-multiwan': { title: 'เครื่องมือ Multi-WAN (2-WAN)', desc: 'สร้างและจัดการสคริปต์ Multi-WAN, PCC Load Balancing (2:1), PBR และ Telegram Netwatch ประจำไซต์งาน' },
+        'page-multiwan': { title: 'จัดการระบบ Multi-WAN & Load Balance', desc: 'กำหนดสาย WAN ไม่จำกัด (N-WAN), PCC Load Balancing, PBR และ Telegram Netwatch ประจำไซต์งาน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
         'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
@@ -3777,26 +3777,184 @@ document.getElementById('sidebar-overlay').addEventListener('click', () => {
 });
 
 // ==========================================
-// MULTI-WAN TOOL CONTROLLER
 // ==========================================
+// MULTI-WAN TOOL CONTROLLER (Dynamic N-WAN & Real Interface Binding)
+// ==========================================
+let currentWanLines = [];
+let cachedRouterInterfaces = [];
+
+async function fetchRealRouterInterfaces() {
+    try {
+        const interfaces = await apiFetch('/api/mikrotik/interfaces');
+        if (Array.isArray(interfaces)) {
+            cachedRouterInterfaces = interfaces;
+        }
+    } catch (err) {
+        console.warn('Failed to fetch real router interfaces:', err);
+    }
+    return cachedRouterInterfaces;
+}
+
+function renderWanLineCards() {
+    const container = document.getElementById('wan-lines-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!currentWanLines || currentWanLines.length === 0) {
+        currentWanLines = [
+            { id: 'wan_1', name: 'WAN 1', interface: 'pppoe-out1', type: 'pppoe', gateway: '', speed: 1000, weight: 2, dnsCheck: '8.8.8.8' },
+            { id: 'wan_2', name: 'WAN 2', interface: 'ether2-WAN2', type: 'dhcp', gateway: '192.168.2.1', speed: 500, weight: 1, dnsCheck: '1.1.1.1' }
+        ];
+    }
+
+    currentWanLines.forEach((wan, idx) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding = '20px';
+
+        const isPPPoE = wan.type === 'pppoe';
+        const interfaceOptionsHtml = buildInterfaceOptionsHtml(wan.interface);
+
+        card.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+                <h3 style="font-size:1.05rem; font-weight:600; margin:0;">
+                    <i class="fa-solid fa-bolt text-primary"></i> ${wan.name || `WAN ${idx + 1}`} ${idx === 0 ? '(Primary)' : ''}
+                </h3>
+                ${currentWanLines.length > 1 ? `<button type="button" class="btn btn-sm btn-outline-danger btn-remove-wan" data-index="${idx}" style="padding:2px 8px; font-size:0.75rem;"><i class="fa-solid fa-trash"></i> ลบสาย</button>` : ''}
+            </div>
+            <div class="form-row-2 mb-12">
+                <div class="form-group">
+                    <label>Interface ราวเตอร์ *</label>
+                    <select class="form-control mw-wan-interface" data-index="${idx}">
+                        ${interfaceOptionsHtml}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>ประเภทการเชื่อมต่อ *</label>
+                    <select class="form-control mw-wan-type" data-index="${idx}">
+                        <option value="pppoe" ${wan.type === 'pppoe' ? 'selected' : ''}>PPPoE Client</option>
+                        <option value="dhcp" ${wan.type === 'dhcp' ? 'selected' : ''}>DHCP Client</option>
+                        <option value="static" ${wan.type === 'static' ? 'selected' : ''}>Static IP</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row-2 mb-12">
+                <div class="form-group">
+                    <label>Gateway IP ${isPPPoE ? '(ไม่ใช้ใน PPPoE)' : '*'}</label>
+                    <input type="text" class="form-control mw-wan-gateway" data-index="${idx}" value="${wan.gateway || ''}" ${isPPPoE ? 'disabled' : ''} placeholder="เช่น 192.168.2.1">
+                </div>
+                <div class="form-group">
+                    <label>ความเร็ว (Mbps)</label>
+                    <input type="number" class="form-control mw-wan-speed" data-index="${idx}" value="${wan.speed || 500}" placeholder="500">
+                </div>
+            </div>
+            <div class="form-row-2 mb-12">
+                <div class="form-group">
+                    <label>อัตราส่วน Weight (PCC)</label>
+                    <input type="number" class="form-control mw-wan-weight" data-index="${idx}" value="${wan.weight || 1}" min="1" placeholder="1">
+                </div>
+                <div class="form-group">
+                    <label>Target Host Check (DNS)</label>
+                    <input type="text" class="form-control mw-wan-dns" data-index="${idx}" value="${wan.dnsCheck || `8.8.8.${idx + 1}`}" placeholder="เช่น 8.8.8.8">
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+
+    bindWanCardsEvents();
+}
+
+function buildInterfaceOptionsHtml(selectedVal) {
+    if (!cachedRouterInterfaces || cachedRouterInterfaces.length === 0) {
+        const defaults = ['pppoe-out1', 'ether1', 'ether2-WAN2', 'ether3', 'ether4', 'ether5', 'sfp-sfpplus1'];
+        let options = defaults.map(name => `<option value="${name}" ${name === selectedVal ? 'selected' : ''}>${name}</option>`).join('');
+        if (selectedVal && !defaults.includes(selectedVal)) {
+            options += `<option value="${selectedVal}" selected>${selectedVal} (ระบุเอง)</option>`;
+        }
+        return options;
+    }
+
+    let options = cachedRouterInterfaces.map(iface => {
+        const name = iface.name;
+        const typeStr = iface.type ? ` (${iface.type})` : '';
+        const disabledStr = iface.disabled ? ' [disabled]' : '';
+        return `<option value="${name}" ${name === selectedVal ? 'selected' : ''}>${name}${typeStr}${disabledStr}</option>`;
+    }).join('');
+
+    if (selectedVal && !cachedRouterInterfaces.some(i => i.name === selectedVal)) {
+        options += `<option value="${selectedVal}" selected>${selectedVal} (custom)</option>`;
+    }
+    return options;
+}
+
+function bindWanCardsEvents() {
+    document.querySelectorAll('.mw-wan-type').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            if (currentWanLines[idx]) {
+                currentWanLines[idx].type = e.target.value;
+                renderWanLineCards();
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-remove-wan').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const idx = parseInt(btn.getAttribute('data-index'));
+            if (currentWanLines.length > 1) {
+                currentWanLines.splice(idx, 1);
+                currentWanLines.forEach((w, i) => w.name = `WAN ${i + 1}`);
+                renderWanLineCards();
+            }
+        });
+    });
+}
+
+document.getElementById('btn-add-wan-line')?.addEventListener('click', () => {
+    const newIdx = currentWanLines.length + 1;
+    currentWanLines.push({
+        id: `wan_${newIdx}`,
+        name: `WAN ${newIdx}`,
+        interface: `ether${newIdx}`,
+        type: 'dhcp',
+        gateway: `192.168.${newIdx}.1`,
+        speed: 500,
+        weight: 1,
+        dnsCheck: `8.8.4.${newIdx}`
+    });
+    renderWanLineCards();
+});
+
+document.getElementById('btn-refresh-multiwan-interfaces')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-refresh-multiwan-interfaces');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังดึงข้อมูล...'; }
+    await fetchRealRouterInterfaces();
+    renderWanLineCards();
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> ดึงรายการ Interface จากราวเตอร์'; }
+    alert('อัปเดตรายการ Interface จากเราท์เตอร์จริงเรียบร้อยแล้ว!');
+});
+
 async function renderMultiWanPage() {
     const activeSiteNameEl = document.getElementById('multiwan-active-site-name');
     if (activeSiteNameEl) {
         activeSiteNameEl.textContent = getCurrentSiteName() || 'Default Site';
     }
 
+    await fetchRealRouterInterfaces();
+
     try {
         const config = await apiFetch('/api/multiwan');
         if (config) {
-            if (document.getElementById('mw-wan1-interface')) document.getElementById('mw-wan1-interface').value = config.wan1Interface || 'pppoe-out1';
-            if (document.getElementById('mw-wan1-speed')) document.getElementById('mw-wan1-speed').value = config.wan1Speed || 1000;
-            if (document.getElementById('mw-wan1-weight')) document.getElementById('mw-wan1-weight').value = config.wan1Weight || 2;
-            if (document.getElementById('mw-dns-wan1')) document.getElementById('mw-dns-wan1').value = config.dnsCheckWan1 || '8.8.8.8';
-
-            if (document.getElementById('mw-wan2-interface')) document.getElementById('mw-wan2-interface').value = config.wan2Interface || 'ether2-WAN2';
-            if (document.getElementById('mw-wan2-gateway')) document.getElementById('mw-wan2-gateway').value = config.wan2Gateway || '192.168.2.1';
-            if (document.getElementById('mw-wan2-weight')) document.getElementById('mw-wan2-weight').value = config.wan2Weight || 1;
-            if (document.getElementById('mw-dns-wan2')) document.getElementById('mw-dns-wan2').value = config.dnsCheckWan2 || '1.1.1.1';
+            if (Array.isArray(config.wans) && config.wans.length > 0) {
+                currentWanLines = config.wans;
+            } else {
+                currentWanLines = [
+                    { id: 'wan_1', name: 'WAN 1', interface: config.wan1Interface || 'pppoe-out1', type: config.wan1Type || 'pppoe', gateway: '', speed: config.wan1Speed || 1000, weight: config.wan1Weight || 2, dnsCheck: config.dnsCheckWan1 || '8.8.8.8' },
+                    { id: 'wan_2', name: 'WAN 2', interface: config.wan2Interface || 'ether2-WAN2', type: config.wan2Type || 'dhcp', gateway: config.wan2Gateway || '192.168.2.1', speed: config.wan2Speed || 500, weight: config.wan2Weight || 1, dnsCheck: config.dnsCheckWan2 || '1.1.1.1' }
+                ];
+            }
+            renderWanLineCards();
 
             if (document.getElementById('mw-vlan10-subnet')) document.getElementById('mw-vlan10-subnet').value = config.pbrVlan10Subnet || '192.168.10.0/24';
             if (document.getElementById('mw-vlan20-subnet')) document.getElementById('mw-vlan20-subnet').value = config.pbrVlan20Subnet || '192.168.20.0/24';
@@ -3811,19 +3969,33 @@ async function renderMultiWanPage() {
         }
     } catch (err) {
         console.error('Failed to load Multi-WAN config:', err);
+        renderWanLineCards();
     }
 }
 
 function getMultiWanFormPayload() {
+    const updatedWans = [];
+    document.querySelectorAll('.mw-wan-interface').forEach((el, idx) => {
+        const typeEl = document.querySelector(`.mw-wan-type[data-index="${idx}"]`);
+        const gwEl = document.querySelector(`.mw-wan-gateway[data-index="${idx}"]`);
+        const speedEl = document.querySelector(`.mw-wan-speed[data-index="${idx}"]`);
+        const weightEl = document.querySelector(`.mw-wan-weight[data-index="${idx}"]`);
+        const dnsEl = document.querySelector(`.mw-wan-dns[data-index="${idx}"]`);
+
+        updatedWans.push({
+            id: `wan_${idx + 1}`,
+            name: `WAN ${idx + 1}`,
+            interface: (el.value || '').trim(),
+            type: typeEl ? typeEl.value : 'dhcp',
+            gateway: gwEl ? (gwEl.value || '').trim() : '',
+            speed: parseInt(speedEl?.value) || 500,
+            weight: parseInt(weightEl?.value) || 1,
+            dnsCheck: dnsEl ? (dnsEl.value || '').trim() : `8.8.8.${idx + 1}`
+        });
+    });
+
     return {
-        wan1Interface: (document.getElementById('mw-wan1-interface')?.value || '').trim(),
-        wan1Speed: parseInt(document.getElementById('mw-wan1-speed')?.value) || 1000,
-        wan1Weight: parseInt(document.getElementById('mw-wan1-weight')?.value) || 2,
-        dnsCheckWan1: (document.getElementById('mw-dns-wan1')?.value || '').trim(),
-        wan2Interface: (document.getElementById('mw-wan2-interface')?.value || '').trim(),
-        wan2Gateway: (document.getElementById('mw-wan2-gateway')?.value || '').trim(),
-        wan2Weight: parseInt(document.getElementById('mw-wan2-weight')?.value) || 1,
-        dnsCheckWan2: (document.getElementById('mw-dns-wan2')?.value || '').trim(),
+        wans: updatedWans,
         pbrVlan10Subnet: (document.getElementById('mw-vlan10-subnet')?.value || '').trim(),
         pbrVlan20Subnet: (document.getElementById('mw-vlan20-subnet')?.value || '').trim(),
         telegramToken: (document.getElementById('mw-telegram-token')?.value || '').trim(),

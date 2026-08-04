@@ -783,29 +783,39 @@ function saveMenuPermissions(config) {
     };
 const MULTIWAN_FILE = path.join(__dirname, 'data', 'multiwan.json');
 
+function _getDefaultMultiWanConfig() {
+    return {
+        wans: [
+            { id: 'wan_1', name: 'WAN 1', interface: 'pppoe-out1', type: 'pppoe', gateway: '', speed: 1000, weight: 2, dnsCheck: '8.8.8.8' },
+            { id: 'wan_2', name: 'WAN 2', interface: 'ether2-WAN2', type: 'dhcp', gateway: '192.168.2.1', speed: 500, weight: 1, dnsCheck: '1.1.1.1' }
+        ],
+        pbrVlan10Subnet: '192.168.10.0/24',
+        pbrVlan20Subnet: '192.168.20.0/24',
+        telegramToken: '',
+        telegramChatId: '',
+        mssClamping: true,
+        fasttrackBypass: true,
+        dnsHijack: true,
+        hairpinNat: true
+    };
+}
+
 function getMultiWanConfig(siteId) {
     try {
         if (!fs.existsSync(MULTIWAN_FILE)) fs.writeFileSync(MULTIWAN_FILE, '{}', 'utf8');
-        const data = JSON.parse(fs.readFileSync(MULTIWAN_FILE, 'utf8'));
+        const fileData = JSON.parse(fs.readFileSync(MULTIWAN_FILE, 'utf8'));
         const key = siteId || 'default';
-        const defaults = {
-            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
-            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
-            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
-            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
-            telegramToken: '', telegramChatId: '',
-            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
-        };
-        return Object.assign({}, defaults, data[key] || {});
+        const data = fileData[key];
+        if (!data) return _getDefaultMultiWanConfig();
+        if (!data.wans || !Array.isArray(data.wans)) {
+            data.wans = [
+                { id: 'wan_1', name: 'WAN 1', interface: data.wan1Interface || 'pppoe-out1', type: data.wan1Type || 'pppoe', gateway: '', speed: data.wan1Speed || 1000, weight: data.wan1Weight || 2, dnsCheck: data.dnsCheckWan1 || '8.8.8.8' },
+                { id: 'wan_2', name: 'WAN 2', interface: data.wan2Interface || 'ether2-WAN2', type: data.wan2Type || 'dhcp', gateway: data.wan2Gateway || '192.168.2.1', speed: data.wan2Speed || 500, weight: data.wan2Weight || 1, dnsCheck: data.dnsCheckWan2 || '1.1.1.1' }
+            ];
+        }
+        return Object.assign({}, _getDefaultMultiWanConfig(), data);
     } catch(e) {
-        return {
-            wan1Interface: 'pppoe-out1', wan1Type: 'pppoe', wan1Speed: 1000, wan1Weight: 2,
-            wan2Interface: 'ether2-WAN2', wan2Type: 'dhcp', wan2Gateway: '192.168.2.1', wan2Speed: 500, wan2Weight: 1,
-            dnsCheckWan1: '8.8.8.8', dnsCheckWan2: '1.1.1.1',
-            pbrVlan10Subnet: '192.168.10.0/24', pbrVlan20Subnet: '192.168.20.0/24',
-            telegramToken: '', telegramChatId: '',
-            mssClamping: true, fasttrackBypass: true, dnsHijack: true, hairpinNat: true
-        };
+        return _getDefaultMultiWanConfig();
     }
 }
 
