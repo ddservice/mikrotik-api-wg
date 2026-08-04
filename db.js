@@ -759,14 +759,18 @@ function saveAutoCleanupConfig(config) {
 // ==========================================
 const MENU_PERMISSIONS_FILE = path.join(DB_DIR, 'menu_permissions.json');
 const DEFAULT_MENU_PERMISSIONS = {
-    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'co-admin': ['hotspot', 'pppoe', 'multiwan', 'firewall', 'logs'],
     'user': ['hotspot', 'firewall']
 };
 
 function getMenuPermissions() {
     try {
         if (!fs.existsSync(MENU_PERMISSIONS_FILE)) return { ...DEFAULT_MENU_PERMISSIONS };
-        return JSON.parse(fs.readFileSync(MENU_PERMISSIONS_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(MENU_PERMISSIONS_FILE, 'utf8'));
+        if (data['co-admin'] && !data['co-admin'].includes('multiwan')) {
+            data['co-admin'].push('multiwan');
+        }
+        return data;
     } catch (e) {
         return { ...DEFAULT_MENU_PERMISSIONS };
     }

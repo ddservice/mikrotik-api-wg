@@ -516,14 +516,18 @@ async function saveAutoCleanupConfig(config) {
 // admin always sees everything — not configurable, not stored here.
 // ==========================================
 var DEFAULT_MENU_PERMISSIONS = {
-    'co-admin': ['hotspot', 'pppoe', 'firewall', 'logs'],
+    'co-admin': ['hotspot', 'pppoe', 'multiwan', 'firewall', 'logs'],
     'user': ['hotspot', 'firewall']
 };
 
 async function getMenuPermissions() {
     try {
         var res = await supabase.from('app_settings').select('value').eq('key', 'menu_permissions').maybeSingle();
-        return (res.data && res.data.value) || Object.assign({}, DEFAULT_MENU_PERMISSIONS);
+        var val = (res.data && res.data.value) || Object.assign({}, DEFAULT_MENU_PERMISSIONS);
+        if (val['co-admin'] && !val['co-admin'].includes('multiwan')) {
+            val['co-admin'].push('multiwan');
+        }
+        return val;
     } catch(e) { return Object.assign({}, DEFAULT_MENU_PERMISSIONS); }
 }
 
