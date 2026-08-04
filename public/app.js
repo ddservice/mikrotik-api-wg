@@ -227,42 +227,37 @@ function logout() {
     showLogin();
 }
 
-// Maps a menu-permission key (stored/toggled in Settings) to its nav <a> id.
-const MENU_PERMISSION_NAV_IDS = {
-    hotspot: 'nav-hotspot',
-    pppoe: 'nav-pppoe',
-    multiwan: 'nav-multiwan',
-    firewall: 'nav-firewall',
-    logs: 'nav-logs'
-};
+// Master registry of all configurable sidebar navigation menus
+const ALL_CONFIGURABLE_MENUS = [
+    { key: 'hotspot', navId: 'nav-hotspot', title: 'จัดการระบบ Hotspot', icon: 'fa-ticket' },
+    { key: 'pppoe', navId: 'nav-pppoe', title: 'จัดการระบบ PPPoE', icon: 'fa-door-open' },
+    { key: 'multiwan', navId: 'nav-multiwan', title: 'จัดการ Multi-WAN & Failover', icon: 'fa-network-wired' },
+    { key: 'firewall', navId: 'nav-firewall', title: 'จัดการบล็อกเว็บ (Firewall)', icon: 'fa-fire-burner' },
+    { key: 'logs', navId: 'nav-logs', title: 'ประวัติการใช้งาน (Log)', icon: 'fa-clock-rotate-left' }
+];
 
-// Fallback if the permissions API call fails — mirrors the defaults on the
-// server (db.js/db-supabase.js DEFAULT_MENU_PERMISSIONS) so the app doesn't
-// look broken while offline/erroring.
 const DEFAULT_MENU_PERMISSIONS_FALLBACK = {
     'co-admin': ['hotspot', 'pppoe', 'multiwan', 'firewall', 'logs'],
     'user': ['hotspot', 'firewall']
 };
 
 function configureMenuRoles(role) {
-    // Hide all role-restricted menu items first
-    document.getElementById('nav-hotspot').style.display = 'none';
-    document.getElementById('nav-pppoe').style.display = 'none';
-    document.getElementById('nav-multiwan').style.display = 'none';
-    document.getElementById('nav-firewall').style.display = 'none';
-    document.getElementById('nav-admins').style.display = 'none';
-    document.getElementById('nav-settings').style.display = 'none';
-    document.getElementById('nav-logs').style.display = 'none';
+    // Hide all configurable menu items + admin-only items
+    ALL_CONFIGURABLE_MENUS.forEach(m => {
+        const el = document.getElementById(m.navId);
+        if (el) el.style.display = 'none';
+    });
+    if (document.getElementById('nav-admins')) document.getElementById('nav-admins').style.display = 'none';
+    if (document.getElementById('nav-settings')) document.getElementById('nav-settings').style.display = 'none';
 
     if (role === 'admin') {
-        // admin always sees everything — not configurable
-        document.getElementById('nav-hotspot').style.display = 'flex';
-        document.getElementById('nav-pppoe').style.display = 'flex';
-        document.getElementById('nav-multiwan').style.display = 'flex';
-        document.getElementById('nav-firewall').style.display = 'flex';
-        document.getElementById('nav-admins').style.display = 'flex';
-        document.getElementById('nav-settings').style.display = 'flex';
-        document.getElementById('nav-logs').style.display = 'flex';
+        // admin always sees everything
+        ALL_CONFIGURABLE_MENUS.forEach(m => {
+            const el = document.getElementById(m.navId);
+            if (el) el.style.display = 'flex';
+        });
+        if (document.getElementById('nav-admins')) document.getElementById('nav-admins').style.display = 'flex';
+        if (document.getElementById('nav-settings')) document.getElementById('nav-settings').style.display = 'flex';
         return;
     }
 
@@ -280,10 +275,11 @@ async function applyMenuPermissionsForRole(role) {
         console.error('Failed to load menu permissions, using defaults:', err);
         allowed = DEFAULT_MENU_PERMISSIONS_FALLBACK[role] || [];
     }
-    allowed.forEach(key => {
-        const navId = MENU_PERMISSION_NAV_IDS[key];
-        const el = navId ? document.getElementById(navId) : null;
-        if (el) el.style.display = 'flex';
+    ALL_CONFIGURABLE_MENUS.forEach(m => {
+        if (allowed.includes(m.key)) {
+            const el = document.getElementById(m.navId);
+            if (el) el.style.display = 'flex';
+        }
     });
 }
 
@@ -2683,14 +2679,25 @@ document.addEventListener('click', async (e) => {
 // ADMIN DASHBOARD USER MANAGEMENT
 // ==========================================
 async function fetchMenuPermissions() {
+    const tbody = document.querySelector('#table-menu-permissions tbody');
+    if (!tbody) return;
+
     try {
         const perms = await apiFetch('/api/settings/menu-permissions');
-        document.querySelectorAll('.menu-perm-chk').forEach(chk => {
-            const menu = chk.getAttribute('data-menu');
-            const role = chk.getAttribute('data-role');
-            const allowed = perms[role] || [];
-            chk.checked = allowed.includes(menu);
-        });
+        const coAdminAllowed = perms['co-admin'] || DEFAULT_MENU_PERMISSIONS_FALLBACK['co-admin'];
+        const userAllowed = perms['user'] || DEFAULT_MENU_PERMISSIONS_FALLBACK['user'];
+
+        tbody.innerHTML = ALL_CONFIGURABLE_MENUS.map(m => {
+            const coAdminChecked = coAdminAllowed.includes(m.key) ? 'checked' : '';
+            const userChecked = userAllowed.includes(m.key) ? 'checked' : '';
+            return `
+                <tr>
+                    <td><i class="fa-solid ${m.icon} text-primary" style="width:20px;"></i> <strong>${m.title}</strong></td>
+                    <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="${m.key}" data-role="co-admin" ${coAdminChecked}></td>
+                    <td class="text-center"><input type="checkbox" class="menu-perm-chk" data-menu="${m.key}" data-role="user" ${userChecked}></td>
+                </tr>
+            `;
+        }).join('');
     } catch (err) {
         console.error('Failed to load menu permissions:', err);
     }
