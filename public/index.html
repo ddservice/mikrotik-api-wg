@@ -1980,12 +1980,15 @@
                         </div>
 
                         <!-- Action Buttons -->
-                        <div class="mt-20 text-right" style="display:flex; justify-content:flex-end; gap:12px;">
+                        <div class="mt-20 text-right" style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:12px;">
                             <button type="button" id="btn-save-multiwan-config" class="btn btn-secondary">
                                 <i class="fa-solid fa-floppy-disk"></i> บันทึกค่าประจำไซต์
                             </button>
                             <button type="submit" id="btn-generate-multiwan-script" class="btn btn-primary">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> สร้างสคริปต์ RouterOS v7
+                            </button>
+                            <button type="button" id="btn-apply-multiwan-api" class="btn btn-success">
+                                <i class="fa-solid fa-bolt"></i> ⚡ บังคับใช้ค่าบนเราท์เตอร์ทันที (API Direct)
                             </button>
                         </div>
                     </form>

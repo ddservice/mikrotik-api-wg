@@ -644,6 +644,111 @@ add host=${dns2} type=icmp interval=5s timeout=1000ms comment="WAN2 Netwatch" up
     }
 });
 
+// Directly Apply Multi-WAN configuration to MikroTik Router via API
+app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const cfg = req.body;
+        const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
+        
+        // Save config first
+        await db.saveMultiWanConfig(siteId, cfg);
+
+        const wan1 = cfg.wan1Interface || 'pppoe-out1';
+        const wan2 = cfg.wan2Interface || 'ether2-WAN2';
+        const wan2Gw = cfg.wan2Gateway || '192.168.2.1';
+        const dns1 = cfg.dnsCheckWan1 || '8.8.8.8';
+        const dns2 = cfg.dnsCheckWan2 || '1.1.1.1';
+
+        const result = await executeOnRouter(req, async (client) => {
+            const logs = [];
+
+            // 1. Check & Add Routing Tables (RouterOS v7)
+            try {
+                const tables = await client.exec('/routing/table/print');
+                if (!tables.some(t => t.name === 'to_WAN1')) {
+                    await client.exec('/routing/table/add', { name: 'to_WAN1', fib: '' });
+                    logs.push('สร้าง Routing Table: to_WAN1');
+                }
+                if (!tables.some(t => t.name === 'to_WAN2')) {
+                    await client.exec('/routing/table/add', { name: 'to_WAN2', fib: '' });
+                    logs.push('สร้าง Routing Table: to_WAN2');
+                }
+            } catch (e) {
+                /* ignore */
+            }
+
+            // 2. Setup Host Check Routes
+            try {
+                const routes = await client.exec('/ip/route/print');
+                for (const r of routes) {
+                    if (r.comment && r.comment.includes('Host Check')) {
+                        await client.exec('/ip/route/remove', { '.id': r['.id'] });
+                    }
+                }
+                await client.exec('/ip/route/add', {
+                    'dst-address': `${dns1}/32`,
+                    gateway: wan1,
+                    scope: '10',
+                    'target-scope': '10',
+                    comment: 'WAN1 Host Check'
+                });
+                await client.exec('/ip/route/add', {
+                    'dst-address': `${dns2}/32`,
+                    gateway: wan2Gw,
+                    scope: '10',
+                    'target-scope': '10',
+                    comment: 'WAN2 Host Check'
+                });
+                logs.push(`ตั้งค่า Host Check Routes (${dns1}, ${dns2})`);
+            } catch (e) {
+                logs.push(`ข้อผิดพลาด Routes: ${e.message}`);
+            }
+
+            // 3. Setup NAT Rules
+            try {
+                const nats = await client.exec('/ip/firewall/nat/print');
+                if (!nats.some(n => n['out-interface'] === wan1 && n.action === 'masquerade')) {
+                    await client.exec('/ip/firewall/nat/add', {
+                        chain: 'srcnat',
+                        'out-interface': wan1,
+                        action: 'masquerade',
+                        comment: 'Masquerade WAN1'
+                    });
+                }
+                if (!nats.some(n => n['out-interface'] === wan2 && n.action === 'masquerade')) {
+                    await client.exec('/ip/firewall/nat/add', {
+                        chain: 'srcnat',
+                        'out-interface': wan2,
+                        action: 'masquerade',
+                        comment: 'Masquerade WAN2'
+                    });
+                }
+                logs.push('ตั้งค่า Outbound NAT (Masquerade) ทั้ง 2 WAN');
+            } catch (e) {
+                logs.push(`ข้อผิดพลาด NAT: ${e.message}`);
+            }
+
+            // 4. Connection Tracking Optimization
+            try {
+                await client.exec('/ip/firewall/connection/tracking/set', {
+                    enabled: 'yes',
+                    'tcp-established-timeout': '1h',
+                    'tcp-syn-sent-timeout': '15s',
+                    'udp-timeout': '10s'
+                });
+                logs.push('ปรับตั้งค่า Connection Tracking Optimization');
+            } catch (e) { /* ignore */ }
+
+            return logs;
+        });
+
+        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN อัตโนมัติ', `บังคับใช้การตั้งค่า Multi-WAN ลงบนเราท์เตอร์เรียบร้อยแล้ว`);
+        res.json({ success: true, message: 'ตั้งค่าและบังคับใช้ Multi-WAN ลงบนเราท์เตอร์สำเร็จ!', logs: result });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // Helper for VPS WireGuard Peer Management
 //

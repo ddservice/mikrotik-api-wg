@@ -3879,6 +3879,29 @@ document.getElementById('btn-copy-multiwan-script')?.addEventListener('click', (
     }
 });
 
+document.getElementById('btn-apply-multiwan-api')?.addEventListener('click', async () => {
+    if (!confirm('คุณต้องการสั่งให้ระบบตั้งค่า Multi-WAN และบังคับใช้ลงบนเราท์เตอร์ไซต์งานนี้ผ่าน API ทันทีใช่หรือไม่?')) {
+        return;
+    }
+    const btn = document.getElementById('btn-apply-multiwan-api');
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังตั้งค่าบนเราท์เตอร์...'; }
+
+    try {
+        const payload = getMultiWanFormPayload();
+        const res = await apiFetch('/api/multiwan/apply', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const logMsg = (res.logs || []).join('\n - ');
+        alert(`สำเร็จ! ${res.message}\n\nรายการตั้งค่าที่ดำเนินการ:\n - ${logMsg}`);
+    } catch (err) {
+        alert('เกิดข้อผิดพลาดในการสั่งตั้งค่าบนเราท์เตอร์: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+    }
+});
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
     initApp();
