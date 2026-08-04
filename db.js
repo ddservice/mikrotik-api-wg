@@ -789,8 +789,10 @@ function _getDefaultMultiWanConfig() {
             { id: 'wan_1', name: 'WAN 1', interface: 'pppoe-out1', type: 'pppoe', gateway: '', speed: 1000, weight: 2, dnsCheck: '8.8.8.8' },
             { id: 'wan_2', name: 'WAN 2', interface: 'ether2-WAN2', type: 'dhcp', gateway: '192.168.2.1', speed: 500, weight: 1, dnsCheck: '1.1.1.1' }
         ],
-        pbrVlan10Subnet: '192.168.10.0/24',
-        pbrVlan20Subnet: '192.168.20.0/24',
+        pbrRules: [
+            { id: 'pbr_1', srcInterface: 'vlan10-hotspot', targetWanNum: 1, note: 'VLAN 10 Hotspot ออก WAN 1' },
+            { id: 'pbr_2', srcInterface: 'vlan20-pppoe', targetWanNum: 2, note: 'VLAN 20 PPPoE ออก WAN 2' }
+        ],
         telegramToken: '',
         telegramChatId: '',
         mssClamping: true,
@@ -811,6 +813,12 @@ function getMultiWanConfig(siteId) {
             data.wans = [
                 { id: 'wan_1', name: 'WAN 1', interface: data.wan1Interface || 'pppoe-out1', type: data.wan1Type || 'pppoe', gateway: '', speed: data.wan1Speed || 1000, weight: data.wan1Weight || 2, dnsCheck: data.dnsCheckWan1 || '8.8.8.8' },
                 { id: 'wan_2', name: 'WAN 2', interface: data.wan2Interface || 'ether2-WAN2', type: data.wan2Type || 'dhcp', gateway: data.wan2Gateway || '192.168.2.1', speed: data.wan2Speed || 500, weight: data.wan2Weight || 1, dnsCheck: data.dnsCheckWan2 || '1.1.1.1' }
+            ];
+        }
+        if (!data.pbrRules || !Array.isArray(data.pbrRules)) {
+            data.pbrRules = [
+                { id: 'pbr_1', srcInterface: 'vlan10-hotspot', targetWanNum: 1, note: 'VLAN 10 Hotspot ออก WAN 1' },
+                { id: 'pbr_2', srcInterface: 'vlan20-pppoe', targetWanNum: 2, note: 'VLAN 20 PPPoE ออก WAN 2' }
             ];
         }
         return Object.assign({}, _getDefaultMultiWanConfig(), data);

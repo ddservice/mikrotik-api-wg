@@ -3911,6 +3911,86 @@ function bindWanCardsEvents() {
     });
 }
 
+let currentPbrRules = [];
+
+function renderPbrRuleRows() {
+    const container = document.getElementById('pbr-rules-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!currentPbrRules || currentPbrRules.length === 0) {
+        currentPbrRules = [
+            { id: 'pbr_1', srcInterface: 'vlan10-hotspot', targetWanNum: 1, note: 'VLAN 10 Hotspot ออก WAN 1' },
+            { id: 'pbr_2', srcInterface: 'vlan20-pppoe', targetWanNum: 2, note: 'VLAN 20 PPPoE ออก WAN 2' }
+        ];
+    }
+
+    currentPbrRules.forEach((rule, idx) => {
+        const tr = document.createElement('tr');
+        
+        const wanTargetOptions = currentWanLines.map((w, wIdx) => {
+            const num = wIdx + 1;
+            return `<option value="${num}" ${rule.targetWanNum === num ? 'selected' : ''}>WAN ${num} (${w.interface || 'Interface'})</option>`;
+        }).join('');
+
+        const srcOptions = buildPbrSourceInterfaceOptionsHtml(rule.srcInterface);
+
+        tr.innerHTML = `
+            <td>
+                <select class="form-control mw-pbr-src" data-index="${idx}">
+                    ${srcOptions}
+                </select>
+            </td>
+            <td>
+                <select class="form-control mw-pbr-target" data-index="${idx}">
+                    ${wanTargetOptions}
+                </select>
+            </td>
+            <td>
+                <input type="text" class="form-control mw-pbr-note" data-index="${idx}" value="${rule.note || ''}" placeholder="คำอธิบายเพิ่มเติม">
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn btn-sm btn-outline-danger btn-remove-pbr" data-index="${idx}"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        `;
+        container.appendChild(tr);
+    });
+
+    document.querySelectorAll('.btn-remove-pbr').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const idx = parseInt(btn.getAttribute('data-index'));
+            currentPbrRules.splice(idx, 1);
+            renderPbrRuleRows();
+        });
+    });
+}
+
+function buildPbrSourceInterfaceOptionsHtml(selectedVal) {
+    const presets = [
+        { name: 'vlan10-hotspot', label: 'vlan10-hotspot (VLAN 10 Hotspot)' },
+        { name: 'vlan20-pppoe', label: 'vlan20-pppoe (VLAN 20 PPPoE)' },
+        { name: 'bridge-lan', label: 'bridge-lan (Local Bridge)' },
+        { name: '192.168.10.0/24', label: '192.168.10.0/24 (Subnet)' },
+        { name: '192.168.20.0/24', label: '192.168.20.0/24 (Subnet)' }
+    ];
+
+    let options = '';
+    if (cachedRouterInterfaces && cachedRouterInterfaces.length > 0) {
+        options = cachedRouterInterfaces.map(iface => {
+            const name = iface.name;
+            const label = `${name}${iface.type ? ` (${iface.type})` : ''}`;
+            return `<option value="${name}" ${name === selectedVal ? 'selected' : ''}>${label}</option>`;
+        }).join('');
+    } else {
+        options = presets.map(p => `<option value="${p.name}" ${p.name === selectedVal ? 'selected' : ''}>${p.label}</option>`).join('');
+    }
+
+    if (selectedVal && !options.includes(`value="${selectedVal}"`)) {
+        options += `<option value="${selectedVal}" selected>${selectedVal} (ระบุเอง)</option>`;
+    }
+    return options;
+}
+
 document.getElementById('btn-add-wan-line')?.addEventListener('click', () => {
     const newIdx = currentWanLines.length + 1;
     currentWanLines.push({
@@ -3924,6 +4004,18 @@ document.getElementById('btn-add-wan-line')?.addEventListener('click', () => {
         dnsCheck: `8.8.4.${newIdx}`
     });
     renderWanLineCards();
+    renderPbrRuleRows();
+});
+
+document.getElementById('btn-add-pbr-rule')?.addEventListener('click', () => {
+    const newIdx = currentPbrRules.length + 1;
+    currentPbrRules.push({
+        id: `pbr_${newIdx}`,
+        srcInterface: `vlan${newIdx * 10}`,
+        targetWanNum: 1,
+        note: `กฎ PBR ${newIdx}`
+    });
+    renderPbrRuleRows();
 });
 
 document.getElementById('btn-refresh-multiwan-interfaces')?.addEventListener('click', async () => {
@@ -3931,6 +4023,7 @@ document.getElementById('btn-refresh-multiwan-interfaces')?.addEventListener('cl
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังดึงข้อมูล...'; }
     await fetchRealRouterInterfaces();
     renderWanLineCards();
+    renderPbrRuleRows();
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> ดึงรายการ Interface จากราวเตอร์'; }
     alert('อัปเดตรายการ Interface จากเราท์เตอร์จริงเรียบร้อยแล้ว!');
 });
@@ -3956,8 +4049,15 @@ async function renderMultiWanPage() {
             }
             renderWanLineCards();
 
-            if (document.getElementById('mw-vlan10-subnet')) document.getElementById('mw-vlan10-subnet').value = config.pbrVlan10Subnet || '192.168.10.0/24';
-            if (document.getElementById('mw-vlan20-subnet')) document.getElementById('mw-vlan20-subnet').value = config.pbrVlan20Subnet || '192.168.20.0/24';
+            if (Array.isArray(config.pbrRules) && config.pbrRules.length > 0) {
+                currentPbrRules = config.pbrRules;
+            } else if (config.pbrVlan10Subnet || config.pbrVlan20Subnet) {
+                currentPbrRules = [
+                    { id: 'pbr_1', srcInterface: config.pbrVlan10Subnet || '192.168.10.0/24', targetWanNum: 1, note: 'VLAN 10 -> WAN 1' },
+                    { id: 'pbr_2', srcInterface: config.pbrVlan20Subnet || '192.168.20.0/24', targetWanNum: 2, note: 'VLAN 20 -> WAN 2' }
+                ];
+            }
+            renderPbrRuleRows();
 
             if (document.getElementById('mw-telegram-token')) document.getElementById('mw-telegram-token').value = config.telegramToken || '';
             if (document.getElementById('mw-telegram-chatid')) document.getElementById('mw-telegram-chatid').value = config.telegramChatId || '';
@@ -3970,6 +4070,7 @@ async function renderMultiWanPage() {
     } catch (err) {
         console.error('Failed to load Multi-WAN config:', err);
         renderWanLineCards();
+        renderPbrRuleRows();
     }
 }
 
@@ -3994,10 +4095,21 @@ function getMultiWanFormPayload() {
         });
     });
 
+    const updatedPbrRules = [];
+    document.querySelectorAll('.mw-pbr-src').forEach((el, idx) => {
+        const targetEl = document.querySelector(`.mw-pbr-target[data-index="${idx}"]`);
+        const noteEl = document.querySelector(`.mw-pbr-note[data-index="${idx}"]`);
+        updatedPbrRules.push({
+            id: `pbr_${idx + 1}`,
+            srcInterface: (el.value || '').trim(),
+            targetWanNum: parseInt(targetEl?.value) || 1,
+            note: (noteEl?.value || '').trim()
+        });
+    });
+
     return {
         wans: updatedWans,
-        pbrVlan10Subnet: (document.getElementById('mw-vlan10-subnet')?.value || '').trim(),
-        pbrVlan20Subnet: (document.getElementById('mw-vlan20-subnet')?.value || '').trim(),
+        pbrRules: updatedPbrRules,
         telegramToken: (document.getElementById('mw-telegram-token')?.value || '').trim(),
         telegramChatId: (document.getElementById('mw-telegram-chatid')?.value || '').trim(),
         mssClamping: !!document.getElementById('mw-toggle-mss')?.checked,

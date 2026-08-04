@@ -641,11 +641,20 @@ app.post('/api/multiwan/generate-script', requireAuth(['admin', 'co-admin']), as
         }
         script += `add chain=prerouting protocol=tcp dst-port=443 connection-state=new dst-address-type=!local in-interface-list=!WAN action=mark-connection new-connection-mark=HTTPS_STICKY passthrough=yes comment="Sticky 443"\n\n`;
 
-        script += `# Policy-Based Routing (PBR)\n`;
-        script += `add chain=prerouting src-address=${vlan10} dst-address-type=!local action=mark-routing new-routing-mark=to_WAN1 passthrough=no comment="PBR VLAN 10 -> WAN1"\n`;
-        if (wans.length > 1) {
-            script += `add chain=prerouting src-address=${vlan20} dst-address-type=!local action=mark-routing new-routing-mark=to_WAN2 passthrough=no comment="PBR VLAN 20 -> WAN2"\n`;
-        }
+        script += `# Policy-Based Routing (PBR Interface/Subnet Rules)\n`;
+        const pbrRules = (Array.isArray(cfg.pbrRules) && cfg.pbrRules.length > 0) ? cfg.pbrRules : [
+            { srcInterface: cfg.pbrVlan10Subnet || '192.168.10.0/24', targetWanNum: 1, note: 'PBR VLAN 10 -> WAN1' },
+            { srcInterface: cfg.pbrVlan20Subnet || '192.168.20.0/24', targetWanNum: 2, note: 'PBR VLAN 20 -> WAN2' }
+        ];
+        pbrRules.forEach(r => {
+            if (r.srcInterface) {
+                const isSubnet = r.srcInterface.includes('/') || (r.srcInterface.match(/^\d+\.\d+\.\d+\.\d+/));
+                const paramStr = isSubnet ? `src-address=${r.srcInterface}` : `in-interface=${r.srcInterface}`;
+                const targetWan = r.targetWanNum || 1;
+                const note = r.note || `PBR ${r.srcInterface} -> WAN${targetWan}`;
+                script += `add chain=prerouting ${paramStr} dst-address-type=!local action=mark-routing new-routing-mark=to_WAN${targetWan} passthrough=no comment="${note}"\n`;
+            }
+        });
 
         script += `\n# Weighted PCC Load Balancing (${totalWeight} Total Streams Ratio)\n`;
         script += `add chain=prerouting dst-address-type=local action=accept comment="Accept Local"\n`;

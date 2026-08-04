@@ -1865,7 +1865,7 @@
                                 <i class="fa-solid fa-network-wired text-primary"></i> จัดการระบบ Multi-WAN & Load Balance (RouterOS v7+)
                             </h2>
                             <p style="font-size:0.85rem; color:var(--text-muted); margin:0;">
-                                กำหนดสาย WAN ไม่จำกัด (N-WAN), PCC Load Balancing, Policy Routing (PBR) และ Telegram Netwatch ประจำไซต์งาน
+                                ตั้งค่าสาย WAN ไม่จำกัด, PCC Load Balancing, แยกเส้นทางทราฟฟิก (PBR) ตาม Interface และ Telegram Alerts
                             </p>
                         </div>
                         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -1879,41 +1879,81 @@
                     </div>
 
                     <form id="form-multiwan-config">
-                        <!-- Dynamic WAN Lines Container Header -->
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-                            <h3 style="font-size:1.1rem; font-weight:600; margin:0;">
-                                <i class="fa-solid fa-ethernet text-primary"></i> รายการสายสัญญาณอินเทอร์เน็ต (WAN Lines)
-                            </h3>
-                            <button type="button" id="btn-add-wan-line" class="btn btn-primary btn-sm">
-                                <i class="fa-solid fa-plus"></i> เพิ่มสาย WAN ใหม่
-                            </button>
+                        <!-- STEP 1: WAN LINES & LOAD BALANCING -->
+                        <div class="card mb-24" style="padding:20px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                                <h3 style="font-size:1.1rem; font-weight:600; margin:0;">
+                                    <i class="fa-solid fa-ethernet text-primary"></i> ขั้นตอนที่ 1: กำหนดสายสัญญาณอินเทอร์เน็ต (WAN Lines & PCC Weights)
+                                </h3>
+                                <button type="button" id="btn-add-wan-line" class="btn btn-primary btn-sm">
+                                    <i class="fa-solid fa-plus"></i> เพิ่มสาย WAN ใหม่
+                                </button>
+                            </div>
+                            <div id="wan-lines-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
+                                <!-- WAN Cards rendered dynamically by JS -->
+                            </div>
                         </div>
 
-                        <!-- Dynamic WAN Cards Container -->
-                        <div id="wan-lines-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:20px; margin-bottom:20px;">
-                            <!-- WAN Cards rendered dynamically by JS -->
+                        <!-- STEP 2: INTERFACE-BASED POLICY ROUTING (PBR) -->
+                        <div class="card mb-24" style="padding:20px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                                <div>
+                                    <h3 style="font-size:1.1rem; font-weight:600; margin:0;">
+                                        <i class="fa-solid fa-route text-warning"></i> ขั้นตอนที่ 2: กำหนดการแยกทราฟฟิก (Interface-Based Policy Routing - PBR)
+                                    </h3>
+                                    <p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 0 0;">
+                                        เลือก LAN / VLAN / Bridge Interface จากราวเตอร์จริง หรือระบุ IP Subnet เพื่อเจาะจงให้เจาะออกสาย WAN ที่ต้องการ
+                                    </p>
+                                </div>
+                                <button type="button" id="btn-add-pbr-rule" class="btn btn-warning btn-sm">
+                                    <i class="fa-solid fa-plus"></i> เพิ่มกฎแยกทราฟฟิก PBR
+                                </button>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table" id="table-pbr-rules" style="margin:0;">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:35%;">Interface ทราฟฟิกขาเข้า (Source Interface / Subnet)</th>
+                                            <th style="width:25%;">สาย WAN ขาออกที่ต้องการเจาะจง</th>
+                                            <th style="width:30%;">คำอธิบาย / หมายเหตุ</th>
+                                            <th style="width:10%;" class="text-center">ลบ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pbr-rules-container">
+                                        <!-- PBR Rows rendered dynamically by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        <div class="row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:20px;">
-                            <!-- Policy Routing & VLAN Card -->
+                        <!-- STEP 3: ENTERPRISE TWEAKS & TELEGRAM ALERTS -->
+                        <div class="row mb-24" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:20px;">
+                            <!-- Optimization Options -->
                             <div class="card" style="padding:20px;">
                                 <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
-                                    <i class="fa-solid fa-route text-warning"></i> Policy-Based Routing (PBR VLAN)
+                                    <i class="fa-solid fa-sliders text-info"></i> ขั้นตอนที่ 3: ปรับแต่งมาตรฐาน Enterprise & ระบบความปลอดภัย
                                 </h3>
-                                <div class="form-group mb-12">
-                                    <label for="mw-vlan10-subnet">VLAN 10 Hotspot Subnet (เจาะจงออก WAN 1)</label>
-                                    <input type="text" id="mw-vlan10-subnet" class="form-control" value="192.168.10.0/24">
-                                </div>
-                                <div class="form-group mb-12">
-                                    <label for="mw-vlan20-subnet">VLAN 20 PPPoE Subnet (เจาะจงออก WAN 2)</label>
-                                    <input type="text" id="mw-vlan20-subnet" class="form-control" value="192.168.20.0/24">
+                                <div style="display:flex; flex-direction:column; gap:12px;">
+                                    <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="mw-toggle-mss" checked> <span>TCP MSS Clamping (แก้ปัญหาเข้าเว็บบางแห่งไม่ได้ / PMTU Fix)</span>
+                                    </label>
+                                    <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="mw-toggle-fasttrack" checked> <span>Bypass FastTrack for Mangle (ให้ PCC Load Balance ทำงานสมบูรณ์)</span>
+                                    </label>
+                                    <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="mw-toggle-dnshijack" checked> <span>Force DNS Hijack (บังคับใช้ DNS ป้องกัน DNS Leak)</span>
+                                    </label>
+                                    <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="mw-toggle-hairpin" checked> <span>Hairpin NAT (อนุญาตให้ดู กล้องวงจรปิด/Server ภายในผ่าน Domain)</span>
+                                    </label>
                                 </div>
                             </div>
 
                             <!-- Telegram Alerting Card -->
                             <div class="card" style="padding:20px;">
                                 <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
-                                    <i class="fa-brands fa-telegram text-primary"></i> Telegram Netwatch Alerts
+                                    <i class="fa-brands fa-telegram text-primary"></i> การแจ้งเตือนเน็ตหลุด/เน็ตมาผ่าน Telegram
                                 </h3>
                                 <div class="form-group mb-12">
                                     <label for="mw-telegram-token">Telegram Bot Token</label>
@@ -1926,27 +1966,6 @@
                             </div>
                         </div>
 
-                        <!-- Enterprise Optimization Options -->
-                        <div class="card mt-20" style="padding:20px;">
-                            <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
-                                <i class="fa-solid fa-sliders text-info"></i> Enterprise Optimization & Protection Toggles
-                            </h3>
-                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
-                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                    <input type="checkbox" id="mw-toggle-mss" checked> <span>TCP MSS Clamping (PMTU Fix)</span>
-                                </label>
-                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                    <input type="checkbox" id="mw-toggle-fasttrack" checked> <span>Bypass FastTrack for Mangle</span>
-                                </label>
-                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                    <input type="checkbox" id="mw-toggle-dnshijack" checked> <span>DNS Hijack (Prevent Leak)</span>
-                                </label>
-                                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                    <input type="checkbox" id="mw-toggle-hairpin" checked> <span>Hairpin NAT (Internal CCTV)</span>
-                                </label>
-                            </div>
-                        </div>
-
                         <!-- Action Buttons -->
                         <div class="mt-20 text-right" style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:12px;">
                             <button type="button" id="btn-save-multiwan-config" class="btn btn-secondary">
@@ -1955,7 +1974,7 @@
                             <button type="submit" id="btn-generate-multiwan-script" class="btn btn-primary">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> สร้างสคริปต์ RouterOS v7
                             </button>
-                            <button type="button" id="btn-apply-multiwan-api" class="btn btn-success">
+                            <button type="button" id="btn-apply-multiwan-api" class="btn btn-success" style="padding:10px 24px; font-size:1rem; font-weight:600;">
                                 <i class="fa-solid fa-bolt"></i> ⚡ บังคับใช้ค่าบนเราท์เตอร์ทันที (API Direct)
                             </button>
                         </div>
