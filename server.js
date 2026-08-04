@@ -160,9 +160,31 @@ function requireAuth(allowedRoles = []) {
     };
 }
 
-// Router connection runner helper
-async function executeOnRouter(fn, siteId) {
-    const config = await db.getConfig(siteId);
+// Router connection runner helper — strictly enforces user site permissions
+async function executeOnRouter(reqOrFn, fnOrSiteId, siteIdParam) {
+    let fn;
+    let targetSiteId = null;
+
+    if (typeof reqOrFn === 'function') {
+        // Form: executeOnRouter(fn, siteId)
+        fn = reqOrFn;
+        targetSiteId = typeof fnOrSiteId === 'string' ? fnOrSiteId : null;
+    } else if (reqOrFn && typeof reqOrFn === 'object' && reqOrFn.user) {
+        // Form: executeOnRouter(req, fn, siteId)
+        const req = reqOrFn;
+        fn = typeof fnOrSiteId === 'function' ? fnOrSiteId : fn;
+        if (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
+            // STRICT BOUNDARY: Non-admin users with assignedSiteId are ALWAYS locked to their assigned site!
+            targetSiteId = req.user.assignedSiteId;
+        } else {
+            targetSiteId = siteIdParam || req.query?.siteId || null;
+        }
+    } else {
+        fn = fnOrSiteId;
+        targetSiteId = typeof reqOrFn === 'string' ? reqOrFn : null;
+    }
+
+    const config = await db.getConfig(targetSiteId);
     if (!config.host || !config.username) {
         throw new Error(`Router connection (${config.name || 'Site'}) is not configured. Please setup Router Settings.`);
     }
@@ -960,7 +982,7 @@ app.get('/api/mikrotik/test-connection', requireAuth(['admin']), async (req, res
 // 1. Overview System Resource status
 app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const stats = await executeOnRouter(async (client) => {
+        const stats = await executeOnRouter(req, async (client) => {
             const resources = await client.exec('/system/resource/print');
             const routerboard = await client.exec('/system/routerboard/print');
             
@@ -988,7 +1010,7 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
 // 2. Read interface list and stats (for real-time traffic graph)
 app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const interfaces = await executeOnRouter(async (client) => {
+        const interfaces = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/interface/print');
             return list.map(item => ({
                 id: item['.id'],
@@ -1015,7 +1037,7 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 // Read Hotspot users
 app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const users = await executeOnRouter(async (client) => {
+        const users = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/ip/hotspot/user/print');
             return list.map(item => {
                 let userPassword = item.password || item['plain-password'] || item.pass || item.secret || '';
@@ -1059,7 +1081,7 @@ app.post('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user'
     }
     
     try {
-        const result = await executeOnRouter(async (client) => {
+        const result = await executeOnRouter(req, async (client) => {
             const params = {
                 name,
                 password: password || '',
@@ -1088,7 +1110,7 @@ app.post('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user'
 app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     const { name, password, profile, limitUptime, limitBytesTotal, comment, resetCounters, recreate } = req.body;
     try {
-        const result = await executeOnRouter(async (client) => {
+        const result = await executeOnRouter(req, async (client) => {
             // Renewal: kick any active session first so RouterOS doesn't keep counting
             // uptime against a user record we're about to reset/replace underneath it.
             if ((resetCounters || recreate) && name) {
@@ -1152,7 +1174,7 @@ app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'us
 app.post('/api/mikrotik/hotspot/users/:id/renew', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     const { name, limitUptime, limitBytesTotal } = req.body;
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             // 1. Kick active sessions for this username
             if (name) {
                 try {
@@ -1188,7 +1210,7 @@ app.post('/api/mikrotik/hotspot/users/:id/renew', requireAuth(['admin', 'co-admi
 // Delete Hotspot user
 app.delete('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ip/hotspot/user/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ลบบัญชี Hotspot', 'ลบผู้ใช้ ID: ' + req.params.id);
@@ -1201,7 +1223,7 @@ app.delete('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 
 // Read Hotspot active sessions
 app.get('/api/mikrotik/hotspot/active', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const active = await executeOnRouter(async (client) => {
+        const active = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/ip/hotspot/active/print');
             return list.map(item => ({
                 id: item['.id'],
@@ -1223,7 +1245,7 @@ app.get('/api/mikrotik/hotspot/active', requireAuth(['admin', 'co-admin', 'user'
 // Kick Active User
 app.delete('/api/mikrotik/hotspot/active/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ip/hotspot/active/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'เตะผู้ใช้ Hotspot', 'ตัดการเชื่อมต่อเซสชัน ID: ' + req.params.id);
@@ -1236,7 +1258,7 @@ app.delete('/api/mikrotik/hotspot/active/:id', requireAuth(['admin', 'co-admin',
 // Read User Profiles
 app.get('/api/mikrotik/hotspot/profiles', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const profiles = await executeOnRouter(async (client) => {
+        const profiles = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/ip/hotspot/user/profile/print');
             return list.map(item => ({
                 id: item['.id'],
@@ -1260,7 +1282,7 @@ app.post('/api/mikrotik/hotspot/profiles', requireAuth(['admin', 'co-admin', 'us
         return res.status(400).json({ error: 'Profile name is required' });
     }
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const params = {
                 name,
                 'shared-users': String(sharedUsers || '1')
@@ -1280,7 +1302,7 @@ app.post('/api/mikrotik/hotspot/profiles', requireAuth(['admin', 'co-admin', 'us
 app.put('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     const { name, rateLimit, sharedUsers, sessionTimeout } = req.body;
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const params = {
                 '.id': req.params.id,
                 name,
@@ -1300,7 +1322,7 @@ app.put('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin', 
 // Delete User Profile
 app.delete('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ip/hotspot/user/profile/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ลบโปรไฟล์ Hotspot', 'ลบโปรไฟล์ ID: ' + req.params.id);
@@ -1317,7 +1339,7 @@ app.delete('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin
 // Read PPPoE room accounts
 app.get('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const users = await executeOnRouter(async (client) => {
+        const users = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/ppp/secret/print');
             return list
                 .filter(item => item.service === 'pppoe')
@@ -1343,7 +1365,7 @@ app.post('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async 
         return res.status(400).json({ error: 'ต้องระบุชื่อห้องและรหัสผ่าน' });
     }
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ppp/secret/add', {
                 name, password,
                 profile: profile || 'default',
