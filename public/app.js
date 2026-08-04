@@ -3913,6 +3913,13 @@ function bindWanCardsEvents() {
 
 let currentPbrRules = [];
 
+function autoGeneratePbrNote(srcInterface, targetWanNum) {
+    const wanObj = currentWanLines[targetWanNum - 1];
+    const wanStr = wanObj ? `WAN ${targetWanNum} (${wanObj.interface || 'Interface'})` : `WAN ${targetWanNum}`;
+    const srcStr = srcInterface || 'Interface';
+    return `${srcStr} เจาะจงออก ${wanStr}`;
+}
+
 function renderPbrRuleRows() {
     const container = document.getElementById('pbr-rules-container');
     if (!container) return;
@@ -3920,8 +3927,8 @@ function renderPbrRuleRows() {
 
     if (!currentPbrRules || currentPbrRules.length === 0) {
         currentPbrRules = [
-            { id: 'pbr_1', srcInterface: 'vlan10-hotspot', targetWanNum: 1, note: 'VLAN 10 Hotspot ออก WAN 1' },
-            { id: 'pbr_2', srcInterface: 'vlan20-pppoe', targetWanNum: 2, note: 'VLAN 20 PPPoE ออก WAN 2' }
+            { id: 'pbr_1', srcInterface: 'vlan10-hotspot', targetWanNum: 1, note: autoGeneratePbrNote('vlan10-hotspot', 1) },
+            { id: 'pbr_2', srcInterface: 'vlan20-pppoe', targetWanNum: 2, note: autoGeneratePbrNote('vlan20-pppoe', 2) }
         ];
     }
 
@@ -3934,6 +3941,9 @@ function renderPbrRuleRows() {
         }).join('');
 
         const srcOptions = buildPbrSourceInterfaceOptionsHtml(rule.srcInterface);
+        const autoNote = autoGeneratePbrNote(rule.srcInterface, rule.targetWanNum);
+        const displayNote = rule.note || autoNote;
+        rule.note = displayNote;
 
         tr.innerHTML = `
             <td>
@@ -3947,13 +3957,43 @@ function renderPbrRuleRows() {
                 </select>
             </td>
             <td>
-                <input type="text" class="form-control mw-pbr-note" data-index="${idx}" value="${rule.note || ''}" placeholder="คำอธิบายเพิ่มเติม">
+                <input type="text" class="form-control mw-pbr-note" data-index="${idx}" value="${displayNote}" placeholder="คำอธิบายตาม Interface และ WAN ขาออก">
             </td>
             <td class="text-center">
                 <button type="button" class="btn btn-sm btn-outline-danger btn-remove-pbr" data-index="${idx}"><i class="fa-solid fa-trash"></i></button>
             </td>
         `;
         container.appendChild(tr);
+    });
+
+    // Auto-update note field on Source Interface or Target WAN selection change
+    document.querySelectorAll('.mw-pbr-src').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            const targetSelect = document.querySelector(`.mw-pbr-target[data-index="${idx}"]`);
+            const noteInput = document.querySelector(`.mw-pbr-note[data-index="${idx}"]`);
+            if (currentPbrRules[idx] && targetSelect && noteInput) {
+                currentPbrRules[idx].srcInterface = e.target.value;
+                const newNote = autoGeneratePbrNote(e.target.value, parseInt(targetSelect.value) || 1);
+                currentPbrRules[idx].note = newNote;
+                noteInput.value = newNote;
+            }
+        });
+    });
+
+    document.querySelectorAll('.mw-pbr-target').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            const srcSelect = document.querySelector(`.mw-pbr-src[data-index="${idx}"]`);
+            const noteInput = document.querySelector(`.mw-pbr-note[data-index="${idx}"]`);
+            if (currentPbrRules[idx] && srcSelect && noteInput) {
+                const targetNum = parseInt(e.target.value) || 1;
+                currentPbrRules[idx].targetWanNum = targetNum;
+                const newNote = autoGeneratePbrNote(srcSelect.value, targetNum);
+                currentPbrRules[idx].note = newNote;
+                noteInput.value = newNote;
+            }
+        });
     });
 
     document.querySelectorAll('.btn-remove-pbr').forEach(btn => {
