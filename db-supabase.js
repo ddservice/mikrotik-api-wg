@@ -532,6 +532,10 @@ async function saveMenuPermissions(config) {
         'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
         'user': Array.isArray(config['user']) ? config['user'] : []
     };
+    await supabase.from('app_settings').upsert({ key: 'menu_permissions', value: updated, updated_at: new Date().toISOString() });
+    return updated;
+}
+
 async function getMultiWanConfig(siteId) {
     try {
         var key = 'multiwan_' + (siteId || 'default');
