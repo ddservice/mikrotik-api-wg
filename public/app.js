@@ -2717,6 +2717,9 @@ document.getElementById('btn-save-menu-permissions')?.addEventListener('click', 
         btn.disabled = true;
         await apiFetch('/api/settings/menu-permissions', { method: 'POST', body: JSON.stringify(body) });
         alert('บันทึกสิทธิ์การมองเห็นเมนูเรียบร้อยแล้ว');
+        if (typeof currentUser !== 'undefined' && currentUser && currentUser.role) {
+            configureMenuRoles(currentUser.role);
+        }
     } catch (err) {
         alert(err.message);
     } finally {
