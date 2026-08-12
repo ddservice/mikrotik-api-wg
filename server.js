@@ -2802,24 +2802,8 @@ setInterval(async () => {
     }
 }, 24 * 60 * 60 * 1000);
 
-// Next.js App Router Integration & Server Listen
-const next = require('next');
-const dev = process.env.NODE_ENV !== 'production';
-const nextApp = next({ dev });
-const nextHandler = nextApp.getRequestHandler();
+// Server Listen (Immediate boot to prevent 502 Bad Gateway)
 const PORT = process.env.PORT || 3000;
-
-nextApp.prepare().then(() => {
-    app.all('*', (req, res) => {
-        return nextHandler(req, res);
-    });
-
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`[Server] MikroTik API & Next.js 14+ Server running on http://0.0.0.0:${PORT}`);
-    });
-}).catch(err => {
-    console.error('[Server] Next.js prepare failed, falling back to Express:', err);
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`[Server] Express Fallback Server running on http://0.0.0.0:${PORT}`);
-    });
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] MikroTik API Server running on http://0.0.0.0:${PORT}`);
 });
