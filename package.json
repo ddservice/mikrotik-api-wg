@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start:next": "next start",
-    "start": "node server.js",
+    "start": "next start -p 3001",
+    "start:express": "node server.js",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
