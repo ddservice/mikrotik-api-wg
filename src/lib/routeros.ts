@@ -296,3 +296,40 @@ export class RouterOSClient {
     }
   }
 }
+
+import { getConfig } from './db';
+
+export async function executeOnRouter<T>(
+  fn: (client: RouterOSClient) => Promise<T>,
+  siteId?: string | null
+): Promise<T> {
+  const config = await getConfig(siteId);
+  const primaryHost = config.host || config.wireguardIp || '10.10.88.2';
+  const primaryPort = Number(config.port) || 8728;
+  const username = config.username || 'admin';
+  const password = config.password || '';
+
+  try {
+    const client = new RouterOSClient(primaryHost, primaryPort, username, password);
+    await client.connect();
+    try {
+      return await fn(client);
+    } finally {
+      client.close();
+    }
+  } catch (err: any) {
+    // Fallback attempt: if primaryHost was DDNS and failed, try WireGuard IP or alternate port
+    if (config.wireguardIp && config.wireguardIp !== primaryHost) {
+      try {
+        const fallbackClient = new RouterOSClient(config.wireguardIp, 8728, username, password);
+        await fallbackClient.connect();
+        try {
+          return await fn(fallbackClient);
+        } finally {
+          fallbackClient.close();
+        }
+      } catch (fallbackErr: any) {}
+    }
+    throw err;
+  }
+}
