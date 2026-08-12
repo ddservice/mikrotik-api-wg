@@ -1841,6 +1841,38 @@ async function fetchPppoeAccounts() {
     }
 }
 
+function parseRouterOSDate(str) {
+    if (!str || typeof str !== 'string') return null;
+
+    // Check standard ISO / Date format
+    let d = new Date(str);
+    if (!isNaN(d.getTime())) {
+        if (d.getFullYear() <= 1970) return null;
+        return d;
+    }
+
+    // Parse RouterOS format: "aug/12/2026 19:45:10" or "aug/12/2026"
+    const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    const parts = str.trim().split(/[\s/:]+/);
+    if (parts.length >= 3) {
+        const monthStr = parts[0].toLowerCase();
+        if (months.hasOwnProperty(monthStr)) {
+            const month = months[monthStr];
+            const day = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+            const hours = parseInt(parts[3] || 0, 10);
+            const minutes = parseInt(parts[4] || 0, 10);
+            const seconds = parseInt(parts[5] || 0, 10);
+
+            if (year <= 1970) return null;
+
+            d = new Date(year, month, day, hours, minutes, seconds);
+            if (!isNaN(d.getTime())) return d;
+        }
+    }
+    return null;
+}
+
 function formatLastOnlineTime(isOnline, currentUptime, lastLoggedOut, disabled) {
     if (disabled) {
         return `<span class="status-badge-disconnected" style="font-size:0.75rem;"><i class="fa-solid fa-circle" style="font-size:0.45rem;"></i> ถูกระงับการใช้งาน</span>`;
@@ -1848,13 +1880,10 @@ function formatLastOnlineTime(isOnline, currentUptime, lastLoggedOut, disabled) 
     if (isOnline) {
         return `<span class="status-badge-connected" style="font-size:0.78rem; font-weight:600;"><i class="fa-solid fa-circle text-success" style="font-size:0.5rem;"></i> ออนไลน์ขณะนี้ (${currentUptime || 'Active'})</span>`;
     }
-    if (!lastLoggedOut) {
-        return `<span style="font-size:0.78rem; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> ไม่เคยออนไลน์</span>`;
-    }
 
-    const d = new Date(lastLoggedOut);
-    if (isNaN(d.getTime())) {
-        return `<span style="font-size:0.78rem; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> ${lastLoggedOut}</span>`;
+    const d = parseRouterOSDate(lastLoggedOut);
+    if (!d) {
+        return `<span style="font-size:0.78rem; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> ไม่เคยออนไลน์</span>`;
     }
 
     const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);

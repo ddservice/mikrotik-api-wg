@@ -243,6 +243,9 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (7)** — RouterOS Date String Format Parser for PPPoE Last Online.
+  - Added `parseRouterOSDate` in `public/app.js` to parse RouterOS `last-logged-out` string format (`aug/12/2026 19:45:10`), properly converting it into Thai date format and relative time (`12 ส.ค. 19:45 น. (3 ชม. ที่แล้ว)`), filtering out default zero dates (`jan/01/1970`).
+
 - **2026-08-12 (6)** — Fixed `TypeError: db.getPppoeLogs is not a function`.
   - Corrected function call in `GET /api/mikrotik/pppoe/users` in `server.js` from `db.getPppoeLogs` to `db.getPppoeUsageLogs`.
 
