@@ -243,6 +243,9 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (6)** — Fixed `TypeError: db.getPppoeLogs is not a function`.
+  - Corrected function call in `GET /api/mikrotik/pppoe/users` in `server.js` from `db.getPppoeLogs` to `db.getPppoeUsageLogs`.
+
 - **2026-08-12 (5)** — Auto PCC Weight Calculation, Dynamic N-WAN PBR, Custom Telegram Templates & Hotspot Password Export.
   - Automatic PCC Weight Ratio Calculation: Built real-time Greatest Common Divisor (GCD) bandwidth ratio calculator (`autoCalculatePccWeights`) in `public/app.js` that automatically computes optimal PCC weights (e.g. 1000:500 ➔ 2:1) as WAN Mbps speeds are typed across WAN 1, 2, 3...
   - Dynamic Multi-WAN PBR Support: Updated Step 2 Policy Routing dropdowns to dynamically list ALL defined WAN lines and allow adding unlimited PBR rules bound to real router interfaces or subnets.
