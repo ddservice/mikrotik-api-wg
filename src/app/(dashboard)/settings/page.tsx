@@ -1,13 +1,30 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Settings, Plus, Server, Key, ShieldCheck } from 'lucide-react';
+import { Settings, Plus, Server, Key, ShieldCheck, Download, Loader2, HardDriveUpload } from 'lucide-react';
 import { Site } from '@/lib/types';
 
 export default function SettingsPage() {
   const [sites, setSites] = useState<Site[]>([
     { id: 'site_1', name: 'สาขาหลัก (Main Site)', host: '10.10.88.2', port: 8728, username: 'admin', wireguardIp: '10.10.88.2', is_active: true }
   ]);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupResult, setBackupResult] = useState<string | null>(null);
+
+  const handleCreateBackup = async () => {
+    setBackupLoading(true);
+    setBackupResult(null);
+    try {
+      const res = await fetch('/api/backup/routeros', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'เกิดข้อผิดพลาดในการสำรองข้อมูล');
+      setBackupResult(data.message);
+    } catch (err: any) {
+      alert(err.message || 'เกิดข้อผิดพลาดในการสำรองข้อมูล');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -24,6 +41,35 @@ export default function SettingsPage() {
           <Plus className="w-4 h-4" />
           <span>เพิ่มไซต์งานใหม่</span>
         </button>
+      </div>
+
+      {/* RouterOS Config Backup Card */}
+      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-950 via-indigo-950/40 to-slate-950 border border-indigo-500/30 shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+              <HardDriveUpload className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">ระบบสำรองข้อมูลเราท์เตอร์ RouterOS (Daily Config Backup)</h3>
+              <p className="text-xs text-slate-400">สร้างไฟล์สำรองข้อมูล `.backup` และสคริปต์การตั้งค่าคงไว้เพื่อความปลอดภัย</p>
+            </div>
+          </div>
+          <button
+            onClick={handleCreateBackup}
+            disabled={backupLoading}
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-semibold shadow-lg flex items-center space-x-2 transition-all"
+          >
+            {backupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            <span>{backupLoading ? 'กำลังสร้างไฟล์สำรอง...' : 'สำรองข้อมูลเดี๋ยวนี้'}</span>
+          </button>
+        </div>
+
+        {backupResult && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-medium">
+            {backupResult}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

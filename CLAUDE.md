@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (14)** — Configured PM2 Next.js Production Server & Added 2FA TOTP / RouterOS Backup Module.
+  - Updated `ecosystem.config.js` to execute `node_modules/next/dist/bin/next start -p 3001` directly under PM2.
+  - Added RouterOS Daily Config Backup API Route (`src/app/api/backup/routeros/route.ts`) & 1-Click Backup UI in Settings.
+  - Added 2FA / TOTP Authenticator API Routes (`src/app/api/auth/2fa/generate/route.ts` & `src/app/api/auth/2fa/verify/route.ts`).
+
 - **2026-08-12 (13)** — Major Architectural Upgrade to Next.js 14+ (TypeScript & Full-Stack Security Architecture).
   - Migrated MT Management Web Dashboard to Next.js 14+ App Router, TypeScript, TailwindCSS, Zod Schema Validation, and TanStack React Query.
   - Built Type-Safe API Routes & Server Components for Hotspot, PPPoE (Relative Last Online Timestamps), FortiGate SD-WAN Multi-WAN (Auto PCC Weights via GCD), RouterOS v7 Hardened Security Preset, Firewall Blocking, Computer Crime Act Logs, and Multi-Site Router Switcher.
