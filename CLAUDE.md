@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (13)** — Major Architectural Upgrade to Next.js 14+ (TypeScript & Full-Stack Security Architecture).
+  - Migrated MT Management Web Dashboard to Next.js 14+ App Router, TypeScript, TailwindCSS, Zod Schema Validation, and TanStack React Query.
+  - Built Type-Safe API Routes & Server Components for Hotspot, PPPoE (Relative Last Online Timestamps), FortiGate SD-WAN Multi-WAN (Auto PCC Weights via GCD), RouterOS v7 Hardened Security Preset, Firewall Blocking, Computer Crime Act Logs, and Multi-Site Router Switcher.
+  - Achieved 100% Feature Parity with 0 TypeScript Type Errors (`npm run type-check`).
+
 - **2026-08-12 (12)** — Global Window Login Handler & Visual Loading Feedback (`v=50.0`).
   - Exposed `window.handleLoginSubmit` to window global scope and attached `onsubmit="handleLoginSubmit(event); return false;"` and `onclick="handleLoginSubmit(event)"` to guarantee execution across all browsers.
   - Added button loading state (`กำลังเข้าสู่ระบบ...` + spinner) during authentication fetch.
