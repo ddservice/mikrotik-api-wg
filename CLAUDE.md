@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12** — Mobile Responsive Hamburger UX & iOS Safari Compatibility (iPhone 15 Pro Max Fix).
+  - Fixed mobile hamburger menu unresponsiveness ("กดได้บ้างไม่ได้บ้าง") by adding the missing `<div id="sidebar-overlay" class="sidebar-overlay"></div>` DOM element in `index.html`. Previously, `document.getElementById('sidebar-overlay')` returned `null` and threw a JS TypeError, breaking mobile drawer events.
+  - Implemented safe `toggleMobileSidebar` drawer controller in `public/app.js` with optional chaining `?.` and click delegation.
+  - Upgraded mobile hamburger toggle `.btn-menu-toggle` in `public/style.css` with 44x44px touch target, `-webkit-tap-highlight-color: transparent`, `touch-action: manipulation`, iOS backdrop blur (`backdrop-filter: blur(8px)`), and safe area inset support (`env(safe-area-inset-top)` / `env(safe-area-inset-bottom)`) for iPhone 15 Pro Max Dynamic Island and Home Indicator.
+
 - **2026-08-03 (2)** — Fixed Hotspot Auto-Cleanup uptime detection logic and redesigned table layout.
   - Fixed `runExpiredCleanup` in `server.js` by parsing both `uptime` and `limit-uptime` to milliseconds instead of strict string equality (`uptime === limitUptime`), which failed due to RouterOS string formatting differences.
   - Redesigned Hotspot Accounts table from 11 cluttered columns down to 7 compact stacked columns (`Username & Password`, `Profile & Status`, `Accumulated / Limit Uptime`, `Accumulated / Limit Bytes`, `Comment`, `Actions`), eliminating horizontal scroll overflow.

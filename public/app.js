@@ -3746,16 +3746,31 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
     });
 });
 
+// Mobile Sidebar Drawer Controller (iOS & Android Compatible)
+function toggleMobileSidebar(forceState) {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay') || document.querySelector('.sidebar-overlay');
+    
+    const isCurrentlyActive = sidebar ? sidebar.classList.contains('active') : false;
+    const nextState = typeof forceState === 'boolean' ? forceState : !isCurrentlyActive;
+
+    if (sidebar) {
+        if (nextState) sidebar.classList.add('active');
+        else sidebar.classList.remove('active');
+    }
+    if (overlay) {
+        if (nextState) overlay.classList.add('active');
+        else overlay.classList.remove('active');
+    }
+}
+
 // Sidebar menu clicks
 document.querySelectorAll('.menu-item').forEach(item => {
     item.addEventListener('click', (e) => {
         e.preventDefault();
         const targetPage = item.getAttribute('data-target');
         switchPage(targetPage);
-        
-        // Close sidebar drawer on mobile
-        document.querySelector('.sidebar').classList.remove('active');
-        document.querySelector('.sidebar-overlay').classList.remove('active');
+        toggleMobileSidebar(false);
     });
 });
 
@@ -3769,22 +3784,29 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // Logout click
-document.getElementById('btn-logout').addEventListener('click', () => {
+document.getElementById('btn-logout')?.addEventListener('click', () => {
     if (confirm('คุณต้องการออกจากระบบแดชบอร์ดใช่หรือไม่?')) {
         logout();
     }
 });
 
-// Mobile menu toggles bindings
-document.getElementById('btn-menu-toggle').addEventListener('click', () => {
-    document.querySelector('.sidebar').classList.add('active');
-    document.querySelector('.sidebar-overlay').classList.add('active');
-});
+// Mobile menu toggles bindings (iOS Touch & Click Compatible)
+const btnMenuToggle = document.getElementById('btn-menu-toggle');
+if (btnMenuToggle) {
+    btnMenuToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMobileSidebar();
+    });
+}
 
-document.getElementById('sidebar-overlay').addEventListener('click', () => {
-    document.querySelector('.sidebar').classList.remove('active');
-    document.querySelector('.sidebar-overlay').classList.remove('active');
-});
+const overlayEl = document.getElementById('sidebar-overlay') || document.querySelector('.sidebar-overlay');
+if (overlayEl) {
+    overlayEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleMobileSidebar(false);
+    });
+}
 
 // ==========================================
 // ==========================================
