@@ -2439,6 +2439,9 @@ formHotspotUser.addEventListener('submit', async (e) => {
     } catch (err) {
         hotspotError.textContent = err.message;
         hotspotError.style.display = 'block';
+    }
+});
+
 // RouterOS v7 Hardened Security Preset Actions
 document.getElementById('btn-apply-security-hardening')?.addEventListener('click', async () => {
     if (!confirm('ยืนยันบังคับใช้เกราะป้องกันความปลอดภัย RouterOS v7+ บนเราท์เตอร์ใช่หรือไม่?\n\nระบบจะเพิ่มกฎบล็อก Brute-force WinBox/SSH (8291, 22), บล็อก DNS Amplification Attack และบล็อก Invalid Packets')) return;
