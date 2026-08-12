@@ -4469,7 +4469,7 @@ document.getElementById('btn-export-hotspot-csv')?.addEventListener('click', () 
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    const siteName = currentSite ? currentSite.name : 'mikrotik';
+    const siteName = getCurrentSiteName() || 'mikrotik';
     const timestamp = new Date().toISOString().slice(0, 10);
     link.setAttribute('download', `hotspot_accounts_passwords_${siteName}_${timestamp}.csv`);
     document.body.appendChild(link);

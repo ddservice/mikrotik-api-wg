@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (10)** — Fixed Login Submission (`/?` URL issue) & ReferenceError in `app.js`.
+  - Replaced undefined variable `currentSite` in Hotspot CSV exporter with `getCurrentSiteName()`, resolving a top-level `ReferenceError` that prevented `app.js` event listeners (including `loginForm.addEventListener`) from executing.
+  - Added `action="javascript:void(0);" onsubmit="return false;"` to `#login-form` in `index.html` to prevent standard HTML form GET submissions (`/?` appending).
+  - Bumped `app.js` script tag version query to `v=40.0`.
+
 - **2026-08-12 (9)** — Relaxed Login Rate Limiter & Permissive CORS Policy.
   - Increased `loginLimiter` max attempts from 5 to 30 per 15 minutes, skipping internal LAN/VPN subnet IPs (`10.x.x.x`, `192.168.x.x`) to prevent accidental IP lockouts.
   - Updated CORS `corsOptions` in `server.js` to prevent origin blocking when accessing dashboard via custom IP/domain names.
