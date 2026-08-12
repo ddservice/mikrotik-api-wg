@@ -243,6 +243,10 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (3)** — PPPoE Last Online Status & FortiGate SD-WAN Standard Multi-WAN Layout.
+  - Added PPPoE "Last Online" timestamp tracking (`isOnline`, `currentUptime`, `lastLoggedOut` timestamps formatted with relative Thai time e.g. `ออนไลน์เมื่อ 12 ส.ค. 19:45 น. (3 ชม. ที่แล้ว)`). Updated `GET /api/mikrotik/pppoe/users` in `server.js` and `renderPppoeAccounts` in `public/app.js`.
+  - Reorganized Multi-WAN & Load Balance management according to FortiGate Enterprise SD-WAN standards (Step 1: WAN Member Interfaces & PCC weights, Step 2: Policy-Based Routing Rules, Step 3: Performance SLA & System Protection, Step 4: Direct API Apply action).
+
 - **2026-08-12 (2)** — Enterprise Security Hardening & Native Gzip Web Speed Acceleration.
   - Implemented zero-dependency native Node.js `zlib` Gzip response compression in `server.js`, reducing static asset payloads (`app.js`, `index.html`, `style.css`) and API JSON payloads by up to ~80% (5x faster page loads on mobile & desktop).
   - Configured HTTP static asset caching (`maxAge: 1d`, `etag: true`) with `no-cache` protection for `index.html` to guarantee instant load speeds without stale deployment caches.

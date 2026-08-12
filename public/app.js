@@ -1841,6 +1841,42 @@ async function fetchPppoeAccounts() {
     }
 }
 
+function formatLastOnlineTime(isOnline, currentUptime, lastLoggedOut, disabled) {
+    if (disabled) {
+        return `<span class="status-badge-disconnected" style="font-size:0.75rem;"><i class="fa-solid fa-circle" style="font-size:0.45rem;"></i> ถูกระงับการใช้งาน</span>`;
+    }
+    if (isOnline) {
+        return `<span class="status-badge-connected" style="font-size:0.78rem; font-weight:600;"><i class="fa-solid fa-circle text-success" style="font-size:0.5rem;"></i> ออนไลน์ขณะนี้ (${currentUptime || 'Active'})</span>`;
+    }
+    if (!lastLoggedOut) {
+        return `<span style="font-size:0.78rem; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> ไม่เคยออนไลน์</span>`;
+    }
+
+    const d = new Date(lastLoggedOut);
+    if (isNaN(d.getTime())) {
+        return `<span style="font-size:0.78rem; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> ${lastLoggedOut}</span>`;
+    }
+
+    const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+    let relativeStr = '';
+    if (diffSec < 60) relativeStr = 'เมื่อสักครู่';
+    else if (diffSec < 3600) relativeStr = `${Math.floor(diffSec / 60)} นาทีที่แล้ว`;
+    else if (diffSec < 86400) relativeStr = `${Math.floor(diffSec / 3600)} ชั่วโมงที่แล้ว`;
+    else relativeStr = `${Math.floor(diffSec / 86400)} วันที่แล้ว`;
+
+    const formattedDate = d.toLocaleString('th-TH', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    return `<div style="font-size:0.78rem; line-height:1.25;">
+        <span style="font-weight:600; color:var(--text-main);"><i class="fa-solid fa-clock-rotate-left text-muted"></i> ${formattedDate} น.</span>
+        <span style="font-size:0.72rem; color:var(--text-muted); display:block;">(${relativeStr})</span>
+    </div>`;
+}
+
 function renderPppoeAccounts(users) {
     const searchVal = (document.getElementById('search-pppoe-accounts')?.value || '').toLowerCase().trim();
     const filtered = searchVal
@@ -1868,16 +1904,14 @@ function renderPppoeAccounts(users) {
     }
 
     filtered.forEach(item => {
-        const statusBadge = item.disabled
-            ? '<span class="status-badge-disconnected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> ปิดใช้งาน</span>'
-            : '<span class="status-badge-connected"><i class="fa-solid fa-circle" style="font-size:0.5rem;"></i> เปิดใช้งาน</span>';
+        const lastOnlineHtml = formatLastOnlineTime(item.isOnline, item.currentUptime, item.lastLoggedOut, item.disabled);
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><strong>${item.name}</strong></td>
             <td><code>${item.password || '(ไม่แสดง)'}</code></td>
             <td><span class="badge badge-profile">${item.profile}</span></td>
+            <td>${lastOnlineHtml}</td>
             <td><span style="font-size:0.8rem;color:var(--text-muted);">${item.comment || '-'}</span></td>
-            <td class="text-center">${statusBadge}</td>
             <td class="text-center">
                 <div style="display:flex; gap:6px; justify-content:center;">
                     <button class="btn ${item.disabled ? 'btn-success' : 'btn-warning'} btn-sm btn-suspend-pppoe-user" data-user="${item.name}" data-suspend="${!item.disabled}" title="${item.disabled ? 'ปลดล็อก (เปิดใช้งาน)' : 'ระงับการใช้งาน (เช่น กรณีค้างชำระ)'}">

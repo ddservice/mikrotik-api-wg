@@ -1656,17 +1656,49 @@ app.delete('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin
 app.get('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
         const users = await executeOnRouter(req, async (client) => {
-            const list = await client.exec('/ppp/secret/print');
-            return list
+            const [secrets, active, pppoeLogsData] = await Promise.all([
+                client.exec('/ppp/secret/print'),
+                client.exec('/ppp/active/print').catch(() => []),
+                db.getPppoeLogs({ limit: 1000 }).catch(() => ({ logs: [] }))
+            ]);
+
+            const activeMap = new Map();
+            (active || []).forEach(a => {
+                if (a.service === 'pppoe' && a.name) {
+                    activeMap.set(a.name, a);
+                }
+            });
+
+            const lastLogMap = new Map();
+            ((pppoeLogsData && pppoeLogsData.logs) || []).forEach(l => {
+                if (l.username && l.timestamp) {
+                    const currentLast = lastLogMap.get(l.username);
+                    if (!currentLast || new Date(l.timestamp) > new Date(currentLast)) {
+                        lastLogMap.set(l.username, l.timestamp);
+                    }
+                }
+            });
+
+            return secrets
                 .filter(item => item.service === 'pppoe')
-                .map(item => ({
-                    id: item['.id'],
-                    name: item.name,
-                    password: item.password || '',
-                    profile: item.profile,
-                    disabled: item.disabled === 'true',
-                    comment: item.comment || ''
-                }));
+                .map(item => {
+                    const activeSession = activeMap.get(item.name);
+                    const isOnline = !!activeSession;
+                    const lastLogTime = lastLogMap.get(item.name);
+                    const routerLastOut = item['last-logged-out'];
+
+                    return {
+                        id: item['.id'],
+                        name: item.name,
+                        password: item.password || '',
+                        profile: item.profile,
+                        disabled: item.disabled === 'true',
+                        comment: item.comment || '',
+                        isOnline: isOnline,
+                        currentUptime: isOnline ? (activeSession.uptime || '0s') : null,
+                        lastLoggedOut: routerLastOut || lastLogTime || null
+                    };
+                });
         });
         res.json(users);
     } catch (err) {
