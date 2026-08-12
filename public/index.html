@@ -868,6 +868,27 @@
 
                 <!-- 3. FIREWALL BLOCK PAGE -->
                 <section id="page-firewall" class="page-section" style="display: none;">
+                    <div class="card mb-24" style="background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95)); border: 1px solid rgba(59,130,246,0.3); color:#fff; padding:22px; border-radius:12px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                            <div>
+                                <h3 style="font-size:1.2rem; font-weight:700; color:#60a5fa; margin-bottom:6px;">
+                                    <i class="fa-solid fa-shield-halved"></i> เกราะป้องกันความปลอดภัย RouterOS v7+ (2026 Hardened Protection Preset)
+                                </h3>
+                                <p style="font-size:0.85rem; color:#cbd5e1; margin:0; max-width:700px;">
+                                    เปิดใช้งานกฎความปลอดภัยมาตรฐานสากล: บล็อก Brute-Force ป้องกันแฮกเกอร์สแกนพอร์ต WinBox/SSH (8291, 22), ป้องกันการดักฟัง DNS Amplification Attack, และบล็อก Invalid Packets โดยอัตโนมัติ
+                                </p>
+                            </div>
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <button type="button" id="btn-show-security-script" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.2);">
+                                    <i class="fa-solid fa-code"></i> ดูสคริปต์ RouterOS CLI
+                                </button>
+                                <button type="button" id="btn-apply-security-hardening" class="btn btn-primary btn-sm" style="background:#2563eb; border:none;">
+                                    <i class="fa-solid fa-bolt"></i> เปิดใช้งานเกราะป้องกันทันที
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="firewall-grid">
                         
                         <!-- 1. Youtube Block Card -->

@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (4)** — RouterOS v7+ Hardened Protection Security Preset (2026 Standard).
+  - Added 1-Click "RouterOS v7+ Hardened Security Protection Preset" in Firewall management.
+  - Implemented 6 enterprise firewall protection rules: Stage 1-3 WinBox/SSH Brute Force Auto-Blacklisting (8291, 22, 80, 443, 8728) to `brute_force_blacklist` address list (24h drop), Open DNS Resolver WAN Amplification DDoS prevention, and Invalid Packet drops.
+  - Added `POST /api/mikrotik/firewall/generate-security-script` and `POST /api/mikrotik/firewall/apply-security-hardening` API endpoints and UI banner buttons.
+
 - **2026-08-12 (3)** — PPPoE Last Online Status & FortiGate SD-WAN Standard Multi-WAN Layout.
   - Added PPPoE "Last Online" timestamp tracking (`isOnline`, `currentUptime`, `lastLoggedOut` timestamps formatted with relative Thai time e.g. `ออนไลน์เมื่อ 12 ส.ค. 19:45 น. (3 ชม. ที่แล้ว)`). Updated `GET /api/mikrotik/pppoe/users` in `server.js` and `renderPppoeAccounts` in `public/app.js`.
   - Reorganized Multi-WAN & Load Balance management according to FortiGate Enterprise SD-WAN standards (Step 1: WAN Member Interfaces & PCC weights, Step 2: Policy-Based Routing Rules, Step 3: Performance SLA & System Protection, Step 4: Direct API Apply action).

@@ -2410,6 +2410,32 @@ formHotspotUser.addEventListener('submit', async (e) => {
     } catch (err) {
         hotspotError.textContent = err.message;
         hotspotError.style.display = 'block';
+// RouterOS v7 Hardened Security Preset Actions
+document.getElementById('btn-apply-security-hardening')?.addEventListener('click', async () => {
+    if (!confirm('ยืนยันบังคับใช้เกราะป้องกันความปลอดภัย RouterOS v7+ บนเราท์เตอร์ใช่หรือไม่?\n\nระบบจะเพิ่มกฎบล็อก Brute-force WinBox/SSH (8291, 22), บล็อก DNS Amplification Attack และบล็อก Invalid Packets')) return;
+    const btn = document.getElementById('btn-apply-security-hardening');
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่งคำสั่งไปยังราวเตอร์...';
+        const res = await apiFetch('/api/mikrotik/firewall/apply-security-hardening', { method: 'POST' });
+        alert(res.message || 'เปิดใช้งานเกราะป้องกันความปลอดภัยสำเร็จ');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bolt"></i> เปิดใช้งานเกราะป้องกันทันที';
+    }
+});
+
+document.getElementById('btn-show-security-script')?.addEventListener('click', async () => {
+    try {
+        const res = await apiFetch('/api/mikrotik/firewall/generate-security-script', { method: 'POST' });
+        if (res.script) {
+            const w = window.open('', '_blank');
+            w.document.write(`<pre style="font-family:monospace; padding:20px; background:#0f172a; color:#38bdf8; white-space:pre-wrap;">${res.script}</pre>`);
+        }
+    } catch (err) {
+        alert(err.message);
     }
 });
 

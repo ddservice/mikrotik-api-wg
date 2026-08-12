@@ -2393,9 +2393,119 @@ app.post('/api/mikrotik/firewall/toggle', requireAuth(['admin', 'co-admin', 'use
                 }
             }
         });
-        
+
         db.addLog(req.user.username, targetBlockState ? 'ตั้งค่าการบล็อก' : 'ปิดการบล็อก', `บริการ: ${service} (สเกดดูล: ${scheduleEnabled ? 'เปิด' : 'ปิด'})`);
         res.json({ success: true, blocked: targetBlockState });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Generate RouterOS v7+ Security Firewall Protection Script (2026 Standard)
+app.post('/api/mikrotik/firewall/generate-security-script', requireAuth(['admin', 'co-admin']), (req, res) => {
+    const script = `# ======================================================
+# MikroTik RouterOS v7+ Hardened Firewall Security Preset (2026)
+# ======================================================
+
+# 1. Address Lists for RFC1918 Private Subnets
+/ip/firewall/address-list
+add address=10.0.0.0/8 list=private_subnets comment="RFC1918 Private Subnets"
+add address=172.16.0.0/12 list=private_subnets comment="RFC1918 Private Subnets"
+add address=192.168.0.0/16 list=private_subnets comment="RFC1918 Private Subnets"
+
+# 2. Input Chain: Allow Established / Related
+/ip/firewall/filter
+add chain=input action=accept connection-state=established,related comment="Accept Established & Related (Input)"
+
+# 3. Input Chain: Drop Invalid Packets
+add chain=input action=drop connection-state=invalid comment="Drop Invalid Packets (Input)"
+
+# 4. Input Chain: Block Open DNS Resolver Exploits from WAN
+add chain=input action=drop protocol=udp dst-port=53 in-interface-list=WAN comment="Block Open DNS Resolver Attacks from WAN"
+add chain=input action=drop protocol=tcp dst-port=53 in-interface-list=WAN comment="Block Open DNS Resolver Attacks from WAN"
+
+# 5. Input Chain: Protect WinBox/SSH Brute Force Attacks (Stage 1-3 & Blacklist)
+add chain=input action=drop src-address-list=brute_force_blacklist comment="Drop Brute-Force Blacklisted IPs"
+add chain=input action=add-src-to-address-list address-list=brute_force_blacklist address-list-timeout=1d chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage3 comment="Brute-Force Stage 3 -> Blacklist 24h"
+add chain=input action=add-src-to-address-list address-list=bf_stage3 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage2 comment="Brute-Force Stage 2 -> Stage 3"
+add chain=input action=add-src-to-address-list address-list=bf_stage2 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage1 comment="Brute-Force Stage 1 -> Stage 2"
+add chain=input action=add-src-to-address-list address-list=bf_stage1 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp comment="Brute-Force Stage 1"
+
+# 6. Forward Chain: Drop Invalid Packets & Protect LAN
+add chain=forward action=accept connection-state=established,related comment="Accept Established & Related (Forward)"
+add chain=forward action=drop connection-state=invalid comment="Drop Invalid Packets (Forward)"
+
+:put "--------------------------------------------------------"
+:put "RouterOS v7 Hardened Security Preset Applied Successfully!"
+:put "--------------------------------------------------------"
+`;
+    res.json({ script });
+});
+
+// Apply RouterOS v7+ Hardened Security Firewall Rules Direct via API
+app.post('/api/mikrotik/firewall/apply-security-hardening', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            const existing = await client.exec('/ip/firewall/filter/print');
+            const hasBruteRule = existing.some(r => r.comment && r.comment.includes('Drop Brute-Force'));
+
+            if (!hasBruteRule) {
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'drop',
+                    'connection-state': 'invalid',
+                    comment: 'Drop Invalid Packets (Input)'
+                });
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'drop',
+                    'src-address-list': 'brute_force_blacklist',
+                    comment: 'Drop Brute-Force Blacklisted IPs'
+                });
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'add-src-to-address-list',
+                    'address-list': 'brute_force_blacklist',
+                    'address-list-timeout': '1d',
+                    protocol: 'tcp',
+                    'dst-port': '22,8291,80,443,8728',
+                    'src-address-list': 'bf_stage3',
+                    comment: 'Brute-Force Stage 3 -> Blacklist 24h'
+                });
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'add-src-to-address-list',
+                    'address-list': 'bf_stage3',
+                    'address-list-timeout': '1m',
+                    protocol: 'tcp',
+                    'dst-port': '22,8291,80,443,8728',
+                    'src-address-list': 'bf_stage2',
+                    comment: 'Brute-Force Stage 2 -> Stage 3'
+                });
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'add-src-to-address-list',
+                    'address-list': 'bf_stage2',
+                    'address-list-timeout': '1m',
+                    protocol: 'tcp',
+                    'dst-port': '22,8291,80,443,8728',
+                    'src-address-list': 'bf_stage1',
+                    comment: 'Brute-Force Stage 1 -> Stage 2'
+                });
+                await client.exec('/ip/firewall/filter/add', {
+                    chain: 'input',
+                    action: 'add-src-to-address-list',
+                    'address-list': 'bf_stage1',
+                    'address-list-timeout': '1m',
+                    protocol: 'tcp',
+                    'dst-port': '22,8291,80,443,8728',
+                    comment: 'Brute-Force Stage 1'
+                });
+            }
+        });
+
+        db.addLog(req.user.username, 'ปรับแต่งความปลอดภัยราวเตอร์', 'เปิดใช้งานเกราะป้องกัน RouterOS v7 Hardened Security Preset');
+        res.json({ success: true, message: 'บังคับใช้เกราะป้องกันความปลอดภัย RouterOS v7+ สำเร็จ' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
