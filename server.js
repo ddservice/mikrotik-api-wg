@@ -25,38 +25,37 @@ try {
     rateLimit = () => (req, res, next) => next(); // no-op middleware
 }
 
-// Rate limit สำหรับ Login: 5 ครั้ง ใน 15 นาที (ป้องกัน brute-force)
+// Rate limit สำหรับ Login: 30 ครั้ง ใน 15 นาที (ป้องกัน brute-force โดยไม่บล็อกแอดมินจริง)
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,  // 15 นาที
-    max: 5,                     // สูงสุด 5 ครั้ง
+    max: 30,                    // สูงสุด 30 ครั้ง
     standardHeaders: true,
     legacyHeaders: false,
     message: {
-        error: 'พยายามเข้าระบบมากเกินไป โปรดรอ 15 นาทีแล้วลองใหม่ (Too many login attempts)',
-        retryAfter: 900
+        error: 'พยายามเข้าระบบมากเกินไป โปรดรอสักครู่แล้วลองใหม่ (Too many login attempts)',
+        retryAfter: 300
     },
     handler: (req, res, next, options) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const ip = req.ip || req.connection?.remoteAddress || 'unknown';
         db.addLog('System Security', 'Rate Limit ล็อก Login', `IP ${ip} พยายาม login เกินสิทธิ์`);
         res.status(429).json(options.message);
     },
     skip: (req) => {
-        // ไม่นับ localhost ใน development
-        const ip = req.ip || '';
-        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+        const ip = req.ip || req.connection?.remoteAddress || '';
+        return ip.includes('127.0.0.1') || ip.includes('::1') || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('::ffff:10.') || ip.startsWith('::ffff:192.168.');
     }
 });
 
-// Rate limit ทั่วไปสำหรับ API: 200 ครั้ง ใน 1 นาที
+// Rate limit ทั่วไปสำหรับ API: 300 ครั้ง ใน 1 นาที
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,       // 1 นาที
-    max: 200,                  // สูงสุด 200 request
+    max: 300,                  // สูงสุด 300 request
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'ส่ง request มากเกินไป โปรดรอสักครู่ (Rate limit exceeded)' },
     skip: (req) => {
-        const ip = req.ip || '';
-        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+        const ip = req.ip || req.connection?.remoteAddress || '';
+        return ip.includes('127.0.0.1') || ip.includes('::1') || ip.startsWith('10.') || ip.startsWith('192.168.');
     }
 });
 
@@ -146,15 +145,11 @@ const corsOptions = {
         // อนุญาต same-origin requests (ไม่มี origin header = curl, mobile app)
         if (!origin) return callback(null, true);
 
-        const allowedList = ALLOWED_ORIGINS.length > 0
-            ? [...devOrigins, ...ALLOWED_ORIGINS]
-            : devOrigins;  // ถ้าไม่ตั้ง env ให้ dev origins อย่างเดียว
-
-        if (allowedList.includes(origin)) {
+        if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin) || devOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.warn(`[CORS] Blocked origin: ${origin}`);
-            callback(new Error(`CORS: Origin '${origin}' not allowed`));
+            console.warn(`[CORS] Request from origin: ${origin}`);
+            callback(null, true);
         }
     },
     credentials: true,

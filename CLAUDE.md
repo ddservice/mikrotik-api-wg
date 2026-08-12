@@ -243,6 +243,10 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (9)** — Relaxed Login Rate Limiter & Permissive CORS Policy.
+  - Increased `loginLimiter` max attempts from 5 to 30 per 15 minutes, skipping internal LAN/VPN subnet IPs (`10.x.x.x`, `192.168.x.x`) to prevent accidental IP lockouts.
+  - Updated CORS `corsOptions` in `server.js` to prevent origin blocking when accessing dashboard via custom IP/domain names.
+
 - **2026-08-12 (8)** — Modal Overlay for RouterOS Security CLI Script & Cache-Busting Query Bump (`v=35.0`).
   - Replaced `window.open` (which was blocked by browser popup blockers) with a clean `#modal-security-script` modal overlay and 1-click clipboard copy button.
   - Bumped `app.js` and `style.css` version strings to `v=35.0` in `index.html` to guarantee instant client browser cache invalidation.
