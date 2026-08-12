@@ -243,6 +243,12 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (5)** — Auto PCC Weight Calculation, Dynamic N-WAN PBR, Custom Telegram Templates & Hotspot Password Export.
+  - Automatic PCC Weight Ratio Calculation: Built real-time Greatest Common Divisor (GCD) bandwidth ratio calculator (`autoCalculatePccWeights`) in `public/app.js` that automatically computes optimal PCC weights (e.g. 1000:500 ➔ 2:1) as WAN Mbps speeds are typed across WAN 1, 2, 3...
+  - Dynamic Multi-WAN PBR Support: Updated Step 2 Policy Routing dropdowns to dynamically list ALL defined WAN lines and allow adding unlimited PBR rules bound to real router interfaces or subnets.
+  - Customizable Telegram Notification Messages: Added custom WAN Down and WAN Up message template inputs (`mw-telegram-msg-down` & `mw-telegram-msg-up`) pre-filled with clean default templates.
+  - Export Hotspot Accounts CSV with Passwords: Added `#btn-export-hotspot-csv` button in Hotspot Accounts toolbar with UTF-8 BOM encoding for Excel compatibility.
+
 - **2026-08-12 (4)** — RouterOS v7+ Hardened Protection Security Preset (2026 Standard).
   - Added 1-Click "RouterOS v7+ Hardened Security Protection Preset" in Firewall management.
   - Implemented 6 enterprise firewall protection rules: Stage 1-3 WinBox/SSH Brute Force Auto-Blacklisting (8291, 22, 80, 443, 8728) to `brute_force_blacklist` address list (24h drop), Open DNS Resolver WAN Amplification DDoS prevention, and Invalid Packet drops.

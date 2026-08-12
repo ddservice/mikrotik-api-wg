@@ -3980,6 +3980,36 @@ function buildInterfaceOptionsHtml(selectedVal) {
     return options;
 }
 
+function gcd(a, b) {
+    a = Math.abs(a);
+    b = Math.abs(b);
+    while (b) {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+function autoCalculatePccWeights() {
+    const speeds = currentWanLines.map(w => parseInt(w.speed) || 0);
+    const nonZeroSpeeds = speeds.filter(s => s > 0);
+    if (nonZeroSpeeds.length === 0) return;
+
+    let commonGcd = nonZeroSpeeds[0];
+    for (let i = 1; i < nonZeroSpeeds.length; i++) {
+        commonGcd = gcd(commonGcd, nonZeroSpeeds[i]);
+    }
+
+    currentWanLines.forEach((w, i) => {
+        const s = parseInt(w.speed) || 0;
+        const calcWeight = s > 0 ? Math.max(1, Math.round(s / commonGcd)) : 1;
+        w.weight = calcWeight;
+        const weightInput = document.querySelector(`.mw-wan-weight[data-index="${i}"]`);
+        if (weightInput) weightInput.value = calcWeight;
+    });
+}
+
 function bindWanCardsEvents() {
     document.querySelectorAll('.mw-wan-type').forEach(select => {
         select.addEventListener('change', (e) => {
@@ -3991,13 +4021,53 @@ function bindWanCardsEvents() {
         });
     });
 
+    document.querySelectorAll('.mw-wan-interface').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            if (currentWanLines[idx]) {
+                currentWanLines[idx].interface = e.target.value;
+                renderPbrRuleRows();
+            }
+        });
+    });
+
+    document.querySelectorAll('.mw-wan-speed').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            if (currentWanLines[idx]) {
+                currentWanLines[idx].speed = parseInt(e.target.value) || 0;
+                autoCalculatePccWeights();
+            }
+        });
+    });
+
+    document.querySelectorAll('.mw-wan-weight').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            if (currentWanLines[idx]) {
+                currentWanLines[idx].weight = parseInt(e.target.value) || 1;
+            }
+        });
+    });
+
+    document.querySelectorAll('.mw-wan-gateway').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            if (currentWanLines[idx]) {
+                currentWanLines[idx].gateway = e.target.value;
+            }
+        });
+    });
+
     document.querySelectorAll('.btn-remove-wan').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const idx = parseInt(btn.getAttribute('data-index'));
             if (currentWanLines.length > 1) {
                 currentWanLines.splice(idx, 1);
                 currentWanLines.forEach((w, i) => w.name = `WAN ${i + 1}`);
+                autoCalculatePccWeights();
                 renderWanLineCards();
+                renderPbrRuleRows();
             }
         });
     });
@@ -4244,6 +4314,8 @@ function getMultiWanFormPayload() {
         pbrRules: updatedPbrRules,
         telegramToken: (document.getElementById('mw-telegram-token')?.value || '').trim(),
         telegramChatId: (document.getElementById('mw-telegram-chatid')?.value || '').trim(),
+        telegramMsgDown: (document.getElementById('mw-telegram-msg-down')?.value || '').trim(),
+        telegramMsgUp: (document.getElementById('mw-telegram-msg-up')?.value || '').trim(),
         mssClamping: !!document.getElementById('mw-toggle-mss')?.checked,
         fasttrackBypass: !!document.getElementById('mw-toggle-fasttrack')?.checked,
         dnsHijack: !!document.getElementById('mw-toggle-dnshijack')?.checked,
@@ -4316,6 +4388,43 @@ document.getElementById('btn-apply-multiwan-api')?.addEventListener('click', asy
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
     }
+});
+
+// Export Hotspot Accounts CSV (With Passwords)
+document.getElementById('btn-export-hotspot-csv')?.addEventListener('click', () => {
+    if (!_allHotspotAccounts || _allHotspotAccounts.length === 0) {
+        alert('ไม่มีข้อมูลบัญชี Hotspot ที่จะ Export');
+        return;
+    }
+
+    const headers = ['Username', 'Password', 'Profile', 'Uptime Accumulated', 'Uptime Limit', 'Bytes Total', 'Bytes Limit', 'Comment', 'Status'];
+    const rows = [headers];
+
+    _allHotspotAccounts.forEach(acc => {
+        rows.push([
+            `"${(acc.name || '').replace(/"/g, '""')}"`,
+            `"${(acc.password || '').replace(/"/g, '""')}"`,
+            `"${(acc.profile || '').replace(/"/g, '""')}"`,
+            `"${acc.uptime || '0s'}"`,
+            `"${acc['limit-uptime'] || 'Unlimited'}"`,
+            `"${acc.bytesTotal || 0}"`,
+            `"${acc['limit-bytes-total'] || 'Unlimited'}"`,
+            `"${(acc.comment || '').replace(/"/g, '""')}"`,
+            `"${acc.disabled ? 'Disabled' : 'Active'}"`
+        ]);
+    });
+
+    const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const siteName = currentSite ? currentSite.name : 'mikrotik';
+    const timestamp = new Date().toISOString().slice(0, 10);
+    link.setAttribute('download', `hotspot_accounts_passwords_${siteName}_${timestamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 });
 
 // Initialize on page load
