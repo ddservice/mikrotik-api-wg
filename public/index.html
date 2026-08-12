@@ -31,7 +31,7 @@
                 <h2>Mikrotik API Dashboard</h2>
                 <p>กรอกข้อมูลผู้ใช้งานเพื่อดูแลระบบเราท์เตอร์</p>
             </div>
-            <form id="login-form" action="javascript:void(0);">
+            <form id="login-form" onsubmit="handleLoginSubmit(event); return false;">
                 <div class="form-group">
                     <label for="login-username">ชื่อผู้ใช้งานระบบ (Username)</label>
                     <div class="input-with-icon">
@@ -47,7 +47,7 @@
                     </div>
                 </div>
                 <div id="login-error" class="error-msg" style="display: none;"></div>
-                <button type="submit" class="btn btn-primary btn-block">
+                <button type="submit" id="btn-login-submit" onclick="handleLoginSubmit(event)" class="btn btn-primary btn-block">
                     <span>เข้าสู่ระบบระบบจัดการ</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>
                 </button>
             </form>
@@ -2644,7 +2644,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=40.0"></script>
+    <script src="app.js?v=50.0"></script>
 </body>
 </html>
 

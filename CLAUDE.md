@@ -243,6 +243,11 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (12)** — Global Window Login Handler & Visual Loading Feedback (`v=50.0`).
+  - Exposed `window.handleLoginSubmit` to window global scope and attached `onsubmit="handleLoginSubmit(event); return false;"` and `onclick="handleLoginSubmit(event)"` to guarantee execution across all browsers.
+  - Added button loading state (`กำลังเข้าสู่ระบบ...` + spinner) during authentication fetch.
+  - Bumped `app.js` version query to `v=50.0`.
+
 - **2026-08-12 (11)** — Removed Blocking Inline `onsubmit="return false;"` & Dual-Bound Login Listener.
   - Removed inline `onsubmit="return false;"` from `#login-form` which blocked browser submit event propagation to JS listeners.
   - Created standalone `handleLoginSubmit()` bound to both form `submit` event and button `click` event as dual-trigger fallback.

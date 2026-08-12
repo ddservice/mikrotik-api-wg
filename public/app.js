@@ -3786,26 +3786,32 @@ async function fetchHotspotStats() {
 // CORE BINDINGS & NAV CLICK EVENT HANDLERS
 // ==========================================
 async function handleLoginSubmit(e) {
-    if (e) {
+    if (e && typeof e.preventDefault === 'function') {
         e.preventDefault();
         e.stopPropagation();
     }
     const usernameInput = document.getElementById('login-username');
     const passwordInput = document.getElementById('login-password');
+    const loginErrEl = document.getElementById('login-error');
+    const loginFormEl = document.getElementById('login-form');
     const username = (usernameInput?.value || '').trim();
     const password = passwordInput?.value || '';
 
     if (!username || !password) {
-        if (loginError) {
-            loginError.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
-            loginError.style.display = 'block';
+        if (loginErrEl) {
+            loginErrEl.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่านให้ครบถ้วน';
+            loginErrEl.style.display = 'block';
         }
-        return;
+        return false;
     }
 
-    const submitBtn = (loginForm ? loginForm.querySelector('button[type="submit"]') : null) || document.querySelector('#login-form button');
-    if (submitBtn) submitBtn.disabled = true;
-    if (loginError) loginError.style.display = 'none';
+    const submitBtn = (loginFormEl ? loginFormEl.querySelector('button[type="submit"]') : null) || document.getElementById('btn-login-submit');
+    const origHtml = submitBtn ? submitBtn.innerHTML : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span>กำลังเข้าสู่ระบบ...</span> <i class="fa-solid fa-spinner fa-spin"></i>';
+    }
+    if (loginErrEl) loginErrEl.style.display = 'none';
 
     try {
         const res = await apiFetch('/api/auth/login', {
@@ -3822,10 +3828,10 @@ async function handleLoginSubmit(e) {
         showDashboard();
     } catch (err) {
         if (err.status === 429 || (err.message && err.message.includes('มากเกินไป'))) {
-            let remaining = 900;
-            if (loginError) {
-                loginError.innerHTML = `<i class="fa-solid fa-lock"></i> บัญชีถูกล็อกชั่วคราว — โปรดรอ <strong id="lockout-timer">15:00</strong> นาที`;
-                loginError.style.display = 'block';
+            let remaining = 300;
+            if (loginErrEl) {
+                loginErrEl.innerHTML = `<i class="fa-solid fa-lock"></i> บัญชีถูกล็อกชั่วคราว — โปรดรอ <strong id="lockout-timer">05:00</strong> นาที`;
+                loginErrEl.style.display = 'block';
             }
             if (submitBtn) submitBtn.disabled = true;
 
@@ -3837,31 +3843,38 @@ async function handleLoginSubmit(e) {
                 if (timerEl) timerEl.textContent = `${min}:${sec}`;
                 if (remaining <= 0) {
                     clearInterval(countdownInterval);
-                    if (loginError) loginError.style.display = 'none';
-                    if (submitBtn) submitBtn.disabled = false;
+                    if (loginErrEl) loginErrEl.style.display = 'none';
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = origHtml || '<span>เข้าสู่ระบบระบบจัดการ</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>';
+                    }
                 }
             }, 1000);
         } else {
-            if (loginError) {
-                loginError.textContent = err.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
-                loginError.style.display = 'block';
+            if (loginErrEl) {
+                loginErrEl.textContent = err.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+                loginErrEl.style.display = 'block';
             }
-            if (loginForm) {
-                loginForm.style.animation = 'none';
-                setTimeout(() => { loginForm.style.animation = 'shake 0.4s ease'; }, 10);
+            if (loginFormEl) {
+                loginFormEl.style.animation = 'none';
+                setTimeout(() => { loginFormEl.style.animation = 'shake 0.4s ease'; }, 10);
             }
         }
     } finally {
         if (submitBtn && (!submitBtn.disabled || !document.getElementById('lockout-timer'))) {
             submitBtn.disabled = false;
+            submitBtn.innerHTML = origHtml || '<span>เข้าสู่ระบบระบบจัดการ</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>';
         }
     }
+    return false;
 }
+
+window.handleLoginSubmit = handleLoginSubmit;
 
 if (loginForm) {
     loginForm.addEventListener('submit', handleLoginSubmit);
 }
-const loginSubmitBtn = document.querySelector('#login-form button[type="submit"]');
+const loginSubmitBtn = document.getElementById('btn-login-submit') || document.querySelector('#login-form button[type="submit"]');
 if (loginSubmitBtn) {
     loginSubmitBtn.addEventListener('click', handleLoginSubmit);
 }
