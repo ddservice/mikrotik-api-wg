@@ -6,6 +6,7 @@ export interface Site {
   username: string;
   password?: string;
   wireguardIp?: string;
+  connectionType?: string;
   is_active?: boolean;
 }
 

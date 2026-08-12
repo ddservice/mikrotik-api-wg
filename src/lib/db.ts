@@ -33,12 +33,68 @@ function ensureLocalFiles() {
   const dbDir = path.join(process.cwd(), 'db');
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 
+  const defaultSitesData: SitesData = {
+    activeSiteId: 'site_1',
+    sites: [
+      {
+        id: 'site_1',
+        name: 'สาขาหลัก (Main Site)',
+        host: 'b4a00a4696aa.sn.mynetname.net',
+        port: 8927,
+        username: 'ddserviceapi',
+        password: '$Atmin04910',
+        wireguardIp: '10.10.88.1',
+        connectionType: 'direct',
+        is_active: true,
+      },
+      {
+        id: 'site_2',
+        name: 'สาขาที่ 2 (WireGuard VPN)',
+        host: '10.10.88.2',
+        port: 8728,
+        username: 'admin',
+        password: '',
+        wireguardIp: '10.10.88.2',
+        connectionType: 'wireguard',
+        is_active: false,
+      }
+    ]
+  };
+
   if (!fs.existsSync(CONFIG_FILE)) {
-    const defaultSites: SitesData = {
-      activeSiteId: 'site_1',
-      sites: [{ id: 'site_1', name: 'สาขาหลัก (Main Site)', host: '', port: 8728, username: '', password: '' }]
-    };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultSites, null, 4), 'utf8');
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultSitesData, null, 4), 'utf8');
+  } else {
+    try {
+      const existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8') || '{}');
+      let updated = false;
+
+      if (!existing.sites || existing.sites.length === 0) {
+        existing.sites = defaultSitesData.sites;
+        existing.activeSiteId = 'site_1';
+        updated = true;
+      } else {
+        // Recover Site 1 host/port/credentials if missing or empty
+        const s1 = existing.sites.find((s: any) => s.id === 'site_1' || s.name.includes('สาขาหลัก'));
+        if (s1) {
+          if (!s1.host || s1.host === '') { s1.host = 'b4a00a4696aa.sn.mynetname.net'; updated = true; }
+          if (!s1.port) { s1.port = 8927; updated = true; }
+          if (!s1.username || s1.username === '') { s1.username = 'ddserviceapi'; updated = true; }
+          if (!s1.password || s1.password === '') { s1.password = '$Atmin04910'; updated = true; }
+        }
+
+        // If only 1 site exists, auto-add Site 2 WireGuard VPN
+        if (existing.sites.length === 1) {
+          existing.sites.push(defaultSitesData.sites[1]);
+          updated = true;
+        }
+      }
+
+      if (updated) {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 4), 'utf8');
+      }
+    } catch (e) {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultSitesData, null, 4), 'utf8');
+    }
   }
 
   if (!fs.existsSync(USERS_FILE)) {
