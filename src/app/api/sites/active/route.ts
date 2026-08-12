@@ -3,7 +3,7 @@ import { getSitesData, isSupabase, supabase } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 
-const CONFIG_FILE = path.join(process.cwd(), 'db', 'sites.json');
+const CONFIG_FILE = path.join(process.cwd(), 'db', 'config.json');
 
 export async function POST(req: NextRequest) {
   try {
