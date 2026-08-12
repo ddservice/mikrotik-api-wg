@@ -15,8 +15,8 @@ module.exports = {
             // ไฟล์หลักที่รัน (MikroTik API Server)
             script: 'server.js',
 
-            // โฟลเดอร์ที่รัน (ปรับตาม path จริงบน VPS)
-            cwd: '/home/ddservice/mikrotik',
+            // โฟลเดอร์ที่รัน (relative path)
+            cwd: './',
 
             // จำนวน instance (1 = single process, 'max' = ทุก CPU core)
             instances: 1,

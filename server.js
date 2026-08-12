@@ -2803,7 +2803,6 @@ setInterval(async () => {
 }, 24 * 60 * 60 * 1000);
 
 // Server Listen (Immediate boot to prevent 502 Bad Gateway)
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] MikroTik API Server running on http://0.0.0.0:${PORT}`);
 });
