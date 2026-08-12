@@ -243,6 +243,10 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (8)** — Modal Overlay for RouterOS Security CLI Script & Cache-Busting Query Bump (`v=35.0`).
+  - Replaced `window.open` (which was blocked by browser popup blockers) with a clean `#modal-security-script` modal overlay and 1-click clipboard copy button.
+  - Bumped `app.js` and `style.css` version strings to `v=35.0` in `index.html` to guarantee instant client browser cache invalidation.
+
 - **2026-08-12 (7)** — RouterOS Date String Format Parser for PPPoE Last Online.
   - Added `parseRouterOSDate` in `public/app.js` to parse RouterOS `last-logged-out` string format (`aug/12/2026 19:45:10`), properly converting it into Thai date format and relative time (`12 ส.ค. 19:45 น. (3 ชม. ที่แล้ว)`), filtering out default zero dates (`jan/01/1970`).
 

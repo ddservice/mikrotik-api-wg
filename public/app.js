@@ -2457,15 +2457,36 @@ document.getElementById('btn-apply-security-hardening')?.addEventListener('click
 });
 
 document.getElementById('btn-show-security-script')?.addEventListener('click', async () => {
+    const modal = document.getElementById('modal-security-script');
+    const textarea = document.getElementById('security-script-textarea');
     try {
         const res = await apiFetch('/api/mikrotik/firewall/generate-security-script', { method: 'POST' });
-        if (res.script) {
-            const w = window.open('', '_blank');
-            w.document.write(`<pre style="font-family:monospace; padding:20px; background:#0f172a; color:#38bdf8; white-space:pre-wrap;">${res.script}</pre>`);
+        if (res.script && textarea) {
+            textarea.value = res.script;
+            if (modal) modal.classList.add('active');
         }
     } catch (err) {
-        alert(err.message);
+        alert('เกิดข้อผิดพลาดในการสร้างสคริปต์: ' + err.message);
     }
+});
+
+document.getElementById('btn-copy-security-script')?.addEventListener('click', () => {
+    const textarea = document.getElementById('security-script-textarea');
+    if (textarea && textarea.value) {
+        navigator.clipboard.writeText(textarea.value).then(() => {
+            alert('คัดลอกสคริปต์ RouterOS Security เรียบร้อยแล้ว! นำไปวางใน WinBox -> Terminal ได้ทันที');
+        }).catch(() => {
+            textarea.select();
+            document.execCommand('copy');
+            alert('คัดลอกสคริปต์เรียบร้อยแล้ว!');
+        });
+    }
+});
+
+document.querySelectorAll('#modal-security-script .modal-cancel, #modal-security-script .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-security-script')?.classList.remove('active');
+    });
 });
 
 // Voucher Generator Submit Actions

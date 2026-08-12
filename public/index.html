@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=21.0">
+    <link rel="stylesheet" href="style.css?v=35.0">
 </head>
 <body>
 
@@ -2621,8 +2621,30 @@
     <!-- page-logs is rendered inside content-body in main content, need to add as page-section -->
 
 
+    <!-- ========================================== -->
+    <!-- MODAL: ROUTEROS SECURITY SCRIPT -->
+    <!-- ========================================== -->
+    <div id="modal-security-script" class="modal-wrapper">
+        <div class="modal-card" style="max-width:720px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-code text-primary"></i> สคริปต์ RouterOS v7 Hardened Security Preset</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    คัดลอกสคริปต์ด้านล่างนี้ นำไปวางใน <strong>WinBox ➔ Terminal</strong> เพื่อบังคับใช้เกราะป้องกันความปลอดภัยได้ทันที:
+                </p>
+                <textarea id="security-script-textarea" class="form-control" style="font-family:monospace; font-size:0.82rem; height:320px; background:#0f172a; color:#38bdf8; white-space:pre;" readonly></textarea>
+                <div class="modal-footer mt-16" style="display:flex; justify-content:space-between; align-items:center;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                    <button type="button" class="btn btn-primary" id="btn-copy-security-script"><i class="fa-solid fa-copy"></i> คัดลอกสคริปต์</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Script loading -->
-    <script src="app.js?v=28.0"></script>
+    <script src="app.js?v=35.0"></script>
 </body>
 </html>
 
