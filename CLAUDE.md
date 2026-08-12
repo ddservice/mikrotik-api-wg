@@ -243,6 +243,10 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-12 (11)** — Removed Blocking Inline `onsubmit="return false;"` & Dual-Bound Login Listener.
+  - Removed inline `onsubmit="return false;"` from `#login-form` which blocked browser submit event propagation to JS listeners.
+  - Created standalone `handleLoginSubmit()` bound to both form `submit` event and button `click` event as dual-trigger fallback.
+
 - **2026-08-12 (10)** — Fixed Login Submission (`/?` URL issue) & ReferenceError in `app.js`.
   - Replaced undefined variable `currentSite` in Hotspot CSV exporter with `getCurrentSiteName()`, resolving a top-level `ReferenceError` that prevented `app.js` event listeners (including `loginForm.addEventListener`) from executing.
   - Added `action="javascript:void(0);" onsubmit="return false;"` to `#login-form` in `index.html` to prevent standard HTML form GET submissions (`/?` appending).

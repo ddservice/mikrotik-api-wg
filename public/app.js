@@ -3785,36 +3785,49 @@ async function fetchHotspotStats() {
 // ==========================================
 // CORE BINDINGS & NAV CLICK EVENT HANDLERS
 // ==========================================
-loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = document.getElementById('login-username').value;
-    const password = document.getElementById('login-password').value;
-    
-    const submitBtn = loginForm.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    loginError.style.display = 'none';
-    
+async function handleLoginSubmit(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const usernameInput = document.getElementById('login-username');
+    const passwordInput = document.getElementById('login-password');
+    const username = (usernameInput?.value || '').trim();
+    const password = passwordInput?.value || '';
+
+    if (!username || !password) {
+        if (loginError) {
+            loginError.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
+            loginError.style.display = 'block';
+        }
+        return;
+    }
+
+    const submitBtn = (loginForm ? loginForm.querySelector('button[type="submit"]') : null) || document.querySelector('#login-form button');
+    if (submitBtn) submitBtn.disabled = true;
+    if (loginError) loginError.style.display = 'none';
+
     try {
         const res = await apiFetch('/api/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password })
         });
-        
+
         API_TOKEN = res.token;
         CURRENT_USER = res.user;
-        
+
         localStorage.setItem('token', API_TOKEN);
         localStorage.setItem('user', JSON.stringify(CURRENT_USER));
-        
+
         showDashboard();
     } catch (err) {
-        // ตรวจสอบ Rate Limit (429 Too Many Requests)
         if (err.status === 429 || (err.message && err.message.includes('มากเกินไป'))) {
-            // แสดง countdown timer
-            let remaining = 900; // 15 นาที
-            loginError.innerHTML = `<i class="fa-solid fa-lock"></i> บัญชีถูกล็อกชั่วคราว — โปรดรอ <strong id="lockout-timer">15:00</strong> นาที`;
-            loginError.style.display = 'block';
-            submitBtn.disabled = true;
+            let remaining = 900;
+            if (loginError) {
+                loginError.innerHTML = `<i class="fa-solid fa-lock"></i> บัญชีถูกล็อกชั่วคราว — โปรดรอ <strong id="lockout-timer">15:00</strong> นาที`;
+                loginError.style.display = 'block';
+            }
+            if (submitBtn) submitBtn.disabled = true;
 
             const countdownInterval = setInterval(() => {
                 remaining--;
@@ -3824,23 +3837,34 @@ loginForm.addEventListener('submit', async (e) => {
                 if (timerEl) timerEl.textContent = `${min}:${sec}`;
                 if (remaining <= 0) {
                     clearInterval(countdownInterval);
-                    loginError.style.display = 'none';
-                    submitBtn.disabled = false;
+                    if (loginError) loginError.style.display = 'none';
+                    if (submitBtn) submitBtn.disabled = false;
                 }
             }, 1000);
         } else {
-            loginError.textContent = err.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
-            loginError.style.display = 'block';
-            // Shake animation
-            loginForm.style.animation = 'none';
-            setTimeout(() => { loginForm.style.animation = 'shake 0.4s ease'; }, 10);
+            if (loginError) {
+                loginError.textContent = err.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+                loginError.style.display = 'block';
+            }
+            if (loginForm) {
+                loginForm.style.animation = 'none';
+                setTimeout(() => { loginForm.style.animation = 'shake 0.4s ease'; }, 10);
+            }
         }
     } finally {
-        if (!submitBtn.disabled || !document.getElementById('lockout-timer')) {
+        if (submitBtn && (!submitBtn.disabled || !document.getElementById('lockout-timer'))) {
             submitBtn.disabled = false;
         }
     }
-});
+}
+
+if (loginForm) {
+    loginForm.addEventListener('submit', handleLoginSubmit);
+}
+const loginSubmitBtn = document.querySelector('#login-form button[type="submit"]');
+if (loginSubmitBtn) {
+    loginSubmitBtn.addEventListener('click', handleLoginSubmit);
+}
 
 
 // Refresh button on top right header
