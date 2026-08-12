@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { wgTokens } from '../generate-script/route';
-import { registerVpsPeer } from '@/lib/wireguard';
+import { registerVpsPeer, wgTokens } from '@/lib/wireguard';
 
 export async function POST(req: NextRequest) {
   try {

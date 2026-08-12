@@ -13,6 +13,8 @@ export interface WireGuardPeerInfo {
   persistentKeepalive: string;
 }
 
+export const wgTokens = new Map<string, { wireguardIp: string; siteId?: string; expiresAt: number }>();
+
 export function cleanupVpsPeerByIp(wireguardIp: string) {
   if (!wireguardIp) return;
   try {

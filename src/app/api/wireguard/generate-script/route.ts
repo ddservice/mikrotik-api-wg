@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getVpsPublicKey, registerVpsPeer } from '@/lib/wireguard';
+import { getVpsPublicKey, registerVpsPeer, wgTokens } from '@/lib/wireguard';
 import { getSitesData } from '@/lib/db';
 import crypto from 'crypto';
-
-// Token store for auto-callback registration
-export const wgTokens = new Map<string, { wireguardIp: string; siteId?: string; expiresAt: number }>();
 
 export async function POST(req: NextRequest) {
   try {
