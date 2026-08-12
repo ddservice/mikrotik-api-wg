@@ -2801,3 +2801,25 @@ setInterval(async () => {
         db.addLog('System Auto', 'Purge DNS Log เก่า', `ลบ DNS query log เก่าเกิน 90 วัน จำนวน ${purgedDns} รายการ`);
     }
 }, 24 * 60 * 60 * 1000);
+
+// Next.js App Router Integration & Server Listen
+const next = require('next');
+const dev = process.env.NODE_ENV !== 'production';
+const nextApp = next({ dev });
+const nextHandler = nextApp.getRequestHandler();
+const PORT = process.env.PORT || 3000;
+
+nextApp.prepare().then(() => {
+    app.all('*', (req, res) => {
+        return nextHandler(req, res);
+    });
+
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`[Server] MikroTik API & Next.js 14+ Server running on http://0.0.0.0:${PORT}`);
+    });
+}).catch(err => {
+    console.error('[Server] Next.js prepare failed, falling back to Express:', err);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`[Server] Express Fallback Server running on http://0.0.0.0:${PORT}`);
+    });
+});

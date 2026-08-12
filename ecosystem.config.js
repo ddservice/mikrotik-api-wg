@@ -12,9 +12,8 @@ module.exports = {
             // ชื่อ process ที่แสดงใน pm2 list
             name: 'mikrotik-dashboard',
 
-            // ไฟล์หลักที่รัน (Next.js Production Server)
-            script: 'node_modules/next/dist/bin/next',
-            args: 'start -p 3000',
+            // ไฟล์หลักที่รัน (Express API + Next.js App Router Hybrid Server)
+            script: 'server.js',
 
             // โฟลเดอร์ที่รัน (ปรับตาม path จริงบน VPS)
             cwd: '/home/ddservice/mikrotik',
