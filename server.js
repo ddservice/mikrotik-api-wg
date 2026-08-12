@@ -64,6 +64,66 @@ const apiLimiter = rateLimit({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Hide server framework signature
+app.disable('x-powered-by');
+
+// ==========================================
+// ENTERPRISE SECURITY: Security Headers Middleware
+// ==========================================
+app.use((req, res, next) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    next();
+});
+
+// ==========================================
+// HIGH PERFORMANCE: Native Zlib Response Gzip Compression
+// ==========================================
+const zlib = require('zlib');
+app.use((req, res, next) => {
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (!acceptEncoding.includes('gzip')) {
+        return next();
+    }
+
+    const originalSend = res.send;
+    res.send = function (body) {
+        if (res.headersSent || !body) {
+            return originalSend.call(this, body);
+        }
+
+        const contentType = res.getHeader('Content-Type') || '';
+        const isCompressible = typeof body === 'string' || Buffer.isBuffer(body);
+
+        if (!isCompressible || (res.statusCode >= 300 && res.statusCode !== 304)) {
+            return originalSend.call(this, body);
+        }
+
+        const shouldCompress = /json|text|javascript|css|html|xml|svg/i.test(String(contentType));
+        if (!shouldCompress) {
+            return originalSend.call(this, body);
+        }
+
+        const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+        if (buf.length < 1024) { // Do not compress small payloads < 1KB
+            return originalSend.call(this, body);
+        }
+
+        zlib.gzip(buf, (err, compressed) => {
+            if (err) {
+                return originalSend.call(this, body);
+            }
+            res.setHeader('Content-Encoding', 'gzip');
+            res.setHeader('Content-Length', compressed.length);
+            originalSend.call(this, compressed);
+        });
+    };
+    next();
+});
+
 // ==========================================
 // P2 SECURITY: CORS — ล็อก origin ที่อนุญาต
 // ตั้งค่าผ่าน env: ALLOWED_ORIGINS=https://yourdomain.com,https://other.com
@@ -106,20 +166,42 @@ app.use(cors(corsOptions));
 // Apply ทั่วไป API rate limiter
 app.use('/api/', apiLimiter);
 
-// Exclude /api/wireguard/callback-register from the global JSON parser: if
-// RouterOS's /tool/fetch sends a malformed body under Content-Type: application/json,
-// this middleware would throw a SyntaxError and Express's default error handler
-// returns a generic 400 *before the route handler ever runs* — which is almost
-// certainly why an earlier route-specific-parser fix had no effect. That route
-// reads and parses its body manually instead (see below).
+// Exclude /api/wireguard/callback-register from the global JSON parser
 app.use(express.json({
     type: (req) => req.path !== '/api/wireguard/callback-register' && (req.headers['content-type'] || '').includes('json')
 }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Static Assets Caching Strategy (Fast asset loading + no-cache for index.html)
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '1d',
+    etag: true,
+    setHeaders: (res, filepath) => {
+        if (filepath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    }
+}));
 
 // In-memory sessions store (token -> { user, expires })
 const activeSessions = new Map();
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Garbage collector for expired sessions and single-use registration tokens (every 15 min)
+setInterval(() => {
+    const now = Date.now();
+    for (const [token, session] of activeSessions.entries()) {
+        if (session.expires < now) {
+            activeSessions.delete(token);
+        }
+    }
+    for (const [token, reg] of wgRegistrationTokens.entries()) {
+        if (reg.expiresAt < now) {
+            wgRegistrationTokens.delete(token);
+        }
+    }
+}, 15 * 60 * 1000);
 
 // Single-use tokens for the RouterOS auto-callback registration flow
 // (token -> { wireguardIp, siteId, expiresAt }) — see /api/wireguard/generate-script
