@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Plus, Server, ShieldCheck, Download, Loader2, HardDriveUpload, Check, Edit2, Trash2 } from 'lucide-react';
+import { Settings, Plus, Server, ShieldCheck, Download, Loader2, HardDriveUpload, Check, Terminal, Copy } from 'lucide-react';
 import { Site, SitesData } from '@/lib/types';
 
 export default function SettingsPage() {
@@ -18,6 +18,12 @@ export default function SettingsPage() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [wireguardIp, setWireguardIp] = useState('10.10.88.2');
+
+  // Modal for WireGuard Script
+  const [showWgModal, setShowWgModal] = useState(false);
+  const [wgScript, setWgScript] = useState('');
+  const [wgLoading, setWgLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const fetchSites = async () => {
     try {
@@ -75,6 +81,38 @@ export default function SettingsPage() {
     }
   };
 
+  const handleGenerateWgScript = async (site: Site) => {
+    setWgLoading(true);
+    setShowWgModal(true);
+    setWgScript('');
+    setCopied(false);
+    try {
+      const res = await fetch('/api/wireguard/generate-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wireguardIp: site.wireguardIp || site.host || '10.10.88.2',
+          port: site.port || 8728,
+          siteId: site.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'เกิดข้อผิดพลาดในการสร้างสคริปต์');
+      setWgScript(data.script);
+    } catch (err: any) {
+      alert(err.message);
+      setShowWgModal(false);
+    } finally {
+      setWgLoading(false);
+    }
+  };
+
+  const handleCopyScript = () => {
+    navigator.clipboard.writeText(wgScript);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleCreateBackup = async () => {
     setBackupLoading(true);
     setBackupResult(null);
@@ -96,9 +134,9 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Settings className="w-6 h-6 text-indigo-600" />
-            <span>จัดการไซต์งานเราท์เตอร์ (Multi-Site Router Manager)</span>
+            <span>จัดการไซต์งานเราท์เตอร์ & WireGuard VPN</span>
           </h2>
-          <p className="text-xs text-slate-500 mt-1">เพิ่ม แก้ไข และเลือกสลับไซต์งาน MikroTik แต่ละสาขาผ่าน WireGuard VPN</p>
+          <p className="text-xs text-slate-500 mt-1">สร้างสคริปต์เชื่อมต่อ WireGuard VPN, เพิ่ม แก้ไข และสลับไซต์งาน MikroTik แต่ละสาขา</p>
         </div>
 
         <button
@@ -193,11 +231,66 @@ export default function SettingsPage() {
                     <span className="font-mono">{site.port || 8728}</span>
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <button
+                    onClick={() => handleGenerateWgScript(site)}
+                    className="w-full px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 transition-colors"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    <span>สร้างสคริปต์ WireGuard (RouterOS Setup Script)</span>
+                  </button>
+                </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* WireGuard Script Modal */}
+      {showWgModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-indigo-600" />
+                <span>RouterOS WireGuard VPN Setup Script</span>
+              </h3>
+              <button onClick={() => setShowWgModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">
+                &times;
+              </button>
+            </div>
+
+            {wgLoading ? (
+              <div className="p-12 text-center text-slate-500 space-y-3">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
+                <p className="text-xs font-semibold">กำลังสร้างสคริปต์และสร้างคีย์การเชื่อมต่อ...</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-600">
+                  คัดลอกสคริปต์นี้ไปวางใน **Terminal ของ MikroTik** เพื่อตั้งค่าอินเทอร์เฟซ WireGuard และเชื่อมต่อกลับมายัง Dashboard อัตโนมัติ:
+                </p>
+                <div className="relative">
+                  <textarea
+                    readOnly
+                    value={wgScript}
+                    rows={12}
+                    className="w-full p-4 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-xl focus:outline-none leading-relaxed"
+                  />
+                  <button
+                    onClick={handleCopyScript}
+                    className="absolute top-3 right-3 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md flex items-center space-x-1.5 transition-all"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'คัดลอกแล้ว!' : 'คัดลอกสคริปต์'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Add Site Modal */}
       {showAddModal && (
