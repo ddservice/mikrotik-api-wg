@@ -20,6 +20,7 @@ const db = useSupabase ? require('./db-supabase') : require('./db');
 console.log(`[DB] Using: ${useSupabase ? 'Supabase (PostgreSQL)' : 'Local JSON files'}`);
 
 const RouterOSClient = require('./routeros');
+const { resolvePppoeIface } = require('./lib/pppoe-iface');
 
 // ==========================================
 // P2 SECURITY: Rate Limiting
@@ -1844,7 +1845,7 @@ app.get('/api/mikrotik/pppoe/active', requireAuth(['admin', 'co-admin']), async 
             return list
                 .filter(item => item.service === 'pppoe')
                 .map(item => {
-                    const iface = ifaceByName.get(`<pppoe-${item.name}>`);
+                    const iface = resolvePppoeIface(ifaceByName, item.name);
                     return {
                         id: item['.id'],
                         name: item.name,
@@ -2666,7 +2667,7 @@ async function snapshotSiteSessions(site) {
                 ]);
                 const pppoeIfaceByName = new Map(pppoeInterfaces.map(i => [i.name, i]));
                 pppoe = pppoeList.filter(item => item.service === 'pppoe').map(item => {
-                    const iface = pppoeIfaceByName.get(`<pppoe-${item.name}>`);
+                    const iface = resolvePppoeIface(pppoeIfaceByName, item.name);
                     return {
                         id: item['.id'],
                         user: item.name,

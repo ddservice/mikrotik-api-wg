@@ -70,6 +70,11 @@ Before starting MikroTik PM2: `bash scripts/preflight-mikrotik-ecosystem.sh`.
 - `pems-stale-remind` hourly cron was removed as unused (2026-08-13).
 - Operator still should **rotate** any MikroTik API password that was ever
   committed to git history (`db/config.json` pre-2026-07-30 exposure).
+  Use dry-run then apply on the VPS:
+  `node scripts/rotate-mikrotik-api-password.js` then
+  `node scripts/rotate-mikrotik-api-password.js --apply`
+  (writes secrets once to `~/backups/mikrotik-api-passwords-*.txt` — copy offline, delete).
+  Verify PPPoE live counters after deploy: `node scripts/verify-pppoe-bytes.js`.
 
 ## Incident prevention (2026-08-13 lessons)
 
@@ -166,10 +171,8 @@ Do **not** repeat these failures:
 - **PPPoE live sessions have no bytes-in/bytes-out on `/ppp/active/print`**
   (unlike `/ip/hotspot/active/print`, which does expose them natively).
   Per-session traffic only exists on the dynamic interface RouterOS creates
-  for each connection, named `<pppoe-USERNAME>`. To show live upload/download
-  for a PPPoE room, look that interface up in `/interface/print` and read
-  `rx-byte`/`tx-byte` from there. Not yet verified against a live router —
-  double-check after deploy that the interface name pattern actually matches.
+  for each connection. Resolve via `lib/pppoe-iface.js` (`<pppoe-USERNAME>`,
+  `pppoe-USERNAME`, then fuzzy). Probe with `npm run verify-pppoe-bytes`.
 - **Suspending a room for non-payment**: the standard term used in this app
   is "ระงับการใช้งาน" (Suspend), not "ล็อก"/"ปิดใช้งาน" — matches ISP/billing
   convention. Implemented via `PATCH /api/mikrotik/pppoe/users/by-name/:name/suspend`
@@ -353,6 +356,16 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-13 (10)** — Close remaining Express-stability follow-ups (no framework rewrite).
+  - Slimmed `package.json` to production Express deps only (dropped Next/React/TanStack/
+    otplib/qrcode/promptpay/zod/typescript tooling). `src/` stays archived under
+    `DO_NOT_DEPLOY.md` but is no longer installable as part of `npm start`.
+  - Added `lib/pppoe-iface.js` + used it for live PPPoE + poller billing counters
+    (fallback interface name forms).
+  - Added `scripts/rotate-mikrotik-api-password.js` (dry-run / `--apply`, secrets file
+    under `~/backups/`) and `scripts/verify-pppoe-bytes.js`.
+  - Product path unchanged: Express + `public/` for speed and stability.
 
 - **2026-08-13 (9)** — Finish post-outage hardening + verification.
   - All sibling app ports bound to **127.0.0.1** (cnx 3002, pems 4000, sop5 5000;
