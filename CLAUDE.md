@@ -332,6 +332,11 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-13 (7)** — Ignore placeholder `SUPABASE_*` (`YOUR_PROJECT_ID`) in
+  Express the same way Next `db.ts` already did; harden script always forces
+  `exec_mode: 'fork'` and re-comments placeholder Supabase lines so a bad bak
+  cannot start fake-Supabase + cluster again.
+
 - **2026-08-13 (6)** — Fixed PPPoE room accounts crash under Local JSON DB.
   - `GET /api/mikrotik/pppoe/users` called `.catch()` on `db.getPppoeUsageLogs()`;
     `db.js` returns a plain object (sync), so the UI showed

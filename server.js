@@ -5,11 +5,19 @@ const crypto = require('crypto');
 const fs = require('fs');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
-const db = process.env.SUPABASE_URL
-    ? require('./db-supabase')
-    : require('./db');
+// Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
+// Uncommented placeholders in ecosystem.config.js must NOT select db-supabase.
+const _supabaseUrl = process.env.SUPABASE_URL || '';
+const _supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
+const useSupabase = !!(
+    _supabaseUrl &&
+    _supabaseKey &&
+    !_supabaseUrl.includes('YOUR_PROJECT_ID') &&
+    !_supabaseKey.includes('YOUR_SERVICE_ROLE_KEY')
+);
+const db = useSupabase ? require('./db-supabase') : require('./db');
 
-console.log(`[DB] Using: ${process.env.SUPABASE_URL ? 'Supabase (PostgreSQL)' : 'Local JSON files'}`);
+console.log(`[DB] Using: ${useSupabase ? 'Supabase (PostgreSQL)' : 'Local JSON files'}`);
 
 const RouterOSClient = require('./routeros');
 
@@ -321,7 +329,7 @@ app.get('/health', (req, res) => {
         status: 'ok',
         uptime: Math.floor(process.uptime()),
         timestamp: new Date().toISOString(),
-        db: process.env.SUPABASE_URL ? 'supabase' : 'local-json'
+        db: useSupabase ? 'supabase' : 'local-json'
     });
 });
 

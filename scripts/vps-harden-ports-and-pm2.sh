@@ -26,17 +26,28 @@ if [ -f "$MIKRO/ecosystem.config.js" ]; then
 from pathlib import Path
 p = Path('/home/ddservice/mikrotik/ecosystem.config.js')
 t = p.read_text()
-if "exec_mode" not in t:
+import re
+# Always fork — never leave cluster from a bad bak / old ecosystem
+if re.search(r"exec_mode:\s*['\"][^'\"]+['\"]", t):
+    t = re.sub(r"exec_mode:\s*['\"][^'\"]+['\"]", "exec_mode: 'fork'", t)
+elif "instances: 1," in t:
     t = t.replace("instances: 1,", "instances: 1,\n            exec_mode: 'fork',", 1)
+else:
+    t = t.replace("script: 'server.js',", "script: 'server.js',\n            instances: 1,\n            exec_mode: 'fork',", 1)
 t = t.replace("cwd: './'", "cwd: '/home/ddservice/mikrotik'")
 # Comment placeholder secrets so JSON fallback stays intentional until real keys are set
-t = t.replace(
-    "SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co'",
-    "// SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co'",
+# (handles both indented and already-partially-commented lines)
+t = re.sub(
+    r"^(\s*)(?://\s*)?SUPABASE_URL:\s*'https://YOUR_PROJECT_ID\.supabase\.co'\s*,?\s*$",
+    r"\1// SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co',",
+    t,
+    flags=re.M,
 )
-t = t.replace(
-    "SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_SERVICE_ROLE_KEY'",
-    "// SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_SERVICE_ROLE_KEY'",
+t = re.sub(
+    r"^(\s*)(?://\s*)?SUPABASE_SERVICE_KEY:\s*'eyJ[^']*YOUR_SERVICE_ROLE_KEY'\s*,?\s*$",
+    r"\1// SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_SERVICE_ROLE_KEY',",
+    t,
+    flags=re.M,
 )
 if "script: 'server.js'" not in t and 'script: "server.js"' not in t:
     raise SystemExit('REFUSING: mikrotik ecosystem is not script:server.js')
