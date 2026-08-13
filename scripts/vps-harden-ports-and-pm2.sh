@@ -62,18 +62,23 @@ PY
   fi
 fi
 
-# ---- 2) cnxhaircutz on 3002 ----
+# ---- 2) cnxhaircutz on 3002 (localhost only — nginx fronts it) ----
 CNX="/var/www/cnxhaircutz"
 if [ -d "$CNX" ]; then
-  if ! pm2 describe cnxhaircutz >/dev/null 2>&1; then
-    PORT=3002 NODE_ENV=production pm2 start npm --name cnxhaircutz --cwd "$CNX" -- start
-  elif ! ensure_listen 3002; then
-    pm2 restart cnxhaircutz
+  NEED_CNX=0
+  if ! pm2 describe cnxhaircutz >/dev/null 2>&1; then NEED_CNX=1; fi
+  if ! ensure_listen 3002; then NEED_CNX=1; fi
+  # Force rebind if listening on 0.0.0.0 instead of 127.0.0.1
+  if ss -lntp 2>/dev/null | grep -E '0\.0\.0\.0:3002|\*:3002' | grep -vq '127.0.0.1:3002'; then NEED_CNX=1; fi
+  if [ "$NEED_CNX" = 1 ]; then
+    pm2 delete cnxhaircutz 2>/dev/null || true
+    PORT=3002 HOSTNAME=127.0.0.1 NODE_ENV=production \
+      pm2 start npm --name cnxhaircutz --cwd "$CNX" -- start -- -H 127.0.0.1 -p 3002
   fi
-  echo "[ok] cnxhaircutz managed (expect :3002)"
+  echo "[ok] cnxhaircutz managed (expect 127.0.0.1:3002)"
 fi
 
-# ---- 3) pems on 4000 with absolute standalone cwd ----
+# ---- 3) pems on 4000 with absolute standalone cwd (localhost only) ----
 PEMS="/home/ddservice/TMHCCP5"
 if [ -f "$PEMS/.next/standalone/server.js" ]; then
   if [ -f "$PEMS/ecosystem.config.js" ]; then
@@ -90,26 +95,29 @@ else:
     print('[ok] TMHCCP5 ecosystem cwd already absolute or different format')
 PY
   fi
-  if ! ensure_listen 4000; then
+  NEED_PEMS=0
+  if ! ensure_listen 4000; then NEED_PEMS=1; fi
+  if ss -lntp 2>/dev/null | grep -E '0\.0\.0\.0:4000|\*:4000' | grep -vq '127.0.0.1:4000'; then NEED_PEMS=1; fi
+  if [ "$NEED_PEMS" = 1 ]; then
     pm2 delete pems-platform 2>/dev/null || true
     set -a
     # shellcheck disable=SC1091
     [ -f "$PEMS/.env.production" ] && . "$PEMS/.env.production"
     set +a
-    PORT=4000 NODE_ENV=production pm2 start server.js \
+    PORT=4000 HOSTNAME=127.0.0.1 NODE_ENV=production pm2 start server.js \
       --name pems-platform \
       --cwd "$PEMS/.next/standalone"
   fi
   # pems-stale-remind removed 2026-08-13 (unused LINE stale cron)
-  echo "[ok] pems managed (expect :4000)"
+  echo "[ok] pems managed (expect 127.0.0.1:4000)"
 fi
 
-# ---- 4) sop5 production on 5000 (server.js only — not vite+dev) ----
+# ---- 4) sop5 production on 5000 (server.js only — not vite+dev; localhost) ----
 SOP5="/home/ddservice/sop5"
 if [ -f "$SOP5/server.js" ]; then
-  # If current sop5 is npm start (dev+server), replace with production server
   NEED_SOP5_FIX=0
   if ! ensure_listen 5000; then NEED_SOP5_FIX=1; fi
+  if ss -lntp 2>/dev/null | grep -E '0\.0\.0\.0:5000|\*:5000' | grep -vq '127.0.0.1:5000'; then NEED_SOP5_FIX=1; fi
   if pm2 describe sop5 >/dev/null 2>&1; then
     SCRIPT=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); a=next((x for x in d if x.get('name')=='sop5'),None); print((a or {}).get('pm2_env',{}).get('pm_exec_path',''))" || true)
     case "$SCRIPT" in
@@ -120,9 +128,9 @@ if [ -f "$SOP5/server.js" ]; then
   fi
   if [ "$NEED_SOP5_FIX" = 1 ]; then
     pm2 delete sop5 2>/dev/null || true
-    PORT=5000 NODE_ENV=production pm2 start server.js --name sop5 --cwd "$SOP5"
+    PORT=5000 HOST=127.0.0.1 NODE_ENV=production pm2 start server.js --name sop5 --cwd "$SOP5"
   fi
-  echo "[ok] sop5 managed (expect :5000, server.js)"
+  echo "[ok] sop5 managed (expect 127.0.0.1:5000, server.js)"
 fi
 
 # ---- 5) minimalcnx Docker permanently on 3011 (never 3001) ----
@@ -154,21 +162,26 @@ PORTS_DOC="/home/ddservice/VPS-PORTS.md"
 cat > "$PORTS_DOC" <<'EOF'
 # VPS port ownership (do not steal)
 
-| Port | App | How it runs | Nginx host |
-|------|-----|-------------|------------|
-| 3001 | mikrotik-dashboard | PM2 `server.js` fork | api.ddserviceth.com |
-| 3002 | cnxhaircutz | PM2 `npm start` in /var/www/cnxhaircutz | cnxhaircutz.ddserviceth.com |
-| 3005 | invest3 / apexlink | Docker apexlink-forensics | invest3.ddserviceth.com |
-| 3011 | minimalcnx | Docker `127.0.0.1:3011->3000` | minimal*.ddserviceth.com |
-| 4000 | pems-platform | PM2 standalone server.js | pems.ddserviceth.com |
-| 5000 | sop5 | PM2 `server.js` (not vite) | sop5.ddserviceth.com |
+| Port | Bind | App | How it runs | Nginx host |
+|------|------|-----|-------------|------------|
+| 3001 | 127.0.0.1 | mikrotik-dashboard | PM2 `server.js` fork + HOST=127.0.0.1 | api.ddserviceth.com |
+| 3002 | 127.0.0.1 | cnxhaircutz | PM2 `next start -H 127.0.0.1 -p 3002` | cnxhaircutz.ddserviceth.com |
+| 3005 | 127.0.0.1 | invest3 / apexlink | Docker `127.0.0.1:3005->3000` | invest3.ddserviceth.com |
+| 3011 | 127.0.0.1 | minimalcnx | Docker `127.0.0.1:3011->3000` | minimal*.ddserviceth.com |
+| 4000 | 127.0.0.1 | pems-platform | PM2 standalone + HOSTNAME=127.0.0.1 | pems / tmhccp5 |
+| 5000 | 127.0.0.1 | sop5 | PM2 `server.js` + HOST=127.0.0.1 | sop5.ddserviceth.com |
+| 80/443 | public | nginx | reverse proxy only | all HTTPS sites |
+| 22 | public | sshd | key-only (no password/root) | admin |
 
 ## Hard rules
 1. Never point MikroTik PM2 at `next start`.
 2. Never bind anything else to 3001.
-3. Never `pm2 reload ecosystem.config.js --update-env` with YOUR_PROJECT_ID placeholders.
-4. After starting/stopping apps: `pm2 save` (and keep `pm2 startup` enabled).
-5. Before risky deploys: `bash /home/ddservice/mikrotik/scripts/backup-pre-rewrite.sh`
+3. Prefer `127.0.0.1` for Node/Next app ports — only nginx is public.
+4. Never `pm2 reload ecosystem.config.js --update-env` with YOUR_PROJECT_ID placeholders.
+5. After starting/stopping apps: `pm2 save` only when all critical apps are online.
+6. Before risky deploys: `bash /home/ddservice/mikrotik/scripts/backup-pre-rewrite.sh`
+7. Real Supabase secrets live only in VPS `ecosystem.config.js` (gitignored) + `/home/ddservice/backups/ecosystem.config.js.REAL.bak`.
+8. `pems-stale-remind` was removed (2026-08-13) — do not recreate.
 EOF
 echo "[ok] wrote $PORTS_DOC"
 

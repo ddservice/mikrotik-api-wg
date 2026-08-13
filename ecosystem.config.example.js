@@ -39,6 +39,8 @@ module.exports = {
                 NODE_ENV: 'production',
                 // MikroTik ONLY — do not use 3000/3002/3005/3011/4000/5000 (other VPS apps)
                 PORT: 3001,
+                // Behind nginx: bind loopback. Local UI testing: HOST=0.0.0.0
+                HOST: '127.0.0.1',
 
                 // ==========================================
                 // Supabase — ใส่ของจริงเท่านั้น

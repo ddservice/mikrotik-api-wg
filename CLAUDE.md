@@ -34,24 +34,42 @@ Handoff model for future developers:
 
 ## VPS port ownership (do not steal ports from other apps)
 
-| Port | Owner | Notes |
-|------|--------|--------|
-| **3001** | **MikroTik dashboard only** | Nginx `mikrotik.conf` → `127.0.0.1:3001` |
-| 3002 | `cnxhaircutz.ddserviceth.com` | If 502: nothing listening — start that app on 3002 |
-| 3005 | `invest3` / `apexlink-forensics` Docker | Leave alone |
-| 3011 | `minimalcnx` (after migrate) | Was wrongly on 3001; nginx `minimal*.conf` must follow |
-| 4000 | pems / related | |
-| 5000 | sop5 | |
+| Port | Bind | Owner | Notes |
+|------|------|--------|--------|
+| **3001** | **127.0.0.1** | **MikroTik dashboard only** | Nginx `mikrotik.conf` → `127.0.0.1:3001`; `HOST=127.0.0.1` |
+| 3002 | 127.0.0.1 | `cnxhaircutz` | `next start -H 127.0.0.1 -p 3002` |
+| 3005 | 127.0.0.1 | `invest3` / `apexlink-forensics` Docker | UFW DENY public 3005 |
+| 3011 | 127.0.0.1 | `minimalcnx` Docker | Was wrongly on 3001 |
+| 4000 | 127.0.0.1 | `pems-platform` | `HOSTNAME=127.0.0.1`; hosts pems + tmhccp5 |
+| 5000 | 127.0.0.1 | `sop5` | `HOST=127.0.0.1`, `server.js` (not vite) |
+| 80/443 | public | nginx only | All HTTPS sites |
+| 22 | public | sshd | Key-only; `PermitRootLogin no` |
+
+Canonical map on VPS: `/home/ddservice/VPS-PORTS.md` (rewritten by harden script).
 
 Recover other sites without touching MikroTik: `scripts/vps-recover-other-sites.sh`.
 After any multi-app incident, run once:
 `bash /home/ddservice/mikrotik/scripts/vps-harden-ports-and-pm2.sh`
 (writes `/home/ddservice/VPS-PORTS.md`, fixes absolute cwd for pems, keeps
-minimalcnx on 3011, forces MikroTik fork/`server.js`, `pm2 save`).
+minimalcnx on 3011, forces MikroTik fork/`server.js`, localhost binds, `pm2 save`).
 Before starting MikroTik PM2: `bash scripts/preflight-mikrotik-ecosystem.sh`.
 
 `cnxhaircutz.com` (apex) may be on a different host than
 `cnxhaircutz.ddserviceth.com` (this VPS → `/var/www/cnxhaircutz` on **3002**).
+
+### Production data note (post 2026-08-13 recovery)
+
+- Live DB is **Supabase** (not Local JSON). Real keys live only in VPS
+  `ecosystem.config.js` (gitignored) and backup
+  `/home/ddservice/backups/ecosystem.config.js.REAL.bak`.
+- As of recovery verification: **2 sites** in Postgres (`A4-Residence`,
+  `TingTing`) with host+API user set; **3 dashboard_users**. Local
+  `db/config.json` may still list a third name (`สาขาหลัก`) from the
+  JSON-fallback period — that is **not** production source of truth.
+  Add/rename sites via the Router Settings UI against Supabase.
+- `pems-stale-remind` hourly cron was removed as unused (2026-08-13).
+- Operator still should **rotate** any MikroTik API password that was ever
+  committed to git history (`db/config.json` pre-2026-07-30 exposure).
 
 ## Incident prevention (2026-08-13 lessons)
 
@@ -61,10 +79,14 @@ Do **not** repeat these failures:
 2. **Do not use PORT 3000/3001 for other apps** — 3001 is MikroTik-only; minimalcnx uses **3011**.
 3. **Do not `pm2 save` until all apps are healthy** — a save with only mikrotik wiped resurrect for others.
 4. **Do not `--update-env` from placeholder Supabase keys** — comment them out or use real keys.
+   Express ignores `YOUR_PROJECT_ID` / `YOUR_SERVICE_ROLE_KEY` and falls back to Local JSON.
 5. **Do not use relative `cwd: './.next/standalone'` for pems** — use absolute
    `/home/ddservice/TMHCCP5/.next/standalone` or PM2 doubles the path.
 6. **PM2 `exec_mode: 'fork'`** for MikroTik (cluster caused confusion / bad ops habits).
-7. Before rewrite/risk: `scripts/backup-pre-rewrite.sh` + keep tag `pre-rewrite-express-2026-08-13`.
+7. **Bind Node/Next app ports to `127.0.0.1`** — only nginx (80/443) and sshd (22) are public.
+8. **Do not recreate `pems-stale-remind`** — removed 2026-08-13.
+9. Before rewrite/risk: `scripts/backup-pre-rewrite.sh` + keep tag `pre-rewrite-express-2026-08-13`.
+10. **Never commit VPS `ecosystem.config.js`** — secrets only on the server + REAL.bak.
 
 ## Architecture
 
@@ -331,6 +353,21 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-13 (9)** — Finish post-outage hardening + verification.
+  - All sibling app ports bound to **127.0.0.1** (cnx 3002, pems 4000, sop5 5000;
+    invest3/minimalcnx already localhost; MikroTik `HOST=127.0.0.1`).
+  - Restored real Supabase from `ecosystem.config.js.REAL.bak`; `/health` → `db:supabase`.
+  - Verified production sites: **A4-Residence**, **TingTing** (ready); 3 dashboard users;
+    logs present (hotspot/DNS/PPPoE). Local JSON may still show an extra
+    `สาขาหลัก` — not production source of truth.
+  - Removed unused `pems-stale-remind` PM2 cron + source; harden no longer resurrects it.
+  - UFW active (22/80/443; DENY public 3005); SSH key-only / no root login; fail2ban on.
+  - nginx: `pems.conf` no longer shares `TMHCCp5` server_name with `tmhccp5.conf`.
+  - Archived incident bak clutter under `/home/ddservice/backups/`; dropped `.next` from git.
+  - E2E probes (2026-08-13): api/sop5/sneakercare 200; cnx/pems/tmhccp5/minimal/invest3 307.
+  - Remaining operator action: rotate any MikroTik API password that was ever in git history;
+    optional invest3 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` if maps UI is needed.
 
 - **2026-08-13 (8)** — Production listen defaults to `127.0.0.1` (`HOST` env
   override); ignore `.next/` in git; VPS tidy archived incident leftovers and
