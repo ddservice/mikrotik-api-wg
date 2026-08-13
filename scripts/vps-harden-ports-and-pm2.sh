@@ -100,15 +100,7 @@ PY
       --name pems-platform \
       --cwd "$PEMS/.next/standalone"
   fi
-  if ! pm2 describe pems-stale-remind >/dev/null 2>&1; then
-    if [ -f "$PEMS/scripts/remind-stale-incidents.js" ]; then
-      pm2 start "$PEMS/scripts/remind-stale-incidents.js" \
-        --name pems-stale-remind \
-        --cwd "$PEMS" \
-        --cron '20 * * * *' \
-        --no-autorestart || true
-    fi
-  fi
+  # pems-stale-remind removed 2026-08-13 (unused LINE stale cron)
   echo "[ok] pems managed (expect :4000)"
 fi
 
