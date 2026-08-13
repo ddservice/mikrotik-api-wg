@@ -332,6 +332,12 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-13 (6)** — Fixed PPPoE room accounts crash under Local JSON DB.
+  - `GET /api/mikrotik/pppoe/users` called `.catch()` on `db.getPppoeUsageLogs()`;
+    `db.js` returns a plain object (sync), so the UI showed
+    `db.getPppoeUsageLogs(...).catch is not a function`. Wrapped with
+    `Promise.resolve(...)` so both JSON and Supabase backends work.
+
 - **2026-08-13 (5)** — Harden against repeat multi-site outage.
   - Added `scripts/vps-harden-ports-and-pm2.sh` (durable PM2 list, pems absolute cwd,
     minimalcnx→3011, sop5 `server.js` prod, writes `/home/ddservice/VPS-PORTS.md`).

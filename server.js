@@ -1714,7 +1714,8 @@ app.get('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (
             const [secrets, active, pppoeLogsData] = await Promise.all([
                 client.exec('/ppp/secret/print'),
                 client.exec('/ppp/active/print').catch(() => []),
-                db.getPppoeUsageLogs({ limit: 1000 }).catch(() => ({ logs: [] }))
+                // db.js is sync; db-supabase.js returns a Promise — normalize both
+                Promise.resolve(db.getPppoeUsageLogs({ limit: 1000 })).catch(() => ({ logs: [] }))
             ]);
 
             const activeMap = new Map();
