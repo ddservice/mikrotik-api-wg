@@ -2866,7 +2866,8 @@ setInterval(async () => {
     }
 }, 24 * 60 * 60 * 1000);
 
-// Server Listen (Immediate boot to prevent 502 Bad Gateway)
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] MikroTik API Server running on http://0.0.0.0:${PORT}`);
+// Server Listen — default 127.0.0.1 behind nginx; override with HOST=0.0.0.0 for local dev
+const LISTEN_HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, LISTEN_HOST, () => {
+    console.log(`[Server] MikroTik API Server running on http://${LISTEN_HOST}:${PORT}`);
 });

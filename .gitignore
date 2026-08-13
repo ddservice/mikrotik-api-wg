@@ -5,6 +5,10 @@ db/*.db
 !db/.gitkeep
 nas-backup.conf
 
+# Next experiment build artifacts (Express is production — do not deploy .next)
+.next/
+tsconfig.tsbuildinfo
+
 # PM2 config มี secret จริงบน VPS — ใช้ ecosystem.config.example.js เป็น template
 ecosystem.config.js
 

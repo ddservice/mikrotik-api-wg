@@ -332,6 +332,10 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-13 (8)** — Production listen defaults to `127.0.0.1` (`HOST` env
+  override); ignore `.next/` in git; VPS tidy archived incident leftovers and
+  restored real Supabase from `ecosystem.config.js.REAL.bak`.
+
 - **2026-08-13 (7)** — Ignore placeholder `SUPABASE_*` (`YOUR_PROJECT_ID`) in
   Express the same way Next `db.ts` already did; harden script always forces
   `exec_mode: 'fork'` and re-comments placeholder Supabase lines so a bad bak
