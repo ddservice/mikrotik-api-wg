@@ -12,14 +12,16 @@ module.exports = {
             // ชื่อ process ที่แสดงใน pm2 list
             name: 'mikrotik-dashboard',
 
-            // ไฟล์หลักที่รัน (MikroTik API Server)
+            // ไฟล์หลักที่รัน (MikroTik API Server / Express)
+            // อย่าชี้ไปที่ next start — จะแย่งพอร์ต 3000 จาก cnxhaircutz และ Nginx ของ api ชี้ที่ 3001
             script: 'server.js',
 
-            // โฟลเดอร์ที่รัน (relative path)
-            cwd: './',
+            // โฟลเดอร์ที่รัน (absolute path บน VPS)
+            cwd: '/home/ddservice/mikrotik',
 
             // จำนวน instance (1 = single process, 'max' = ทุก CPU core)
             instances: 1,
+            exec_mode: 'fork',
 
             // Auto-restart เมื่อ crash
             autorestart: true,

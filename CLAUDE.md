@@ -243,6 +243,13 @@ browser.
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-13** — Outage diagnosis: `api.ddserviceth.com` 502; removed duplicate `app.listen` crash risk; restored PM2 `cwd`.
+  - External probe: Cloudflare returns `502` with fast origin time (`cfOrigin ~30–90ms`) = Nginx up, upstream Node dead/not listening.
+  - `ddserviceth.com` (WordPress/Hostinger) and `cnxhaircutz.com` were reachable from outside — not a full VPS/network blackout.
+  - Root-cause chain from overnight commits: Next.js PM2 on port `3000` (collides with `cnxhaircutz`), broken `db.js` `saveMenuPermissions` SyntaxError (fixed in `4c29e38`), and **two** `app.listen(PORT)` calls in `server.js` (Linux `EADDRINUSE` → PM2 crash-loop).
+  - Removed the mid-file `app.listen` so only the end-of-file listener remains; set `ecosystem.config.js` `cwd` back to `/home/ddservice/mikrotik` and kept `script: 'server.js'` + `PORT: 3001`.
+  - **Warning**: `ecosystem.config.js` was force-added to git with placeholder Supabase keys — never `pm2 reload … --update-env` from that file until real secrets are restored on the VPS copy.
+
 - **2026-08-12 (14)** — Configured PM2 Next.js Production Server & Added 2FA TOTP / RouterOS Backup Module.
   - Updated `ecosystem.config.js` to execute `node_modules/next/dist/bin/next start -p 3001` directly under PM2.
   - Added RouterOS Daily Config Backup API Route (`src/app/api/backup/routeros/route.ts`) & 1-Click Backup UI in Settings.

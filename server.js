@@ -61,7 +61,8 @@ const apiLimiter = rateLimit({
 
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Default 3001 — port 3000 is reserved for cnxhaircutz on the same VPS.
+const PORT = process.env.PORT || 3001;
 
 // Hide server framework signature
 app.disable('x-powered-by');
@@ -2504,11 +2505,6 @@ app.post('/api/mikrotik/firewall/apply-security-hardening', requireAuth(['admin'
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
-});
-
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
 });
 
 // ==========================================
