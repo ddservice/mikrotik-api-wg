@@ -127,7 +127,15 @@ async function rotateOne(site, { apply, secretsOut }) {
         return { label, status: 'rotated', detail: 'router + DB updated' };
     } catch (err) {
         try { client.close(); } catch (_) { /* ignore */ }
-        return { label, status: 'fail', detail: err.message };
+        const msg = String(err.message || err);
+        if (/not enough permissions|permission/i.test(msg)) {
+            return {
+                label,
+                status: 'fail',
+                detail: `${msg} — API user lacks write on /user. Rotate in WinBox as full admin, then paste the new password in Router Settings UI (or re-run after granting write).`
+            };
+        }
+        return { label, status: 'fail', detail: msg };
     }
 }
 

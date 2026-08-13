@@ -68,13 +68,14 @@ Before starting MikroTik PM2: `bash scripts/preflight-mikrotik-ecosystem.sh`.
   JSON-fallback period — that is **not** production source of truth.
   Add/rename sites via the Router Settings UI against Supabase.
 - `pems-stale-remind` hourly cron was removed as unused (2026-08-13).
-- Operator still should **rotate** any MikroTik API password that was ever
-  committed to git history (`db/config.json` pre-2026-07-30 exposure).
-  Use dry-run then apply on the VPS:
-  `node scripts/rotate-mikrotik-api-password.js` then
-  `node scripts/rotate-mikrotik-api-password.js --apply`
-  (writes secrets once to `~/backups/mikrotik-api-passwords-*.txt` — copy offline, delete).
-  Verify PPPoE live counters after deploy: `node scripts/verify-pppoe-bytes.js`.
+- Operator: **TingTing** API password was rotated 2026-08-13 via
+  `scripts/rotate-mikrotik-api-password.js --apply` (secrets file under
+  `~/backups/mikrotik-api-passwords-*.txt` — copy offline then delete).
+  **A4-Residence** still needs a manual WinBox rotate of `ddserviceapi`
+  (API user lacks `/user` write — error "not enough permissions"), then
+  paste the new password in Router Settings UI.
+  Verify PPPoE live counters: `node scripts/verify-pppoe-bytes.js`
+  (confirmed 2026-08-13 on A4: `<pppoe-USERNAME>` matched with non-zero rx/tx).
 
 ## Incident prevention (2026-08-13 lessons)
 
@@ -362,10 +363,13 @@ Keep this updated after every code change — newest entry on top.
     otplib/qrcode/promptpay/zod/typescript tooling). `src/` stays archived under
     `DO_NOT_DEPLOY.md` but is no longer installable as part of `npm start`.
   - Added `lib/pppoe-iface.js` + used it for live PPPoE + poller billing counters
-    (fallback interface name forms).
-  - Added `scripts/rotate-mikrotik-api-password.js` (dry-run / `--apply`, secrets file
-    under `~/backups/`) and `scripts/verify-pppoe-bytes.js`.
+    (fallback interface name forms). Live verify on A4: 4 sessions matched
+    `<pppoe-USERNAME>` with non-zero rx/tx; TingTing had 0 sessions (no PPPoE clients).
+  - Added `scripts/rotate-mikrotik-api-password.js` / `verify-pppoe-bytes.js`.
+    Applied rotate on VPS: **TingTing OK**; **A4-Residence** blocked by RouterOS
+    permissions on `/user` — manual WinBox rotate still required for that site.
   - Product path unchanged: Express + `public/` for speed and stability.
+  - VPS: `npm install --omit=dev` dropped 152 unused packages; `/health` supabase OK.
 
 - **2026-08-13 (9)** — Finish post-outage hardening + verification.
   - All sibling app ports bound to **127.0.0.1** (cnx 3002, pems 4000, sop5 5000;
@@ -379,8 +383,10 @@ Keep this updated after every code change — newest entry on top.
   - nginx: `pems.conf` no longer shares `TMHCCp5` server_name with `tmhccp5.conf`.
   - Archived incident bak clutter under `/home/ddservice/backups/`; dropped `.next` from git.
   - E2E probes (2026-08-13): api/sop5/sneakercare 200; cnx/pems/tmhccp5/minimal/invest3 307.
-  - Remaining operator action: rotate any MikroTik API password that was ever in git history;
-    optional invest3 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` if maps UI is needed.
+  - Remaining operator action for **A4-Residence** only: API user lacks `/user`
+    write — rotate `ddserviceapi` password in WinBox as full admin, then paste into
+    Router Settings (TingTing was rotated successfully via script). Optional invest3
+    Maps key is unrelated to this app.
 
 - **2026-08-13 (8)** — Production listen defaults to `127.0.0.1` (`HOST` env
   override); ignore `.next/` in git; VPS tidy archived incident leftovers and
