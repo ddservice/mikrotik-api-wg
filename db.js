@@ -352,50 +352,17 @@ function deleteUser(id) {
 function authenticateUser(username, password) {
     const users = getUsers();
     const index = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
-    if (index === -1) {
-        if (username.toLowerCase() === 'admin' && password === 'admin1234') {
-            const salt = generateSalt();
-            const defaultAdmin = {
-                id: '1',
-                username: 'admin',
-                salt,
-                passwordHash: hashPasswordPBKDF2('admin1234', salt),
-                role: 'admin',
-                name: 'System Administrator'
-            };
-            users.push(defaultAdmin);
-            saveUsers(users);
-            return { id: defaultAdmin.id, username: defaultAdmin.username, role: defaultAdmin.role, name: defaultAdmin.name, assignedSiteId: 'all' };
-        }
-        return null;
-    }
+    if (index === -1) return null;
     
     const user = users[index];
     let isValid = false;
 
     if (user.salt) {
+        // Modern PBKDF2 check
         isValid = hashPasswordPBKDF2(password, user.salt) === user.passwordHash;
     } else {
+        // Legacy SHA256 fallback & Seamless Auto-Migration to PBKDF2
         isValid = hashPasswordLegacy(password) === user.passwordHash;
-        if (isValid) {
-            const ns = generateSalt();
-            user.salt = ns;
-            user.passwordHash = hashPasswordPBKDF2(password, ns);
-            saveUsers(users);
-        }
-    }
-
-    if (!isValid && user.username === 'admin' && password === 'admin1234') {
-        const salt = generateSalt();
-        user.salt = salt;
-        user.passwordHash = hashPasswordPBKDF2('admin1234', salt);
-        saveUsers(users);
-        isValid = true;
-    }
-
-    if (!isValid) return null;
-    return { id: user.id, username: user.username, role: user.role, name: user.name, assignedSiteId: user.assignedSiteId || 'all' };
-}
         if (isValid) {
             const newSalt = generateSalt();
             user.salt = newSalt;
@@ -814,7 +781,11 @@ function saveMenuPermissions(config) {
         'co-admin': Array.isArray(config['co-admin']) ? config['co-admin'] : [],
         'user': Array.isArray(config['user']) ? config['user'] : []
     };
-const MULTIWAN_FILE = path.join(__dirname, 'data', 'multiwan.json');
+    fs.writeFileSync(MENU_PERMISSIONS_FILE, JSON.stringify(updated, null, 4), 'utf8');
+    return updated;
+}
+
+const MULTIWAN_FILE = path.join(__dirname, 'db', 'multiwan.json');
 
 function _getDefaultMultiWanConfig() {
     return {
