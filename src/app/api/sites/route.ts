@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSitesData, isSupabase, supabase } from '@/lib/db';
-import fs from 'fs';
-import path from 'path';
-
-const CONFIG_FILE = path.join(process.cwd(), 'db', 'config.json');
+import { getSitesData, isSupabase, saveSitesData, supabase } from '@/lib/db';
 
 export async function GET() {
   try {
@@ -24,11 +20,11 @@ export async function POST(req: NextRequest) {
     const newSite = {
       id,
       name: name || 'ไซต์งานใหม่',
-      host: host || wireguardIp || '10.10.88.2',
+      host: host || wireguardIp || '',
       port: Number(port) || 8728,
       username: username || 'admin',
       password: password || '',
-      wireguardIp: wireguardIp || '10.10.88.2',
+      wireguardIp: wireguardIp || '',
       is_active: false,
     };
 
@@ -36,8 +32,9 @@ export async function POST(req: NextRequest) {
       const res = await supabase.from('sites').insert([newSite]);
       if (res.error) throw new Error(res.error.message);
     } else {
+      data.sites = data.sites || [];
       data.sites.push(newSite);
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 4), 'utf8');
+      saveSitesData(data);
     }
 
     return NextResponse.json({ success: true, site: newSite });

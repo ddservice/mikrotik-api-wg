@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSitesData, isSupabase, supabase } from '@/lib/db';
-import fs from 'fs';
-import path from 'path';
-
-const CONFIG_FILE = path.join(process.cwd(), 'db', 'config.json');
+import { getSitesData, isSupabase, saveSitesData, supabase } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,10 +15,10 @@ export async function POST(req: NextRequest) {
     } else {
       const data = await getSitesData();
       data.activeSiteId = siteId;
-      data.sites.forEach(s => {
+      (data.sites || []).forEach((s) => {
         s.is_active = s.id === siteId;
       });
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 4), 'utf8');
+      saveSitesData(data);
     }
 
     return NextResponse.json({ success: true, activeSiteId: siteId });

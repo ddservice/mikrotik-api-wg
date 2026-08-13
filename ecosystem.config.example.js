@@ -12,14 +12,15 @@ module.exports = {
             // ชื่อ process ที่แสดงใน pm2 list
             name: 'mikrotik-dashboard',
 
-            // ไฟล์หลักที่รัน
+            // ไฟล์หลักที่รัน — ต้องเป็น Express server.js เท่านั้น (ห้าม next start)
             script: 'server.js',
 
             // โฟลเดอร์ที่รัน (ปรับตาม path จริงบน VPS)
             cwd: '/home/ddservice/mikrotik',
 
-            // จำนวน instance (1 = single process, 'max' = ทุก CPU core)
+            // จำนวน instance (1 = single process) — ห้าม cluster กับ Express listen เดียว
             instances: 1,
+            exec_mode: 'fork',
 
             // Auto-restart เมื่อ crash
             autorestart: true,
@@ -36,14 +37,16 @@ module.exports = {
             // Environment variables
             env: {
                 NODE_ENV: 'production',
+                // MikroTik ONLY — do not use 3000/3002/3005/3011/4000/5000 (other VPS apps)
                 PORT: 3001,
 
                 // ==========================================
-                // Supabase — เปลี่ยนค่าด้านล่างนี้ด้วยของจริง
-                // หาได้ที่: Supabase Dashboard → Settings → API
+                // Supabase — ใส่ของจริงเท่านั้น
+                // ห้ามปล่อย YOUR_PROJECT_ID แล้ว pm2 --update-env
+                // ถ้ายังไม่มี key จริง ให้คอมเมนต์ 2 บรรทัดนี้ออก (ใช้ JSON fallback)
                 // ==========================================
-                SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co',
-                SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.YOUR_SERVICE_ROLE_KEY',
+                // SUPABASE_URL: 'https://xxxx.supabase.co',
+                // SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....',
 
                 // CORS origins (ถ้ามี domain)
                 // ALLOWED_ORIGINS: 'https://yourdomain.com'

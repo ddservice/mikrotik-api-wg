@@ -2,19 +2,26 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { Site, SitesData, DashboardUser, ActivityLog, MultiWanConfig } from './types';
+import { Site, SitesData, DashboardUser, ActivityLog } from './types';
 
-const LEGACY_SALT = 'mikrotik_dash_salt_2026';
-const CONFIG_FILE = path.join(process.cwd(), 'db', 'sites.json');
-const USERS_FILE = path.join(process.cwd(), 'db', 'users.json');
-const LOGS_FILE = path.join(process.cwd(), 'db', 'logs.json');
-const MULTIWAN_FILE = path.join(process.cwd(), 'db', 'multiwan.json');
-const MENU_PERMS_FILE = path.join(process.cwd(), 'db', 'menu_permissions.json');
+// Must match Express db.js — wrong salt breaks legacy password verification.
+const LEGACY_SALT = 'mikrotik_gatekeeper_salt_secure_2026';
 
+// Same path as Express db.js (NOT sites.json — that mismatch made sites look "gone").
+const DB_DIR = path.join(process.cwd(), 'db');
+const CONFIG_FILE = path.join(DB_DIR, 'config.json');
+const LEGACY_SITES_FILE = path.join(DB_DIR, 'sites.json');
+const USERS_FILE = path.join(DB_DIR, 'users.json');
+const LOGS_FILE = path.join(DB_DIR, 'logs.json');
+
+// Align with Express ecosystem: SUPABASE_SERVICE_KEY (also accept aliases).
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_KEY;
 
-export const isSupabase = !!(supabaseUrl && supabaseKey);
+export const isSupabase = !!(supabaseUrl && supabaseKey && !String(supabaseUrl).includes('YOUR_PROJECT_ID'));
 export const supabase = isSupabase ? createClient(supabaseUrl!, supabaseKey!) : null;
 
 function generateSalt(): string {
@@ -29,81 +36,84 @@ function hashPasswordLegacy(password: string): string {
   return crypto.createHash('sha256').update(password + LEGACY_SALT).digest('hex');
 }
 
-function ensureLocalFiles() {
-  const dbDir = path.join(process.cwd(), 'db');
-  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+const emptySitesData = (): SitesData => ({
+  activeSiteId: '',
+  sites: [],
+});
 
-  const defaultSitesData: SitesData = {
-    activeSiteId: 'site_1',
-    sites: [
-      {
-        id: 'site_1',
-        name: 'สาขาหลัก (Main Site)',
-        host: 'b4a00a4696aa.sn.mynetname.net',
-        port: 8927,
-        username: 'ddserviceapi',
-        password: '$Atmin04910',
-        wireguardIp: '10.10.88.1',
-        connectionType: 'direct',
-        is_active: true,
-      },
-      {
-        id: 'site_2',
-        name: 'สาขาที่ 2 (WireGuard VPN)',
-        host: '10.10.88.2',
-        port: 8728,
-        username: 'admin',
-        password: '',
-        wireguardIp: '10.10.88.2',
-        connectionType: 'wireguard',
-        is_active: false,
+/** Prefer config.json; one-time import from sites.json if that was written by the broken Next path. */
+function readLocalSitesFile(): SitesData {
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8') || '{}');
+      if (parsed.host !== undefined && !parsed.sites) {
+        const migrated: SitesData = {
+          activeSiteId: 'site_1',
+          sites: [
+            {
+              id: 'site_1',
+              name: 'สาขาหลัก (Main Site)',
+              host: parsed.host || '',
+              port: parsed.port || 8728,
+              username: parsed.username || '',
+              password: parsed.password || '',
+            },
+          ],
+        };
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(migrated, null, 4), 'utf8');
+        return migrated;
       }
-    ]
-  };
+      if (Array.isArray(parsed.sites) && parsed.sites.length > 0) {
+        return parsed as SitesData;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (fs.existsSync(LEGACY_SITES_FILE)) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(LEGACY_SITES_FILE, 'utf8') || '{}') as SitesData;
+      if (Array.isArray(legacy.sites) && legacy.sites.length > 0) {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(legacy, null, 4), 'utf8');
+        return legacy;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return emptySitesData();
+}
+
+function ensureLocalFiles() {
+  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
   if (!fs.existsSync(CONFIG_FILE)) {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultSitesData, null, 4), 'utf8');
-  } else {
-    try {
-      const existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8') || '{}');
-      let updated = false;
-
-      if (!existing.sites || existing.sites.length === 0) {
-        existing.sites = defaultSitesData.sites;
-        existing.activeSiteId = 'site_1';
-        updated = true;
-      } else {
-        // Recover Site 1 host/port/credentials if missing or empty
-        const s1 = existing.sites.find((s: any) => s.id === 'site_1' || s.name.includes('สาขาหลัก'));
-        if (s1) {
-          if (!s1.host || s1.host === '') { s1.host = 'b4a00a4696aa.sn.mynetname.net'; updated = true; }
-          if (!s1.port) { s1.port = 8927; updated = true; }
-          if (!s1.username || s1.username === '') { s1.username = 'ddserviceapi'; updated = true; }
-          if (!s1.password || s1.password === '') { s1.password = '$Atmin04910'; updated = true; }
-        }
-
-        // If only 1 site exists, auto-add Site 2 WireGuard VPN
-        if (existing.sites.length === 1) {
-          existing.sites.push(defaultSitesData.sites[1]);
-          updated = true;
-        }
-      }
-
-      if (updated) {
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 4), 'utf8');
-      }
-    } catch (e) {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultSitesData, null, 4), 'utf8');
-    }
+    const data = readLocalSitesFile();
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 4), 'utf8');
   }
 
   if (!fs.existsSync(USERS_FILE)) {
     const salt = generateSalt();
     const defaultUsers: DashboardUser[] = [
-      { id: '1', username: 'admin', salt, passwordHash: hashPasswordPBKDF2('admin1234', salt), role: 'admin', name: 'System Administrator' }
+      {
+        id: '1',
+        username: 'admin',
+        salt,
+        passwordHash: hashPasswordPBKDF2('admin1234', salt),
+        role: 'admin',
+        name: 'System Administrator',
+      },
     ];
     fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 4), 'utf8');
   }
+}
+
+export function saveSitesData(sitesData: SitesData): SitesData {
+  ensureLocalFiles();
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(sitesData, null, 4), 'utf8');
+  return sitesData;
 }
 
 // ---- AUTH & USERS ----
@@ -119,29 +129,28 @@ export async function authenticateUser(username: string, password: string): Prom
         valid = hashPasswordLegacy(password) === u.password_hash;
         if (valid) {
           const ns = generateSalt();
-          await supabase.from('dashboard_users').update({ salt: ns, password_hash: hashPasswordPBKDF2(password, ns) }).eq('id', u.id);
+          await supabase
+            .from('dashboard_users')
+            .update({ salt: ns, password_hash: hashPasswordPBKDF2(password, ns) })
+            .eq('id', u.id);
         }
       }
       if (valid) {
-        return { id: u.id, username: u.username, role: u.role, name: u.name, assignedSiteId: u.assigned_site_id || 'all' };
+        return {
+          id: u.id,
+          username: u.username,
+          role: u.role,
+          name: u.name,
+          assignedSiteId: u.assigned_site_id || 'all',
+        };
       }
     }
   }
 
   ensureLocalFiles();
   const users: DashboardUser[] = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8') || '[]');
-  let user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-
-  if (!user) {
-    if (username.toLowerCase() === 'admin' && password === 'admin1234') {
-      const salt = generateSalt();
-      user = { id: '1', username: 'admin', salt, passwordHash: hashPasswordPBKDF2('admin1234', salt), role: 'admin', name: 'System Administrator', assignedSiteId: 'all' };
-      users.push(user);
-      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 4), 'utf8');
-      return { id: user.id, username: user.username, role: user.role, name: user.name, assignedSiteId: 'all' };
-    }
-    return null;
-  }
+  const user = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+  if (!user) return null;
 
   let isValidUser = false;
   if (user.salt) {
@@ -150,16 +159,14 @@ export async function authenticateUser(username: string, password: string): Prom
     isValidUser = hashPasswordLegacy(password) === user.passwordHash;
   }
 
-  if (!isValidUser && user.username === 'admin' && password === 'admin1234') {
-    const salt = generateSalt();
-    user.salt = salt;
-    user.passwordHash = hashPasswordPBKDF2('admin1234', salt);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 4), 'utf8');
-    isValidUser = true;
-  }
-
   if (!isValidUser) return null;
-  return { id: user.id, username: user.username, role: user.role, name: user.name, assignedSiteId: user.assignedSiteId || 'all' };
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    name: user.name,
+    assignedSiteId: user.assignedSiteId || 'all',
+  };
 }
 
 // ---- SITES & CONFIG ----
@@ -167,19 +174,19 @@ export async function getSitesData(): Promise<SitesData> {
   if (isSupabase && supabase) {
     const res = await supabase.from('sites').select('*').order('created_at', { ascending: true });
     if (res.error) throw new Error(res.error.message);
-    const sites: Site[] = res.data || [];
-    const active = sites.find(s => s.is_active) || sites[0];
+    const sites: Site[] = (res.data || []) as Site[];
+    const active = sites.find((s) => s.is_active) || sites[0];
     return { activeSiteId: active ? active.id : '', sites };
-  } else {
-    ensureLocalFiles();
-    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8') || '{"activeSiteId":"","sites":[]}');
   }
+
+  ensureLocalFiles();
+  return readLocalSitesFile();
 }
 
 export async function getConfig(targetSiteId?: string | null): Promise<Site> {
   const sitesData = await getSitesData();
   const siteId = targetSiteId || sitesData.activeSiteId;
-  const site = (sitesData.sites || []).find(s => s.id === siteId) || sitesData.sites[0];
+  const site = (sitesData.sites || []).find((s) => s.id === siteId) || sitesData.sites[0];
   if (!site) {
     return { id: 'default', name: 'Default Site', host: '', port: 8728, username: '', password: '' };
   }
@@ -193,14 +200,18 @@ export async function addLog(username: string, action: string, details: string, 
     await supabase.from('logs').insert([{ username, action, details, timestamp, site_name: siteName || '' }]);
   } else {
     ensureLocalFiles();
-    const logs: ActivityLog[] = fs.existsSync(LOGS_FILE) ? JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8') || '[]') : [];
+    const logs: ActivityLog[] = fs.existsSync(LOGS_FILE)
+      ? JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8') || '[]')
+      : [];
     logs.unshift({ username, action, details, timestamp, site_name: siteName });
     if (logs.length > 2000) logs.length = 2000;
     fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 4), 'utf8');
   }
 }
 
-export async function getLogs(options: { page?: number; limit?: number; search?: string; siteName?: string } = {}): Promise<{ logs: ActivityLog[]; total: number }> {
+export async function getLogs(
+  options: { page?: number; limit?: number; search?: string; siteName?: string } = {}
+): Promise<{ logs: ActivityLog[]; total: number }> {
   const page = options.page || 1;
   const limit = options.limit || 50;
 
@@ -208,24 +219,32 @@ export async function getLogs(options: { page?: number; limit?: number; search?:
     let query = supabase.from('logs').select('*', { count: 'exact' });
     if (options.siteName) query = query.eq('site_name', options.siteName);
     if (options.search) {
-      query = query.or(`username.ilike.%${options.search}%,action.ilike.%${options.search}%,details.ilike.%${options.search}%`);
+      query = query.or(
+        `username.ilike.%${options.search}%,action.ilike.%${options.search}%,details.ilike.%${options.search}%`
+      );
     }
     const from = (page - 1) * limit;
     const to = from + limit - 1;
     const res = await query.order('timestamp', { ascending: false }).range(from, to);
     if (res.error) throw new Error(res.error.message);
-    return { logs: res.data || [], total: res.count || 0 };
-  } else {
-    ensureLocalFiles();
-    let logs: ActivityLog[] = fs.existsSync(LOGS_FILE) ? JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8') || '[]') : [];
-    if (options.siteName) logs = logs.filter(l => l.site_name === options.siteName);
-    if (options.search) {
-      const s = options.search.toLowerCase();
-      logs = logs.filter(l => (l.username || '').toLowerCase().includes(s) || (l.action || '').toLowerCase().includes(s) || (l.details || '').toLowerCase().includes(s));
-    }
-    const total = logs.length;
-    const start = (page - 1) * limit;
-    const paginated = logs.slice(start, start + limit);
-    return { logs: paginated, total };
+    return { logs: (res.data || []) as ActivityLog[], total: res.count || 0 };
   }
+
+  ensureLocalFiles();
+  let logs: ActivityLog[] = fs.existsSync(LOGS_FILE)
+    ? JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8') || '[]')
+    : [];
+  if (options.siteName) logs = logs.filter((l) => l.site_name === options.siteName);
+  if (options.search) {
+    const s = options.search.toLowerCase();
+    logs = logs.filter(
+      (l) =>
+        (l.username || '').toLowerCase().includes(s) ||
+        (l.action || '').toLowerCase().includes(s) ||
+        (l.details || '').toLowerCase().includes(s)
+    );
+  }
+  const total = logs.length;
+  const start = (page - 1) * limit;
+  return { logs: logs.slice(start, start + limit), total };
 }

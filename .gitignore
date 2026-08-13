@@ -10,3 +10,6 @@ ecosystem.config.js
 
 # Log files
 logs/*.log
+
+# Local/offline pre-rewrite snapshots (may contain secrets)
+backups/

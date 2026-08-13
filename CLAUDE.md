@@ -15,6 +15,57 @@ project lives at `/home/ddservice/mikrotik`. PM2 process manager, deployed by
 `git pull` + `pm2 reload`. **Do not assume root access** — the `ddservice` user
 cannot write to `/root/` or `/var/log/`.
 
+## Product direction (stable long-term)
+
+**Keep Express (`server.js`) + vanilla UI (`public/`).** Add features
+incrementally. Do **not** cut over production to Next.js App Router.
+
+Rationale: this is a multi-site admin dashboard with many external operators;
+stability, API-level auth, and clear handoff matter more than a framework
+rewrite. The 2026-08-12/13 Next experiment caused outages and must not be
+redeployed (`src/DO_NOT_DEPLOY.md`).
+
+Handoff model for future developers:
+- Backend entry: `server.js` (Express)
+- Frontend entry: `public/index.html` + `public/app.js` (bump `?v=` on JS changes)
+- DB: `db-supabase.js` (prod) / `db.js` (local JSON) — keep signatures in sync
+- Process: PM2 `ecosystem.config.js` → `script: 'server.js'`, `PORT: 3001`, `exec_mode: 'fork'`
+- Backup before risky work: `scripts/backup-pre-rewrite.sh`
+
+## VPS port ownership (do not steal ports from other apps)
+
+| Port | Owner | Notes |
+|------|--------|--------|
+| **3001** | **MikroTik dashboard only** | Nginx `mikrotik.conf` → `127.0.0.1:3001` |
+| 3002 | `cnxhaircutz.ddserviceth.com` | If 502: nothing listening — start that app on 3002 |
+| 3005 | `invest3` / `apexlink-forensics` Docker | Leave alone |
+| 3011 | `minimalcnx` (after migrate) | Was wrongly on 3001; nginx `minimal*.conf` must follow |
+| 4000 | pems / related | |
+| 5000 | sop5 | |
+
+Recover other sites without touching MikroTik: `scripts/vps-recover-other-sites.sh`.
+After any multi-app incident, run once:
+`bash /home/ddservice/mikrotik/scripts/vps-harden-ports-and-pm2.sh`
+(writes `/home/ddservice/VPS-PORTS.md`, fixes absolute cwd for pems, keeps
+minimalcnx on 3011, forces MikroTik fork/`server.js`, `pm2 save`).
+Before starting MikroTik PM2: `bash scripts/preflight-mikrotik-ecosystem.sh`.
+
+`cnxhaircutz.com` (apex) may be on a different host than
+`cnxhaircutz.ddserviceth.com` (this VPS → `/var/www/cnxhaircutz` on **3002**).
+
+## Incident prevention (2026-08-13 lessons)
+
+Do **not** repeat these failures:
+
+1. **Do not deploy Next** for MikroTik (`src/` is experimental). PM2 `script` must be `server.js`.
+2. **Do not use PORT 3000/3001 for other apps** — 3001 is MikroTik-only; minimalcnx uses **3011**.
+3. **Do not `pm2 save` until all apps are healthy** — a save with only mikrotik wiped resurrect for others.
+4. **Do not `--update-env` from placeholder Supabase keys** — comment them out or use real keys.
+5. **Do not use relative `cwd: './.next/standalone'` for pems** — use absolute
+   `/home/ddservice/TMHCCP5/.next/standalone` or PM2 doubles the path.
+6. **PM2 `exec_mode: 'fork'`** for MikroTik (cluster caused confusion / bad ops habits).
+7. Before rewrite/risk: `scripts/backup-pre-rewrite.sh` + keep tag `pre-rewrite-express-2026-08-13`.
+
 ## Architecture
 
 - **`server.js`** — the real backend (Express). This is the only server that
@@ -56,6 +107,19 @@ cannot write to `/root/` or `/var/log/`.
   `await` was the root cause of a major outage this project already had
   (login/menu/dashboard silently broken). If you touch a DB call site,
   double-check the `await` is there.
+- **Security (Phase A, ongoing):**
+  - Menu/role toggles remain UI hints only — **API routes enforce
+    `requireAuth([...])`**. Never assume a hidden menu = locked API.
+  - Non-admin users with `assignedSiteId` are locked to that site in
+    `executeOnRouter` and in log/export filters (`resolveForcedSiteName`).
+  - Never return router `password` to the browser. Use `hasPassword` /
+    `sanitizeSitePublic`. `/api/sites/switch` must not leak passwords from
+    `setActiveSite`.
+  - `/api/wireguard/debug-echo` is off in production unless `ENABLE_WG_DEBUG=1`.
+  - Login rejects oversized username/password strings; rate-limited.
+  - Never commit real `SUPABASE_*` or `db/*.json`. Placeholder
+    `YOUR_PROJECT_ID` must not be loaded into PM2 with `--update-env`.
+  - PM2 must stay **`exec_mode: 'fork'`** (not cluster) for this single Express listen.
 - **Cache-busting**: `public/index.html` loads `app.js?v=X.0`. Bump the
   version number on every `app.js` change, or the browser (and Cloudflare,
   which sits in front of the app) may serve stale JS.
@@ -239,9 +303,64 @@ policy-free table is exactly "only the backend can touch this," matching
 this app's architecture where nothing calls Supabase directly from the
 browser.
 
+## Next.js migration policy (data must not vanish)
+
+**Production stays on Express (`server.js` + PM2 port 3001) until cutover is explicit.**
+The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircutz`, and
+“missing sites” because:
+
+1. Next `src/lib/db.ts` read `db/sites.json` while Express uses `db/config.json`.
+2. `ecosystem.config.js` was force-committed with placeholder `SUPABASE_*`, so the live
+   process fell back to empty local JSON instead of Postgres.
+3. Nginx `mikrotik.conf` had been pointed at `:3000` while the app listened on `:3001`.
+
+**Rules while developing App Router:**
+
+- Source of truth for production data is **Supabase** (`sites`, users, logs, hotspot/DNS/PPPoE).
+  Never delete those tables. Never deploy with `YOUR_PROJECT_ID` placeholders.
+- Local/JSON fallback must use **`db/config.json`** (same as Express). Next now imports
+  legacy `db/sites.json` into `config.json` once if needed.
+- Env key name: `SUPABASE_SERVICE_KEY` (Express). Next also accepts
+  `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_KEY` aliases, and ignores placeholder URLs.
+- Develop Next on a **separate port** (e.g. `next dev -p 3010`). Do **not** replace PM2
+  `script: 'server.js'` with `next start` until: Supabase keys restored, feature parity
+  verified, nginx still points at the correct upstream, and `minimalcnx` is not on 3001.
+- Cutover checklist: backup `ecosystem.config.js` + confirm `[DB] Using: Supabase`,
+  `curl` sites API returns both sites, then only switch PM2/nginx.
+
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-13 (5)** — Harden against repeat multi-site outage.
+  - Added `scripts/vps-harden-ports-and-pm2.sh` (durable PM2 list, pems absolute cwd,
+    minimalcnx→3011, sop5 `server.js` prod, writes `/home/ddservice/VPS-PORTS.md`).
+  - Added `scripts/preflight-mikrotik-ecosystem.sh` (refuse Next script / PORT 3000 /
+    warn on placeholder Supabase).
+  - `ecosystem.config.example.js`: Supabase placeholders commented by default.
+  - CLAUDE.md: incident-prevention checklist from the 2026-08-13 outage.
+
+- **2026-08-13 (4)** — Stable Express path + Phase A security + VPS port isolation.
+  - Product direction locked: Express + `public/` UI; Next `src/` marked
+    `DO_NOT_DEPLOY`; `npm start` = `node server.js` only (Next scripts renamed
+    `experimental:next:*` on port 3010).
+  - Security: `sanitizeSitePublic`, forced site filters for co-admin logs/exports,
+    login length limits, disable `wireguard/debug-echo` in production, document
+    password non-leak on site switch.
+  - VPS port map in CLAUDE.md; `scripts/vps-recover-other-sites.sh` for
+    cnxhaircutz(3002)/minimalcnx(3011) without touching MikroTik 3001 or invest3 3005.
+  - `ecosystem.config.example.js`: `exec_mode: 'fork'`, PORT 3001 ownership note.
+
+- **2026-08-13 (3)** — Pre-rewrite backup tooling before any new-stack work.
+  - Added `scripts/backup-pre-rewrite.sh` for VPS (app tarball + db/ecosystem secrets + nginx + pm2 dump).
+  - Local `backups/` (gitignored) + git tag `pre-rewrite-express-2026-08-13` marking Express/`public` as the restore point.
+  - Policy: take VPS backup *before* starting Vite/React or any cutover; do not delete Express until restore is verified.
+
+- **2026-08-13 (2)** — Next.js data-layer alignment so App Router work cannot orphan sites.
+  - `src/lib/db.ts` now uses `db/config.json` (Express path), migrates from `sites.json`,
+    accepts `SUPABASE_SERVICE_KEY`, ignores placeholder Supabase URLs, matches Express
+    legacy password salt, and no longer embeds live router credentials as defaults.
+  - Documented Next cutover policy: keep Express on 3001 until Supabase + parity are ready.
 
 - **2026-08-13** — Outage diagnosis: `api.ddserviceth.com` 502; removed duplicate `app.listen` crash risk; restored PM2 `cwd`.
   - External probe: Cloudflare returns `502` with fast origin time (`cfOrigin ~30–90ms`) = Nginx up, upstream Node dead/not listening.

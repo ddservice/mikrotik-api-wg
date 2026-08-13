@@ -238,6 +238,42 @@ function requireAuth(allowedRoles = []) {
     };
 }
 
+/** Never send router passwords (or other secrets) to the browser. */
+function sanitizeSitePublic(site, { includeRouterCreds = false } = {}) {
+    if (!site) return site;
+    const base = {
+        id: site.id,
+        name: site.name,
+        connectionType: site.connectionType || 'wireguard',
+        wireguardIp: site.wireguardIp || site.wireguard_ip || '',
+        dnsLoggingEnabled: site.dnsLoggingEnabled !== false,
+        hasPassword: !!(site.password || site.hasPassword),
+        is_active: site.is_active
+    };
+    if (includeRouterCreds) {
+        return {
+            ...base,
+            host: site.host || '',
+            port: site.port || 8728,
+            username: site.username || '',
+            wireguardPublicKey: site.wireguardPublicKey || site.wireguard_public_key || ''
+        };
+    }
+    return base;
+}
+
+function isSiteLockedUser(user) {
+    return !!(user && user.role !== 'admin' && user.assignedSiteId && user.assignedSiteId !== 'all');
+}
+
+/** Force co-admin/user log queries onto their assigned site name (ignore client override). */
+async function resolveForcedSiteName(req, requestedSiteName) {
+    if (!isSiteLockedUser(req.user)) return requestedSiteName || null;
+    const sitesData = await db.getSites();
+    const allowed = (sitesData.sites || []).find(s => s.id === req.user.assignedSiteId);
+    return allowed ? allowed.name : '__no_access__';
+}
+
 // Router connection runner helper — strictly enforces user site permissions
 async function executeOnRouter(reqOrFn, fnOrSiteId, siteIdParam) {
     let fn;
@@ -297,6 +333,9 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
+    }
+    if (String(username).length > 128 || String(password).length > 256) {
+        return res.status(400).json({ error: 'Invalid username or password' });
     }
 
     const user = await db.authenticateUser(username, password);
@@ -367,7 +406,8 @@ app.get('/api/logs', requireAuth(['admin']), async (req, res) => {
 // GET hotspot traffic logs (พรบ) with filter/pagination
 app.get('/api/hotspot-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, page, limit, site } = req.query;
-    const result = await db.getHotspotLogs({ search, from, to, username, page, limit, siteName: site });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getHotspotLogs({ search, from, to, username, page, limit, siteName });
     res.json(result);
 });
 
@@ -398,7 +438,8 @@ app.get('/api/logs/export-csv', requireAuth(['admin']), async (req, res) => {
 // Export hotspot traffic logs as CSV (พรบ)
 app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, site } = req.query;
-    const result = await db.getHotspotLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getHotspotLogs({ search, from, to, username, siteName, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = [
@@ -435,14 +476,16 @@ app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), asyn
 // GET DNS query (domain visit history) logs with search/filter/pagination
 app.get('/api/dns-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, page, limit, site } = req.query;
-    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit, siteName: site });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit, siteName });
     res.json(result);
 });
 
 // Export DNS query (domain visit history) logs as CSV
 app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, site } = req.query;
-    const result = await db.getDnsQueryLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getDnsQueryLogs({ search, from, to, username, siteName, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = ['เวลา', 'ชื่อผู้ใช้', 'IP Address', 'MAC Address', 'โดเมนที่เข้าชม', 'ไซต์งาน'];
@@ -468,7 +511,8 @@ app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (r
 // PPPoE room usage — monthly billing summary
 app.get('/api/pppoe-usage', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const summary = await db.getPppoeUsageSummary(req.query.month, req.query.site);
+        const site = await resolveForcedSiteName(req, req.query.site);
+        const summary = await db.getPppoeUsageSummary(req.query.month, site);
         res.json(summary);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -478,14 +522,16 @@ app.get('/api/pppoe-usage', requireAuth(['admin', 'co-admin']), async (req, res)
 // PPPoE room usage — raw session log (audit trail), paginated
 app.get('/api/pppoe-usage/logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, page, limit, site } = req.query;
-    const result = await db.getPppoeUsageLogs({ search, from, to, username, page, limit, siteName: site });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, page, limit, siteName });
     res.json(result);
 });
 
 // PPPoE room usage — export raw session log as CSV
 app.get('/api/pppoe-usage/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, site } = req.query;
-    const result = await db.getPppoeUsageLogs({ search, from, to, username, siteName: site, page: 1, limit: 99999 });
+    const siteName = await resolveForcedSiteName(req, site);
+    const result = await db.getPppoeUsageLogs({ search, from, to, username, siteName, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = ['เวลาเข้าใช้', 'เวลาออก', 'ห้อง', 'IP Address', 'ไซต์งาน', 'สถานะ', 'ดาวน์โหลด (bytes)', 'อัปโหลด (bytes)'];
@@ -595,14 +641,19 @@ app.delete('/api/users/:id', requireAuth(['admin']), async (req, res) => {
 app.get('/api/sites', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
         const sitesData = await db.getSites();
-        if (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
+        const includeRouterCreds = req.user.role === 'admin';
+        const mapSite = (s) => sanitizeSitePublic(s, { includeRouterCreds });
+        if (isSiteLockedUser(req.user)) {
             const allowedSite = sitesData.sites.find(s => s.id === req.user.assignedSiteId);
             return res.json({
                 activeSiteId: req.user.assignedSiteId,
-                sites: allowedSite ? [allowedSite] : []
+                sites: allowedSite ? [mapSite(allowedSite)] : []
             });
         }
-        res.json(sitesData);
+        res.json({
+            activeSiteId: sitesData.activeSiteId,
+            sites: (sitesData.sites || []).map(mapSite)
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -610,7 +661,7 @@ app.get('/api/sites', requireAuth(['admin', 'co-admin', 'user']), async (req, re
 
 // Switch active site (Validated against assigned permission)
 app.post('/api/sites/switch/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
-    if (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
+    if (isSiteLockedUser(req.user)) {
         if (req.params.id !== req.user.assignedSiteId) {
             return res.status(403).json({ error: 'คุณไม่มีสิทธิ์สลับไปใช้งานไซต์งานนี้' });
         }
@@ -618,7 +669,10 @@ app.post('/api/sites/switch/:id', requireAuth(['admin', 'co-admin', 'user']), as
     try {
         const activeSite = await db.setActiveSite(req.params.id);
         db.addLog(req.user.username, 'สลับไซต์งาน', 'สลับไปใช้งานไซต์งาน: ' + activeSite.name);
-        res.json({ success: true, activeSite });
+        res.json({
+            success: true,
+            activeSite: sanitizeSitePublic(activeSite, { includeRouterCreds: req.user.role === 'admin' })
+        });
     } catch (e) {
         res.status(400).json({ error: e.message });
     }
@@ -1075,7 +1129,12 @@ ${callbackScriptBlock}
 // standalone /tool/fetch test at this URL directly (not through the full
 // generated script) to isolate the transport layer from script logic.
 // Safe to remove once the real callback-register issue is resolved.
+// TEMPORARY diagnostic route — disabled in production unless ENABLE_WG_DEBUG=1.
+// Echoes request details; never leave open on a public VPS.
 app.all('/api/wireguard/debug-echo', express.text({ type: () => true }), (req, res) => {
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_WG_DEBUG !== '1') {
+        return res.status(404).json({ error: 'Not found' });
+    }
     const info = {
         method: req.method,
         query: req.query,
