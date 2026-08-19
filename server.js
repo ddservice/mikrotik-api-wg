@@ -2521,6 +2521,15 @@ app.post('/api/line/webhook', express.json(), async (req, res) => {
             const text = (event.message.text || '').trim();
             const replyToken = event.replyToken;
             const lineUserId = event.source?.userId;
+            const targetSourceId = event.source?.groupId || event.source?.roomId || event.source?.userId;
+
+            if (text.toLowerCase() === 'id' || text.toLowerCase() === 'groupid' || text.toLowerCase() === '/id') {
+                await sendLineMessagingApiReply(token, replyToken, {
+                    type: "text",
+                    text: `🆔 Target ID (ID ของคุณ/กลุ่มนี้คือ):\n\n${targetSourceId}\n\n(คัดลอก ID นี้ไปวางในช่อง Target ID บนหน้าแดชบอร์ดได้เลยครับ)`
+                });
+                continue;
+            }
 
             if (text === 'เช็ควันหมดอายุ' || text === 'วันหมดอายุ' || text === 'เช็คเน็ต') {
                 const binding = await db.getLineUserBinding(lineUserId);
