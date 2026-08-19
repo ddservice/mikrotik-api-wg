@@ -270,6 +270,9 @@
                         <button class="tab-btn" data-tab="tab-hotspot-vouchers">
                             <i class="fa-solid fa-ticket"></i> สร้างคูปองแบบกลุ่ม (Voucher Generator)
                         </button>
+                        <button class="tab-btn" data-tab="tab-hotspot-archive">
+                            <i class="fa-solid fa-box-archive"></i> ประวัติคูปองหมดอายุ & ถูกลบ <span class="tab-badge" id="badge-hotspot-archive">(-)</span>
+                        </button>
                         <button class="tab-btn" data-tab="tab-hotspot-stats" id="tab-btn-hotspot-stats">
                             <i class="fa-solid fa-chart-pie"></i> สถิติการใช้งาน (Statistics)
                         </button>
@@ -392,6 +395,54 @@
                                                 <input type="checkbox" id="toggle-auto-cleanup">
                                                 <span class="slider"></span>
                                             </label>
+                                        </div>
+                                </div>
+
+                                <!-- LINE Official Account (Messaging API) Configuration Card -->
+                                <div class="card mb-16" id="line-digest-card" style="border: 1px solid #a7f3d0; background: #f0fdf4; border-radius: 12px; padding: 16px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                                        <div style="display: flex; align-items: center; gap: 12px;">
+                                            <div style="width: 42px; height: 42px; background: #06c755; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+                                                <i class="fa-brands fa-line"></i>
+                                            </div>
+                                            <div>
+                                                <h5 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 6px;">
+                                                    แจ้งเตือนด้วย LINE Official Account (Messaging API)
+                                                    <span id="line-digest-site-name" style="background: #0284c7; color: #fff; font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; font-weight: 600;">Main Site</span>
+                                                </h5>
+                                                <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #047857;">ส่ง Push Message / Flex Card สรุปวันหมดอายุประจำวัน และตอบกลับอัตโนมัติเมื่อกด Rich Menu</p>
+                                            </div>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span class="auto-cleanup-status-badge off" id="line-digest-status-badge">ปิดใช้งาน</span>
+                                            <label class="switch switch-sm">
+                                                <input type="checkbox" id="toggle-line-digest">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end;" class="mb-12">
+                                        <div>
+                                            <label for="line-channel-access-token" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">Channel Access Token (v2) *</label>
+                                            <input type="password" id="line-channel-access-token" class="form-control form-control-sm" placeholder="คัดลอก Token จาก LINE Developers Console">
+                                        </div>
+                                        <div>
+                                            <label for="line-target-id" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">Target ID (User ID / Group ID) *</label>
+                                            <input type="text" id="line-target-id" class="form-control form-control-sm" placeholder="เช่น U12345... หรือ C12345...">
+                                        </div>
+                                        <div style="max-width: 140px;">
+                                            <label for="line-digest-time" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">เวลาส่งรายงานประจำวัน</label>
+                                            <input type="time" id="line-digest-time" class="form-control form-control-sm" value="09:00">
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background: #ffffff; padding: 10px; border-radius: 8px; border: 1px solid #d1fae5;">
+                                        <div style="font-size: 0.78rem; color: #047857;">
+                                            <strong>Webhook URL สำหรับใส่ใน LINE Developers:</strong> <code id="line-webhook-url" style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-family:monospace;">https://api.ddserviceth.com/api/line/webhook</code>
+                                        </div>
+                                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                            <button class="btn btn-sm btn-secondary" id="btn-test-line-notify" style="background:#fff; color:#065f46; border:1px solid #a7f3d0;"><i class="fa-solid fa-paper-plane"></i> ทดสอบส่ง Push</button>
+                                            <button class="btn btn-sm btn-success" id="btn-run-line-digest-now" style="background:#06c755; border:none; color:#fff;"><i class="fa-solid fa-bullhorn"></i> ส่ง Flex Card ทันที</button>
+                                            <button class="btn btn-sm btn-primary" id="btn-save-line-digest"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
                                         </div>
                                     </div>
                                 </div>
@@ -648,6 +699,52 @@
                                     <div class="top-users-list" id="stats-top-users">
                                         <div class="text-center text-muted">กำลังโหลดสถิติ...</div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab content 6: Archived / Expired & Deleted Users -->
+                    <div id="tab-hotspot-archive" class="tab-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-box-archive text-primary"></i>
+                                    <div>
+                                        <h4>ประวัติบัญชีคูปอง Hotspot ที่หมดอายุ & ถูกลบ</h4>
+                                        <p>รายการบัญชีคูปองที่หมดอายุแล้ว หรือถูกลบออกจาก MikroTik พร้อมระบุวัน-เวลา และปุ่มคืนค่า (Restore) กลับเข้า RouterOS</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions" style="display:flex; gap:8px;">
+                                    <button class="btn btn-secondary btn-sm" id="btn-refresh-hotspot-archive"><i class="fa-solid fa-rotate-right"></i> รีเฟรช</button>
+                                    <button class="btn btn-danger btn-sm" id="btn-clear-hotspot-archive"><i class="fa-solid fa-trash-can"></i> ล้างประวัติทั้งหมด</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="hotspot-control-bar mb-16">
+                                    <div class="search-filter-group" style="display:flex; gap:10px; width:100%; flex-wrap:wrap;">
+                                        <div style="flex:1; min-width:240px;">
+                                            <input type="text" id="search-hotspot-archive" class="form-control" placeholder="ค้นหา username, หมายเหตุ, โปรไฟล์...">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table" id="table-hotspot-archive">
+                                        <thead>
+                                            <tr>
+                                                <th>บัญชีผู้ใช้ (Username / Password)</th>
+                                                <th>โปรไฟล์</th>
+                                                <th>สาขา (Site)</th>
+                                                <th>สถานะ / เหตุผล</th>
+                                                <th>วัน-เวลาที่หมดอายุ / ลบ</th>
+                                                <th>ผู้ดำเนินการ</th>
+                                                <th class="text-right">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูล...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -2092,6 +2189,47 @@
         </div>
     </div>
 
+    <!-- MODAL: RESTORE HOTSPOT USER -->
+    <div id="modal-hotspot-restore" class="modal-wrapper">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-rotate-left text-primary"></i> คืนค่า / สร้างบัญชี Hotspot เดิมกลับเข้า MikroTik</h4>
+                <button class="modal-close-btn" id="modal-hotspot-restore-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-hotspot-restore">
+                    <input type="hidden" id="restore-archive-id">
+                    <div class="form-group mb-12">
+                        <label for="restore-username">ชื่อผู้ใช้ (Username) *</label>
+                        <input type="text" id="restore-username" required class="form-control" readonly style="background:#f1f5f9; cursor:not-allowed;">
+                    </div>
+                    <div class="form-group mb-12">
+                        <label for="restore-password">รหัสผ่าน (Password)</label>
+                        <input type="text" id="restore-password" class="form-control">
+                    </div>
+                    <div class="form-group mb-12">
+                        <label for="restore-profile">โปรไฟล์ผู้ใช้งาน (Profile) *</label>
+                        <select id="restore-profile" required class="form-control"></select>
+                    </div>
+                    <div class="form-group mb-12">
+                        <label for="restore-limit-uptime">กำหนดเวลาใช้งานใหม่ (Uptime Limit)</label>
+                        <input type="text" id="restore-limit-uptime" class="form-control" placeholder="เช่น 01:00:00 (1 ชม.), 1d (1 วัน)">
+                        <span class="help-text">เว้นว่างไว้หากไม่ต้องการจำกัดเวลา</span>
+                    </div>
+                    <div class="form-group mb-12">
+                        <label for="restore-comment">หมายเหตุ (Comment)</label>
+                        <input type="text" id="restore-comment" class="form-control" placeholder="หมายเหตุเพิ่มเติม">
+                    </div>
+                    <div id="restore-error" class="error-msg mt-8 mb-8" style="display: none;"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary modal-cancel">ยกเลิก</button>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-user-check"></i> สร้างบัญชีกลับเข้า MikroTik</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: ADD/EDIT PPPoE ROOM ACCOUNT -->
     <div id="modal-pppoe-user" class="modal-wrapper">
         <div class="modal-card">
@@ -2644,7 +2782,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=99.0"></script>
+    <script src="app.js?v=103.0"></script>
 </body>
 </html>
 

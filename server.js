@@ -1591,14 +1591,124 @@ app.post('/api/mikrotik/hotspot/users/:id/renew', requireAuth(['admin', 'co-admi
 app.delete('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
         await executeOnRouter(req, async (client) => {
+            try {
+                const users = await client.exec('/ip/hotspot/user/print');
+                const target = users.find(u => u['.id'] === req.params.id);
+                if (target) {
+                    let userPassword = target.password || target['plain-password'] || target.pass || target.secret || '';
+                    if (!userPassword) {
+                        for (const k of Object.keys(target)) {
+                            if (k.toLowerCase().includes('pass') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('pwd')) {
+                                if (target[k]) { userPassword = target[k]; break; }
+                            }
+                        }
+                    }
+                    const siteConfig = await db.getConfig(req.user.assignedSiteId !== 'all' ? req.user.assignedSiteId : req.query?.siteId);
+                    const siteName = siteConfig.name || 'Default';
+                    const uptimeMs = parseUptimeToMs(target.uptime);
+                    const limitMs = parseUptimeToMs(target['limit-uptime']);
+                    const isExpired = (limitMs > 0 && uptimeMs >= limitMs) || (target.comment || '').toLowerCase().includes('expired') || (target.comment || '').toLowerCase().includes('หมดอายุ');
+
+                    await db.archiveDeletedHotspotUser({
+                        username: target.name,
+                        password: userPassword,
+                        profile: target.profile || 'default',
+                        limitUptime: target['limit-uptime'] || '',
+                        limitBytesTotal: target['limit-bytes-total'] || 0,
+                        comment: target.comment || '',
+                        siteName: siteName,
+                        deletedBy: req.user.username,
+                        reason: isExpired ? 'expired' : 'manual_delete'
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to archive user before deletion:', e);
+            }
+
             await client.exec('/ip/hotspot/user/remove', { '.id': req.params.id });
         });
-        db.addLog(req.user.username, 'ลบบัญชี Hotspot', 'ลบผู้ใช้ ID: ' + req.params.id);
+        db.addLog(req.user.username, 'ลบบัญชี Hotspot', 'ลบผู้ใช้ ID: ' + req.params.id + ' (จัดเก็บเข้าประวัติแล้ว)');
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
+// Read Archived / Deleted Hotspot Users
+app.get('/api/mikrotik/hotspot/archived-users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const forcedSite = await resolveForcedSiteName(req, req.query.siteName);
+        const options = {
+            search: req.query.search,
+            siteName: forcedSite === '__no_access__' ? 'NONE' : forcedSite,
+            page: req.query.page,
+            limit: req.query.limit
+        };
+        const data = await db.getArchivedHotspotUsers(options);
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Restore Archived Hotspot User (Re-create on RouterOS)
+app.post('/api/mikrotik/hotspot/archived-users/:id/restore', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const { username, password, profile, limitUptime, limitBytesTotal, comment, removeFromArchive } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'Username is required' });
+        }
+
+        const result = await executeOnRouter(req, async (client) => {
+            const params = {
+                name: username,
+                password: password || '',
+                profile: profile || 'default',
+                comment: comment || 'Restored from Archived Coupons'
+            };
+            if (limitUptime) params['limit-uptime'] = limitUptime;
+            if (limitBytesTotal) params['limit-bytes-total'] = limitBytesTotal;
+
+            return await client.exec('/ip/hotspot/user/add', params);
+        });
+
+        if (removeFromArchive !== false) {
+            await db.deleteArchivedHotspotUser(req.params.id);
+        }
+
+        db.addLog(req.user.username, 'คืนค่าบัญชี Hotspot', `สร้างบัญชีเดิมกลับเข้า MikroTik: ${username} (โปรไฟล์: ${profile || 'default'})`);
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete single item from Archived Hotspot Users
+app.delete('/api/mikrotik/hotspot/archived-users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const success = await db.deleteArchivedHotspotUser(req.params.id);
+        if (success) {
+            db.addLog(req.user.username, 'ลบประวัติคูปอง', `ลบรายการประวัติคูปอง ID: ${req.params.id}`);
+        }
+        res.json({ success });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Clear all items from Archived Hotspot Users
+app.delete('/api/mikrotik/hotspot/archived-users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const forcedSite = await resolveForcedSiteName(req, req.query.siteName);
+        const siteToClear = forcedSite === '__no_access__' ? 'NONE' : forcedSite;
+        const count = await db.clearArchivedHotspotUsers(siteToClear);
+        db.addLog(req.user.username, 'ล้างประวัติคูปองทั้งหมด', `ล้างประวัติคูปองที่หมดอายุ/ถูกลบจำนวน ${count} รายการ`);
+        res.json({ success: true, count });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 // Read Hotspot active sessions
 app.get('/api/mikrotik/hotspot/active', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
@@ -2075,8 +2185,10 @@ ${vlanStepBlock}
 
 
 // Helper for cleaning expired users
-async function runExpiredCleanup(logUsername = 'System Auto') {
-    return await executeOnRouter(async (client) => {
+async function runExpiredCleanup(logUsername = 'System Auto', reqOrSiteId = null) {
+    return await executeOnRouter(reqOrSiteId, async (client) => {
+        const siteConfig = await db.getConfig(typeof reqOrSiteId === 'string' ? reqOrSiteId : reqOrSiteId?.user?.assignedSiteId);
+        const siteName = siteConfig.name || 'Default';
         const users = await client.exec('/ip/hotspot/user/print');
         const expired = [];
         
@@ -2104,8 +2216,31 @@ async function runExpiredCleanup(logUsername = 'System Auto') {
             }
 
             if (isExpired) {
-                expired.push({ id: u['.id'], name: u.name });
+                let userPassword = u.password || u['plain-password'] || u.pass || u.secret || '';
+                if (!userPassword) {
+                    for (const k of Object.keys(u)) {
+                        if (k.toLowerCase().includes('pass') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('pwd')) {
+                            if (u[k]) { userPassword = u[k]; break; }
+                        }
+                    }
+                }
+                expired.push({
+                    id: u['.id'],
+                    username: u.name,
+                    password: userPassword,
+                    profile: u.profile || 'default',
+                    limitUptime: u['limit-uptime'] || '',
+                    limitBytesTotal: u['limit-bytes-total'] || 0,
+                    comment: u.comment || '',
+                    siteName: siteName,
+                    deletedBy: logUsername,
+                    reason: 'auto_cleanup'
+                });
             }
+        }
+
+        if (expired.length > 0) {
+            await db.archiveDeletedHotspotUsersBulk(expired);
         }
 
         for (const item of expired) {
@@ -2115,11 +2250,12 @@ async function runExpiredCleanup(logUsername = 'System Auto') {
         }
 
         if (expired.length > 0) {
-            db.addLog(logUsername, 'ลบคูปองหมดอายุ', `ลบผู้ใช้งานที่หมดอายุแล้วจำนวน ${expired.length} บัญชี`);
+            await db.addLog(logUsername, 'ลบคูปองหมดอายุ', `ลบผู้ใช้งานที่หมดอายุแล้วจำนวน ${expired.length} บัญชี (บันทึกจัดเก็บเข้าประวัติแล้ว)`);
         }
         return expired.length;
     });
 }
+
 
 // Expired Cleanup Configuration APIs
 app.get('/api/mikrotik/hotspot/cleanup-config', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
@@ -2142,6 +2278,438 @@ app.post('/api/mikrotik/hotspot/cleanup-expired', requireAuth(['admin', 'co-admi
         res.status(500).json({ error: err.message });
     }
 });
+
+// ==========================================
+// LINE Official Account / Messaging API (Option 1)
+// ==========================================
+async function sendLinePushMessage(token, targetId, messages) {
+    if (!token || !targetId) throw new Error('LINE Channel Access Token and Target ID are required');
+    const payload = {
+        to: targetId,
+        messages: Array.isArray(messages) ? messages : [messages]
+    };
+    const response = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`LINE Messaging API Push error (${response.status}): ${text}`);
+    }
+    return true;
+}
+
+async function sendLineMessagingApiReply(token, replyToken, messages) {
+    if (!token || !replyToken) return;
+    const payload = {
+        replyToken: replyToken,
+        messages: Array.isArray(messages) ? messages : [messages]
+    };
+    try {
+        await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+    } catch (e) {
+        console.error('LINE Reply error:', e);
+    }
+}
+
+function formatMsToHuman(ms) {
+    if (ms <= 0) return 'หมดเวลาแล้ว';
+    const totalSec = Math.floor(ms / 1000);
+    const days = Math.floor(totalSec / 86400);
+    const hours = Math.floor((totalSec % 86400) / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    
+    if (days > 0) return `เหลือ ${days} วัน ${hours} ชม.`;
+    if (hours > 0) return `เหลือ ${hours} ชม. ${mins} นาที`;
+    return `เหลือ ${mins} นาที`;
+}
+
+function createDailyDigestFlex(digestData) {
+    const d1Count = digestData.counts.d1;
+    const d3Count = digestData.counts.d3;
+    const d7Count = digestData.counts.d7;
+    const total = digestData.totalItems;
+
+    const contents = [];
+
+    if (total === 0) {
+        contents.push({
+            type: "text",
+            text: "✅ ไม่พบบัญชีที่ใกล้หมดอายุใน 7 วันนี้ (ระบบปกติ)",
+            size: "sm",
+            color: "#15803d",
+            wrap: true
+        });
+    } else {
+        if (d1Count > 0) {
+            contents.push({
+                type: "text",
+                text: `🔴 หมดอายุภายใน 1 วัน (${d1Count} บัญชี)`,
+                weight: "bold",
+                size: "sm",
+                color: "#dc2626",
+                margin: "md"
+            });
+            digestData.d1Users.slice(0, 8).forEach(u => {
+                contents.push({ type: "text", text: `• ${u}`, size: "xs", color: "#4b5563", margin: "xs" });
+            });
+            if (digestData.d1Users.length > 8) {
+                contents.push({ type: "text", text: `...และอีก ${digestData.d1Users.length - 8} บัญชี`, size: "xs", color: "#9ca3af" });
+            }
+        }
+
+        if (d3Count > 0) {
+            contents.push({
+                type: "text",
+                text: `🟡 หมดอายุภายใน 3 วัน (${d3Count} บัญชี)`,
+                weight: "bold",
+                size: "sm",
+                color: "#d97706",
+                margin: "md"
+            });
+            digestData.d3Users.slice(0, 8).forEach(u => {
+                contents.push({ type: "text", text: `• ${u}`, size: "xs", color: "#4b5563", margin: "xs" });
+            });
+            if (digestData.d3Users.length > 8) {
+                contents.push({ type: "text", text: `...และอีก ${digestData.d3Users.length - 8} บัญชี`, size: "xs", color: "#9ca3af" });
+            }
+        }
+
+        if (d7Count > 0) {
+            contents.push({
+                type: "text",
+                text: `🔵 หมดอายุภายใน 7 วัน (${d7Count} บัญชี)`,
+                weight: "bold",
+                size: "sm",
+                color: "#2563eb",
+                margin: "md"
+            });
+            digestData.d7Users.slice(0, 8).forEach(u => {
+                contents.push({ type: "text", text: `• ${u}`, size: "xs", color: "#4b5563", margin: "xs" });
+            });
+            if (digestData.d7Users.length > 8) {
+                contents.push({ type: "text", text: `...และอีก ${digestData.d7Users.length - 8} บัญชี`, size: "xs", color: "#9ca3af" });
+            }
+        }
+    }
+
+    return {
+        type: "flex",
+        altText: `📢 สรุปรายการบัญชีใกล้หมดอายุประจำวัน (${total} รายการ)`,
+        contents: {
+            type: "bubble",
+            header: {
+                type: "box",
+                layout: "vertical",
+                backgroundColor: "#06c755",
+                contents: [
+                    { type: "text", text: "📢 สรุปรายการใกล้หมดอายุประจำวัน", weight: "bold", color: "#ffffff", size: "md" },
+                    { type: "text", text: `📅 วันที่ ${new Date().toLocaleDateString('th-TH')} (${digestData.siteName})`, color: "#e0f2fe", size: "xs", margin: "xs" }
+                ]
+            },
+            body: {
+                type: "box",
+                layout: "vertical",
+                contents: contents
+            },
+            footer: {
+                type: "box",
+                layout: "vertical",
+                contents: [
+                    { type: "text", text: "ℹ️ กรุณาติดต่อแอดมินเพื่อเติมเงินหรือต่ออายุครับ", size: "xs", color: "#6b7280", align: "center" }
+                ]
+            }
+        }
+    };
+}
+
+async function generateDailyExpiryDigest(reqOrSiteId = null) {
+    const config = await db.getLineDigestConfig();
+    return await executeOnRouter(reqOrSiteId, async (client) => {
+        const siteConfig = await db.getConfig(typeof reqOrSiteId === 'string' ? reqOrSiteId : reqOrSiteId?.user?.assignedSiteId);
+        const siteName = siteConfig.name || 'Main Site';
+
+        const d1Users = [];
+        const d3Users = [];
+        const d7Users = [];
+
+        // 1. Scan Hotspot Users if enabled
+        if (config.includeHotspot !== false) {
+            try {
+                const users = await client.exec('/ip/hotspot/user/print');
+                for (const u of users) {
+                    const uptimeMs = parseUptimeToMs(u.uptime);
+                    const limitUptimeMs = parseUptimeToMs(u['limit-uptime']);
+                    const comment = (u.comment || '').toLowerCase();
+
+                    if (limitUptimeMs > 0) {
+                        const remainingMs = limitUptimeMs - uptimeMs;
+                        const remainingStr = formatMsToHuman(remainingMs);
+                        const userInfo = `${u.name} (${remainingStr})`;
+
+                        if (remainingMs <= 86400000 || comment.includes('expired') || comment.includes('หมดอายุ')) {
+                            d1Users.push(userInfo);
+                        } else if (remainingMs <= 259200000) {
+                            d3Users.push(userInfo);
+                        } else if (remainingMs <= 604800000) {
+                            d7Users.push(userInfo);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('LINE digest hotspot scan error:', e);
+            }
+        }
+
+        // 2. Scan PPPoE Secrets if enabled
+        if (config.includePppoe !== false) {
+            try {
+                const secrets = await client.exec('/ppp/secret/print');
+                for (const s of secrets) {
+                    if (s.service === 'pppoe' || !s.service) {
+                        if (s.disabled === 'true') {
+                            d1Users.push(`ห้อง ${s.name} (ระงับการใช้งาน)`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('LINE digest PPPoE scan error:', e);
+            }
+        }
+
+        const totalItems = d1Users.length + d3Users.length + d7Users.length;
+
+        return {
+            siteName,
+            totalItems,
+            d1Users,
+            d3Users,
+            d7Users,
+            counts: {
+                d1: d1Users.length,
+                d3: d3Users.length,
+                d7: d7Users.length
+            }
+        };
+    });
+}
+
+// LINE Public Webhook Endpoint for LINE OA Auto-Reply
+app.post('/api/line/webhook', express.json(), async (req, res) => {
+    res.status(200).send('OK');
+
+    try {
+        const config = await db.getLineDigestConfig();
+        const token = config.channelAccessToken;
+        if (!token) return;
+
+        const events = req.body.events || [];
+        for (const event of events) {
+            if (event.type !== 'message' || !event.message || event.message.type !== 'text') continue;
+
+            const text = (event.message.text || '').trim();
+            const replyToken = event.replyToken;
+            const lineUserId = event.source?.userId;
+
+            if (text === 'เช็ควันหมดอายุ' || text === 'วันหมดอายุ' || text === 'เช็คเน็ต') {
+                const binding = await db.getLineUserBinding(lineUserId);
+                if (binding) {
+                    try {
+                        const statusObj = await executeOnRouter(async (client) => {
+                            const users = await client.exec('/ip/hotspot/user/print');
+                            return users.find(u => u.name === binding.username);
+                        }, binding.siteName);
+
+                        if (statusObj) {
+                            const uptimeMs = parseUptimeToMs(statusObj.uptime);
+                            const limitMs = parseUptimeToMs(statusObj['limit-uptime']);
+                            const remMs = limitMs > 0 ? (limitMs - uptimeMs) : 999999999;
+                            const remStr = limitMs > 0 ? formatMsToHuman(remMs) : 'ไม่จำกัดเวลา';
+
+                            await sendLineMessagingApiReply(token, replyToken, {
+                                type: "flex",
+                                altText: `⏳ สถานะวันหมดอายุบัญชี ${binding.username}`,
+                                contents: {
+                                    type: "bubble",
+                                    header: { type: "box", layout: "vertical", backgroundColor: "#0284c7", contents: [{ type: "text", text: "⏳ ตรวจสอบวันหมดอายุเน็ต", weight: "bold", color: "#ffffff", size: "md" }] },
+                                    body: {
+                                        type: "box",
+                                        layout: "vertical",
+                                        contents: [
+                                            { type: "text", text: `ชื่อบัญชี: ${binding.username}`, weight: "bold", size: "sm" },
+                                            { type: "text", text: `โปรไฟล์: ${statusObj.profile || 'default'}`, size: "xs", color: "#64748b", margin: "xs" },
+                                            { type: "text", text: `เวลาคงเหลือ: ${remStr}`, size: "sm", color: remMs <= 86400000 ? "#dc2626" : "#16a34a", weight: "bold", margin: "md" }
+                                        ]
+                                    }
+                                }
+                            });
+                            continue;
+                        }
+                    } catch (e) {}
+                }
+                await sendLineMessagingApiReply(token, replyToken, {
+                    type: "text",
+                    text: `ℹ️ ยังไม่ได้ผูกบัญชีใช้งานกับ LINE\n\nกรุณาพิมพ์ 'ผูกบัญชี <ชื่อผู้ใช้>' เช่น 'ผูกบัญชี room101' เพื่อผูกบัญชีของคุณครับ`
+                });
+            } else if (text === 'ต่ออายุเน็ต' || text === 'ต่ออายุ' || text === 'เติมเงิน') {
+                await sendLineMessagingApiReply(token, replyToken, {
+                    type: "flex",
+                    altText: "💳 เลือกแพ็กเกจต่ออายุอินเตอร์เน็ต",
+                    contents: {
+                        type: "bubble",
+                        header: { type: "box", layout: "vertical", backgroundColor: "#06c755", contents: [{ type: "text", text: "💳 ต่ออายุเน็ต / เติมเงิน", weight: "bold", color: "#ffffff", size: "md" }] },
+                        body: {
+                            type: "box",
+                            layout: "vertical",
+                            contents: [
+                                { type: "text", text: "กรุณาเลือกแพ็กเกจที่ต้องการ หรือสแกนชำระเงิน และกดส่งสลิป:", size: "xs", color: "#4b5563" },
+                                { type: "text", text: "• รายวัน (24 ชม.): 30 บาท\n• รายสัปดาห์ (7 วัน): 150 บาท\n• รายเดือน (30 วัน): 350 บาท", size: "sm", weight: "bold", margin: "sm" }
+                            ]
+                        },
+                        footer: {
+                            type: "box",
+                            layout: "vertical",
+                            contents: [{ type: "text", text: "ส่งรูปสลิปเข้ามาในแชตเพื่อแจ้งชำระเงินได้ทันที", size: "xs", color: "#64748b", align: "center" }]
+                        }
+                    }
+                });
+            } else if (text === 'ดูรหัสผ่าน' || text === 'รหัสผ่าน') {
+                const binding = await db.getLineUserBinding(lineUserId);
+                if (binding) {
+                    await sendLineMessagingApiReply(token, replyToken, {
+                        type: "text",
+                        text: `🔑 ข้อมูลเข้าใช้งานของคุณ:\n\nUsername: ${binding.username}\n(หากจำรหัสผ่านไม่ได้ กรุณาแจ้งแอดมินเพื่อรีเซ็ตครับ)`
+                    });
+                } else {
+                    await sendLineMessagingApiReply(token, replyToken, {
+                        type: "text",
+                        text: `ℹ️ กรุณาพิมพ์ 'ผูกบัญชี <ชื่อผู้ใช้>' เพื่อเข้าถึงข้อมูลรหัสผ่านครับ`
+                    });
+                }
+            } else if (text.startsWith('ผูกบัญชี')) {
+                const username = text.replace('ผูกบัญชี', '').trim();
+                if (!username) {
+                    await sendLineMessagingApiReply(token, replyToken, { type: "text", text: "กรุณาระบุชื่อผู้ใช้ เช่น 'ผูกบัญชี room101'" });
+                } else {
+                    const activeSiteConfig = await db.getConfig();
+                    await db.bindLineUser(lineUserId, username, activeSiteConfig.id, activeSiteConfig.name);
+                    await sendLineMessagingApiReply(token, replyToken, { type: "text", text: `✅ ผูกบัญชี '${username}' (${activeSiteConfig.name}) กับ LINE สำเร็จแล้ว!` });
+                }
+            } else if (text === 'คู่มือใช้งาน' || text === 'คู่มือ') {
+                await sendLineMessagingApiReply(token, replyToken, {
+                    type: "text",
+                    text: `📖 คู่มือใช้งานเบื้องต้น:\n\n1. ค้นหาชื่อ Wi-Fi และกดเชื่อมต่อ\n2. หน้าล็อกอินจะเด้งขึ้นมา ใส่ Username & Password\n3. หากเน็ตช้า ให้กดลบชื่อ Wi-Fi (Forget Network) แล้วเชื่อมต่อใหม่\n4. พิมพ์ 'เช็ควันหมดอายุ' เพื่อตรวจสอบเวลาคงเหลือ`
+                });
+            } else if (text === 'ติดต่อแอดมิน') {
+                await sendLineMessagingApiReply(token, replyToken, {
+                    type: "text",
+                    text: `💬 ติดต่อเจ้าหน้าที่ / ทีมงานแอดมิน\n\nสามารถพิมพ์ข้อความแจ้งปัญหาไว้ในแชตนี้ได้เลยครับ แอดมินจะรีบตอบกลับโดยเร็วที่สุด!`
+                });
+            }
+        }
+    } catch (err) {
+        console.error('LINE Webhook error:', err);
+    }
+});
+
+// LINE Digest Configuration APIs (Multi-Site Aware)
+app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const siteId = req.query.siteId || req.headers['x-site-id'];
+    res.json(await db.getLineDigestConfig(siteId));
+});
+
+app.post('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'];
+    const updated = await db.saveLineDigestConfig(req.body, siteId);
+    db.addLog(req.user.username, 'ตั้งค่า LINE OA Messaging API', `อัปเดตตั้งค่า LINE Official Account [สาขา: ${siteId || 'Default'}] (สถานะ: ${updated.enabled ? 'เปิด' : 'ปิด'}, เวลา: ${updated.digestTime})`);
+    res.json(updated);
+});
+
+// Test LINE OA Messaging API connection
+app.post('/api/mikrotik/line-digest/test', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'];
+        const config = await db.getLineDigestConfig(siteId);
+        const testToken = req.body.token || config.channelAccessToken;
+        const testTarget = req.body.targetId || config.targetId;
+        if (!testToken || !testTarget) return res.status(400).json({ error: 'กรุณาระบุ Channel Access Token และ Target ID' });
+
+        const siteConfig = await db.getConfig(siteId);
+        const dateStr = new Date().toLocaleString('th-TH');
+        await sendLinePushMessage(testToken, testTarget, {
+            type: "text",
+            text: `🔔 ทดสอบการเชื่อมต่อระบบแจ้งเตือน LINE Official Account สำเร็จ!\n📍 สาขา: ${siteConfig.name || 'Main Site'}\n📅 วัน-เวลา: ${dateStr}\n(ระบบแดชบอร์ด MikroTik พร้อมใช้งาน)`
+        });
+        
+        db.addLog(req.user.username, 'ทดสอบ LINE OA Push', `ส่งข้อความทดสอบ Push Message สำเร็จ [สาขา: ${siteConfig.name || 'Main Site'}]`);
+        res.json({ success: true, message: 'ส่งข้อความทดสอบสำเร็จ' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Trigger Immediate Daily Digest Send via Flex Card
+app.post('/api/mikrotik/line-digest/run-now', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'] || req.user?.assignedSiteId;
+        const config = await db.getLineDigestConfig(siteId);
+        const token = req.body.token || config.channelAccessToken;
+        const targetId = req.body.targetId || config.targetId;
+        if (!token || !targetId) return res.status(400).json({ error: 'กรุณาระบุ Channel Access Token และ Target ID' });
+
+        const digest = await generateDailyExpiryDigest(siteId || req);
+        const flexMsg = createDailyDigestFlex(digest);
+        await sendLinePushMessage(token, targetId, flexMsg);
+
+        db.addLog(req.user.username, 'ส่งสรุป LINE OA ทันที', `ส่งรายงาน Flex Card สรุปบัญชีใกล้หมดอายุเข้า LINE สำเร็จ [สาขา: ${digest.siteName}] (${digest.totalItems} รายการ)`);
+        res.json({ success: true, counts: digest.counts });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Background Timer for Daily LINE Expiry Digest (checks every 1 minute for all sites)
+setInterval(async () => {
+    try {
+        const sitesData = await db.getSites();
+        const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default', name: 'Main Site' }];
+
+        for (const site of sites) {
+            const config = await db.getLineDigestConfig(site.id);
+            if (!config || !config.enabled || !config.channelAccessToken || !config.targetId) continue;
+
+            const now = new Date();
+            const bkkTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+            const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
+            const todayDateStr = bkkTime.toISOString().slice(0, 10);
+
+            if (currentHHMM === config.digestTime && config.lastSentDate !== todayDateStr) {
+                console.log(`[LINE OA Digest] Triggering daily digest for site ${site.name} (${site.id}) at ${currentHHMM}...`);
+                const digest = await generateDailyExpiryDigest(site.id);
+                const flexMsg = createDailyDigestFlex(digest);
+                await sendLinePushMessage(config.channelAccessToken, config.targetId, flexMsg);
+                await db.saveLineDigestConfig({ lastSentDate: todayDateStr }, site.id);
+                db.addLog('System Auto', 'ส่งสรุป LINE OA ประจำวัน', `ส่งรายงาน Flex Card (${site.name}) สำเร็จ (${digest.totalItems} รายการ)`);
+            }
+        }
+    } catch (e) {
+        console.error('[LINE OA Digest] Automated digest error:', e.message || e);
+    }
+}, 60000);
+
+
+
 
 // Automated background cleanup interval (every 30 minutes)
 setInterval(async () => {

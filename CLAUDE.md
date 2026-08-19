@@ -198,6 +198,17 @@ Do **not** repeat these failures:
   Selected via a "ต่ออายุ/เติมเงิน" dropdown that only appears in the Edit
   Hotspot User modal (hidden when adding a brand-new user, since a fresh
   `/user/add` already starts at uptime 0).
+- **Archived / Expired & Deleted Hotspot Users**:
+  When a Hotspot user is deleted manually or cleaned up automatically by `runExpiredCleanup()`,
+  its details (username, profile, limit-uptime, comment, site name, reason) are archived
+  to DB (`getArchivedHotspotUsers`, `archiveDeletedHotspotUser`). Admin can view the archive,
+  delete individual archive logs, clear all archive, or click "Restore" (`/api/mikrotik/hotspot/archived-users/:id/restore`)
+  to re-create the user back into RouterOS with a single click.
+- **LINE Official Account (LINE Messaging API v2) Multi-Site Integration**:
+  Full replacement for deprecated LINE Notify. Configured per-site (`getLineDigestConfig(siteId)` & `saveLineDigestConfig(config, siteId)`).
+  Supports Push Message (`sendLinePushMessage`), Reply Message (`sendLineMessagingApiReply`), and Flex Messages.
+  Includes a public Webhook (`POST /api/line/webhook`) for LINE OA Rich Menu auto-reply ("เช็ควันหมดอายุ", "ต่ออายุเน็ต", "ดูรหัสผ่าน", "ผูกบัญชี <username>", "คู่มือใช้งาน", "ติดต่อแอดมิน")
+  and a multi-site background scheduler that scans each site's router and sends a daily expiry summary Flex Card into that site's LINE OA / Group Target ID at the scheduled time.
 - **`db/config.json` and `db/users.json` must never be git-tracked** — the
   former holds the real MikroTik router host/port/username/password in
   plaintext, the latter holds dashboard login password hashes. Both

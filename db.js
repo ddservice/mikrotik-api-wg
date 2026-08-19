@@ -841,6 +841,303 @@ function saveMultiWanConfig(siteId, config) {
     return data[key];
 }
 
+// ==========================================
+// Archived / Deleted Hotspot Users
+// ==========================================
+const ARCHIVED_HOTSPOT_USERS_FILE = path.join(DB_DIR, 'archived_hotspot_users.json');
+
+function getArchivedHotspotUsers(options = {}) {
+    try {
+        if (!fs.existsSync(ARCHIVED_HOTSPOT_USERS_FILE)) {
+            fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, '[]', 'utf8');
+        }
+        let list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
+
+        if (options.siteName) {
+            list = list.filter(u => u.siteName === options.siteName);
+        }
+        if (options.search) {
+            const q = options.search.toLowerCase();
+            list = list.filter(u =>
+                (u.username || '').toLowerCase().includes(q) ||
+                (u.comment || '').toLowerCase().includes(q) ||
+                (u.profile || '').toLowerCase().includes(q)
+            );
+        }
+        list.sort((a, b) => new Date(b.deletedAt || b.expiredAt) - new Date(a.deletedAt || a.expiredAt));
+
+        const total = list.length;
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const offset = (page - 1) * limit;
+        const paginated = list.slice(offset, offset + limit);
+
+        return {
+            users: paginated,
+            total,
+            page,
+            limit,
+            pages: Math.ceil(total / limit) || 1
+        };
+    } catch (e) {
+        return { users: [], total: 0, page: 1, limit: 100, pages: 1 };
+    }
+}
+
+function archiveDeletedHotspotUser(entry) {
+    try {
+        if (!fs.existsSync(ARCHIVED_HOTSPOT_USERS_FILE)) {
+            fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, '[]', 'utf8');
+        }
+        const list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
+        const item = {
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+            username: entry.username || entry.name || '',
+            password: entry.password || '',
+            profile: entry.profile || 'default',
+            limitUptime: entry.limitUptime || '',
+            limitBytesTotal: parseInt(entry.limitBytesTotal) || 0,
+            comment: entry.comment || '',
+            siteName: entry.siteName || '',
+            expiredAt: entry.expiredAt || new Date().toISOString(),
+            deletedAt: new Date().toISOString(),
+            deletedBy: entry.deletedBy || 'System',
+            reason: entry.reason || 'manual_delete'
+        };
+        list.unshift(item);
+        if (list.length > 2000) list.length = 2000;
+        fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, JSON.stringify(list, null, 4), 'utf8');
+        return item;
+    } catch (e) {
+        console.error('Failed to archive deleted hotspot user:', e);
+        return null;
+    }
+}
+
+function archiveDeletedHotspotUsersBulk(entries) {
+    try {
+        if (!entries || !entries.length) return 0;
+        if (!fs.existsSync(ARCHIVED_HOTSPOT_USERS_FILE)) {
+            fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, '[]', 'utf8');
+        }
+        let list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
+        const newItems = entries.map(entry => ({
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+            username: entry.username || entry.name || '',
+            password: entry.password || '',
+            profile: entry.profile || 'default',
+            limitUptime: entry.limitUptime || '',
+            limitBytesTotal: parseInt(entry.limitBytesTotal) || 0,
+            comment: entry.comment || '',
+            siteName: entry.siteName || '',
+            expiredAt: entry.expiredAt || new Date().toISOString(),
+            deletedAt: new Date().toISOString(),
+            deletedBy: entry.deletedBy || 'System Auto',
+            reason: entry.reason || 'auto_cleanup'
+        }));
+        list = [...newItems, ...list];
+        if (list.length > 2000) list.length = 2000;
+        fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, JSON.stringify(list, null, 4), 'utf8');
+        return newItems.length;
+    } catch (e) {
+        console.error('Failed to bulk archive deleted hotspot users:', e);
+        return 0;
+    }
+}
+
+function deleteArchivedHotspotUser(id) {
+    try {
+        if (!fs.existsSync(ARCHIVED_HOTSPOT_USERS_FILE)) return false;
+        let list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
+        const lenBefore = list.length;
+        list = list.filter(item => item.id !== id);
+        if (list.length < lenBefore) {
+            fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, JSON.stringify(list, null, 4), 'utf8');
+            return true;
+        }
+        return false;
+    } catch (e) { return false; }
+}
+
+function clearArchivedHotspotUsers(siteName) {
+    try {
+        if (!fs.existsSync(ARCHIVED_HOTSPOT_USERS_FILE)) return 0;
+        let list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
+        const initial = list.length;
+        if (siteName) {
+            list = list.filter(item => item.siteName !== siteName);
+        } else {
+            list = [];
+        }
+        fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, JSON.stringify(list, null, 4), 'utf8');
+        return initial - list.length;
+    } catch (e) { return 0; }
+}
+
+module.exports = {
+    getConfig,
+    saveConfig,
+    getSites,
+    setActiveSite,
+    addSite,
+    updateSite,
+    deleteSite,
+    getUsers,
+    addUser,
+    updateUser,
+    deleteUser,
+    authenticateUser,
+    getLogs,
+    getAllLogsRaw,
+    addLog,
+    getHotspotLogs,
+    getAllHotspotLogsRaw,
+    addHotspotSessionLog,
+    updateHotspotSessionLog,
+    purgeOldHotspotLogs,
+    getDnsQueryLogs,
+    getAllDnsQueryLogsRaw,
+    addDnsQueryLogsBulk,
+    purgeOldDnsQueryLogs,
+    getPppoeUsageLogs,
+    getAllPppoeUsageLogsRaw,
+    addPppoeUsageLog,
+function getLineDigestConfig(siteId) {
+    try {
+        const sitesData = getSitesData();
+        const targetSiteId = siteId || sitesData.activeSiteId || 'default';
+        if (!fs.existsSync(SETTINGS_FILE)) {
+            return {
+                siteId: targetSiteId,
+                enabled: false,
+                channelAccessToken: '',
+                channelSecret: '',
+                targetId: '',
+                digestTime: '09:00',
+                includeHotspot: true,
+                includePppoe: true,
+                lastSentDate: ''
+            };
+        }
+        const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        const siteConfigKey = `line_digest_${targetSiteId}`;
+        const siteConfig = data[siteConfigKey] || {};
+
+        return {
+            siteId: targetSiteId,
+            enabled: siteConfig.enabled !== undefined ? !!siteConfig.enabled : (targetSiteId === 'default' ? !!data.lineDigestEnabled : false),
+            channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || (targetSiteId === 'default' ? (data.lineChannelAccessToken || data.lineNotifyToken || '') : ''),
+            channelSecret: siteConfig.channelSecret || (targetSiteId === 'default' ? (data.lineChannelSecret || '') : ''),
+            targetId: siteConfig.targetId || (targetSiteId === 'default' ? (data.lineTargetId || '') : ''),
+            digestTime: siteConfig.digestTime || (targetSiteId === 'default' ? (data.lineDigestTime || '09:00') : '09:00'),
+            includeHotspot: siteConfig.includeHotspot !== false,
+            includePppoe: siteConfig.includePppoe !== false,
+            lastSentDate: siteConfig.lastSentDate || (targetSiteId === 'default' ? (data.lineDigestLastSentDate || '') : '')
+        };
+    } catch (e) {
+        return {
+            siteId: siteId || 'default',
+            enabled: false,
+            channelAccessToken: '',
+            channelSecret: '',
+            targetId: '',
+            digestTime: '09:00',
+            includeHotspot: true,
+            includePppoe: true,
+            lastSentDate: ''
+        };
+    }
+}
+
+function saveLineDigestConfig(config, siteId) {
+    const sitesData = getSitesData();
+    const targetSiteId = siteId || config.siteId || sitesData.activeSiteId || 'default';
+    
+    let allData = {};
+    if (fs.existsSync(SETTINGS_FILE)) {
+        try { allData = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch (e) {}
+    }
+    
+    const siteConfigKey = `line_digest_${targetSiteId}`;
+    const currentSiteConfig = getLineDigestConfig(targetSiteId);
+
+    const updatedSiteConfig = {
+        enabled: config.enabled !== undefined ? !!config.enabled : currentSiteConfig.enabled,
+        channelAccessToken: config.channelAccessToken !== undefined ? config.channelAccessToken : (config.lineNotifyToken || currentSiteConfig.channelAccessToken),
+        channelSecret: config.channelSecret !== undefined ? config.channelSecret : currentSiteConfig.channelSecret,
+        targetId: config.targetId !== undefined ? config.targetId : currentSiteConfig.targetId,
+        digestTime: config.digestTime || currentSiteConfig.digestTime,
+        includeHotspot: config.includeHotspot !== undefined ? config.includeHotspot !== false : currentSiteConfig.includeHotspot,
+        includePppoe: config.includePppoe !== undefined ? config.includePppoe !== false : currentSiteConfig.includePppoe,
+        lastSentDate: config.lastSentDate !== undefined ? config.lastSentDate : currentSiteConfig.lastSentDate
+    };
+
+    allData[siteConfigKey] = updatedSiteConfig;
+    if (targetSiteId === 'default') {
+        allData.lineDigestEnabled = updatedSiteConfig.enabled;
+        allData.lineChannelAccessToken = updatedSiteConfig.channelAccessToken;
+        allData.lineChannelSecret = updatedSiteConfig.channelSecret;
+        allData.lineTargetId = updatedSiteConfig.targetId;
+        allData.lineDigestTime = updatedSiteConfig.digestTime;
+        allData.lineDigestLastSentDate = updatedSiteConfig.lastSentDate;
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(allData, null, 4), 'utf8');
+    return getLineDigestConfig(targetSiteId);
+}
+
+// ==========================================
+// LINE User Account Bindings
+// ==========================================
+const LINE_USER_BINDINGS_FILE = path.join(DB_DIR, 'line_user_bindings.json');
+
+function getLineUserBinding(lineUserId) {
+    try {
+        if (!fs.existsSync(LINE_USER_BINDINGS_FILE)) return null;
+        const list = JSON.parse(fs.readFileSync(LINE_USER_BINDINGS_FILE, 'utf8'));
+        return list.find(item => item.lineUserId === lineUserId) || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function bindLineUser(lineUserId, username, siteId = null, siteName = 'Default') {
+    try {
+        if (!fs.existsSync(LINE_USER_BINDINGS_FILE)) {
+            fs.writeFileSync(LINE_USER_BINDINGS_FILE, '[]', 'utf8');
+        }
+        let list = JSON.parse(fs.readFileSync(LINE_USER_BINDINGS_FILE, 'utf8'));
+        list = list.filter(item => item.lineUserId !== lineUserId);
+        const item = {
+            lineUserId,
+            username,
+            siteId: siteId || 'default',
+            siteName: siteName || 'Default',
+            linkedAt: new Date().toISOString()
+        };
+        list.push(item);
+        fs.writeFileSync(LINE_USER_BINDINGS_FILE, JSON.stringify(list, null, 4), 'utf8');
+        return item;
+    } catch (e) {
+        return null;
+    }
+}
+
+
+function unbindLineUser(lineUserId) {
+    try {
+        if (!fs.existsSync(LINE_USER_BINDINGS_FILE)) return false;
+        let list = JSON.parse(fs.readFileSync(LINE_USER_BINDINGS_FILE, 'utf8'));
+        const initLen = list.length;
+        list = list.filter(item => item.lineUserId !== lineUserId);
+        if (list.length < initLen) {
+            fs.writeFileSync(LINE_USER_BINDINGS_FILE, JSON.stringify(list, null, 4), 'utf8');
+            return true;
+        }
+        return false;
+    } catch (e) { return false; }
+}
+
 module.exports = {
     getConfig,
     saveConfig,
@@ -875,6 +1172,19 @@ module.exports = {
     getMenuPermissions,
     saveMenuPermissions,
     getMultiWanConfig,
-    saveMultiWanConfig
+    saveMultiWanConfig,
+    getArchivedHotspotUsers,
+    archiveDeletedHotspotUser,
+    archiveDeletedHotspotUsersBulk,
+    deleteArchivedHotspotUser,
+    clearArchivedHotspotUsers,
+    getLineDigestConfig,
+    saveLineDigestConfig,
+    getLineUserBinding,
+    bindLineUser,
+    unbindLineUser
 };
+
+
+
 

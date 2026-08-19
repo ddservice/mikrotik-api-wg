@@ -979,6 +979,8 @@ function loadHotspotTab(tabId) {
         fetchHotspotProfiles();
     } else if (tabId === 'tab-hotspot-vouchers') {
         fetchProfilesToDropdown();
+    } else if (tabId === 'tab-hotspot-archive') {
+        fetchArchivedHotspotUsers();
     } else if (tabId === 'tab-hotspot-stats') {
         fetchHotspotStats();
     }
@@ -1497,6 +1499,7 @@ async function fetchAutoCleanupConfig() {
         const config = await apiFetch('/api/mikrotik/hotspot/cleanup-config');
         setAutoCleanupUI(!!config.autoCleanupExpired);
     } catch (e) {}
+    fetchLineDigestConfig();
 }
 
 const toggleAutoCleanup = document.getElementById('toggle-auto-cleanup');
@@ -1534,6 +1537,335 @@ if (btnCleanExpiredNow) {
         }
     });
 }
+
+// ==========================================
+// LINE Official Account / Messaging API (Option 1 - Multi-Site Aware)
+// ==========================================
+async function fetchLineDigestConfig() {
+    try {
+        const siteId = document.getElementById('select-active-site')?.value || '';
+        const config = await apiFetch(`/api/mikrotik/line-digest/config?siteId=${siteId}`);
+        setLineDigestUI(config);
+    } catch (e) {
+        console.error('Failed to fetch LINE OA config:', e);
+    }
+}
+
+function setLineDigestUI(config) {
+    const toggle = document.getElementById('toggle-line-digest');
+    const badge = document.getElementById('line-digest-status-badge');
+    const siteBadge = document.getElementById('line-digest-site-name');
+    const tokenInput = document.getElementById('line-channel-access-token');
+    const targetInput = document.getElementById('line-target-id');
+    const timeInput = document.getElementById('line-digest-time');
+
+    if (toggle) toggle.checked = !!config.enabled;
+    if (tokenInput) tokenInput.value = config.channelAccessToken || '';
+    if (targetInput) targetInput.value = config.targetId || '';
+    if (timeInput && config.digestTime) timeInput.value = config.digestTime;
+
+    if (siteBadge && currentSitesData) {
+        const targetSiteId = config.siteId || currentSitesData.activeSiteId;
+        const siteObj = (currentSitesData.sites || []).find(s => s.id === targetSiteId);
+        if (siteObj) siteBadge.textContent = siteObj.name;
+    }
+
+    if (badge) {
+        if (config.enabled) {
+            badge.textContent = `เปิดใช้งาน (${config.digestTime} น.)`;
+            badge.className = 'auto-cleanup-status-badge on';
+            badge.style.background = '#dcfce7';
+            badge.style.color = '#15803d';
+        } else {
+            badge.textContent = 'ปิดใช้งาน';
+            badge.className = 'auto-cleanup-status-badge off';
+            badge.style.background = '#f1f5f9';
+            badge.style.color = '#64748b';
+        }
+    }
+}
+
+document.getElementById('btn-save-line-digest')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('toggle-line-digest')?.checked || false;
+    const token = document.getElementById('line-channel-access-token')?.value || '';
+    const targetId = document.getElementById('line-target-id')?.value || '';
+    const digestTime = document.getElementById('line-digest-time')?.value || '09:00';
+
+    try {
+        const updated = await apiFetch('/api/mikrotik/line-digest/config', {
+            method: 'POST',
+            body: JSON.stringify({
+                enabled,
+                channelAccessToken: token,
+                targetId,
+                digestTime
+            })
+        });
+        setLineDigestUI(updated);
+        alert('บันทึกการตั้งค่า LINE Official Account เรียบร้อย!');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    }
+});
+
+document.getElementById('toggle-line-digest')?.addEventListener('change', (e) => {
+    const enabled = e.target.checked;
+    const badge = document.getElementById('line-digest-status-badge');
+    if (badge) {
+        if (enabled) {
+            badge.textContent = 'เปิดใช้งาน (ยังไม่ได้บันทึก)';
+            badge.className = 'auto-cleanup-status-badge on';
+        } else {
+            badge.textContent = 'ปิดใช้งาน';
+            badge.className = 'auto-cleanup-status-badge off';
+        }
+    }
+});
+
+document.getElementById('btn-test-line-notify')?.addEventListener('click', async () => {
+    const token = document.getElementById('line-channel-access-token')?.value || '';
+    const targetId = document.getElementById('line-target-id')?.value || '';
+    if (!token || !targetId) {
+        alert('กรุณากรอก Channel Access Token และ Target ID ก่อนทดสอบ');
+        return;
+    }
+    const btn = document.getElementById('btn-test-line-notify');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่ง...';
+    try {
+        await apiFetch('/api/mikrotik/line-digest/test', {
+            method: 'POST',
+            body: JSON.stringify({ token, targetId })
+        });
+        alert('ส่ง Push Message ทดสอบจาก LINE Official Account สำเร็จ! กรุณาเช็คใน LINE');
+    } catch (err) {
+        alert('ส่งข้อความทดสอบล้มเหลว: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> ทดสอบส่ง Push';
+    }
+});
+
+document.getElementById('btn-run-line-digest-now')?.addEventListener('click', async () => {
+    const token = document.getElementById('line-channel-access-token')?.value || '';
+    const targetId = document.getElementById('line-target-id')?.value || '';
+    if (!token || !targetId) {
+        alert('กรุณากรอก Channel Access Token และ Target ID ก่อนใช้งาน');
+        return;
+    }
+    if (!confirm('ต้องการส่งรายงาน Flex Card สรุปคูปอง/ผู้ใช้ใกล้หมดอายุเข้า LINE ทันทีใช่หรือไม่?')) return;
+
+    const btn = document.getElementById('btn-run-line-digest-now');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่ง...';
+    try {
+        const res = await apiFetch('/api/mikrotik/line-digest/run-now', {
+            method: 'POST',
+            body: JSON.stringify({ token, targetId })
+        });
+        alert(`ส่งรายงาน Flex Card เข้า LINE สำเร็จ!\n(พบใกล้หมดอายุ: 1 วัน=${res.counts.d1}, 3 วัน=${res.counts.d3}, 7 วัน=${res.counts.d7})`);
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> ส่ง Flex Card ทันที';
+    }
+});
+
+
+
+// ==========================================
+// Tab: Archived / Expired & Deleted Hotspot Users
+// ==========================================
+let _allArchivedUsers = [];
+
+async function fetchArchivedHotspotUsers() {
+    const tbody = document.querySelector('#table-hotspot-archive tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังดึงประวัติ...</td></tr>';
+    
+    try {
+        const res = await apiFetch('/api/mikrotik/hotspot/archived-users');
+        _allArchivedUsers = res.users || [];
+        
+        const badgeArchive = document.getElementById('badge-hotspot-archive');
+        if (badgeArchive) badgeArchive.textContent = res.total || 0;
+        
+        renderArchivedHotspotUsers(_allArchivedUsers);
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
+    }
+}
+
+function renderArchivedHotspotUsers(users) {
+    const tbody = document.querySelector('#table-hotspot-archive tbody');
+    if (!tbody) return;
+    
+    const searchVal = (document.getElementById('search-hotspot-archive')?.value || '').toLowerCase().trim();
+    let filtered = users;
+    if (searchVal) {
+        filtered = filtered.filter(u =>
+            (u.username || '').toLowerCase().includes(searchVal) ||
+            (u.comment || '').toLowerCase().includes(searchVal) ||
+            (u.profile || '').toLowerCase().includes(searchVal)
+        );
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">ไม่พบรายการประวัติคูปองหมดอายุ/ถูกลบ</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    filtered.forEach(item => {
+        const tr = document.createElement('tr');
+        
+        const expiredDate = item.deletedAt ? new Date(item.deletedAt).toLocaleString('th-TH') : '-';
+        
+        let reasonBadge = '';
+        if (item.reason === 'manual_delete') {
+            reasonBadge = '<span class="badge" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-user-xmark"></i> ลบโดยแอดมิน</span>';
+        } else if (item.reason === 'auto_cleanup') {
+            reasonBadge = '<span class="badge" style="background:#fef3c7; color:#d97706; border:1px solid #fde68a; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-broom"></i> ล้างอัตโนมัติ</span>';
+        } else {
+            reasonBadge = '<span class="badge" style="background:#f3f4f6; color:#4b5563; border:1px solid #d1d5db; padding:2px 6px; border-radius:10px; font-size:0.72rem; font-weight:600;"><i class="fa-solid fa-clock-rotate-left"></i> หมดอายุแล้ว</span>';
+        }
+
+        tr.innerHTML = `
+            <td style="vertical-align:middle;">
+                <div style="font-weight:700; color:var(--text-main); font-size:0.9rem;">${item.username}</div>
+                <div style="font-size:0.78rem; color:var(--text-muted); font-family:monospace; margin-top:2px;">PW: ${item.password || '(ไม่มี)'}</div>
+            </td>
+            <td style="vertical-align:middle;"><span class="badge badge-info">${item.profile || 'default'}</span></td>
+            <td style="vertical-align:middle;">${item.siteName || 'Default'}</td>
+            <td style="vertical-align:middle;">${reasonBadge}</td>
+            <td style="vertical-align:middle; font-size:0.85rem; color:var(--text-secondary);">${expiredDate}</td>
+            <td style="vertical-align:middle; font-size:0.85rem;">${item.deletedBy || 'System'}</td>
+            <td style="text-align:right; vertical-align:middle;">
+                <div style="display:flex; gap:6px; justify-content:flex-end;">
+                    <button class="btn btn-primary btn-sm btn-restore-archived-user" data-item='${JSON.stringify(item).replace(/'/g, "&apos;")}' title="คืนค่าสร้างบัญชีกลับเข้า MikroTik">
+                        <i class="fa-solid fa-rotate-left"></i> คืนค่า (Restore)
+                    </button>
+                    <button class="btn btn-danger btn-sm btn-delete-archived-user" data-id="${item.id}" title="ลบออกจากประวัติ">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+document.getElementById('search-hotspot-archive')?.addEventListener('input', () => {
+    renderArchivedHotspotUsers(_allArchivedUsers);
+});
+
+document.getElementById('btn-refresh-hotspot-archive')?.addEventListener('click', () => {
+    fetchArchivedHotspotUsers();
+});
+
+document.getElementById('btn-clear-hotspot-archive')?.addEventListener('click', async () => {
+    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการล้างประวัติคูปองหมดอายุทั้งหมด?')) return;
+    try {
+        const res = await apiFetch('/api/mikrotik/hotspot/archived-users', { method: 'DELETE' });
+        if (res.success) {
+            alert(`ล้างประวัติสำเร็จจำนวน ${res.count} รายการ`);
+            fetchArchivedHotspotUsers();
+        }
+    } catch (err) {
+        alert(`เกิดข้อผิดพลาด: ${err.message}`);
+    }
+});
+
+document.querySelector('#table-hotspot-archive tbody')?.addEventListener('click', async (e) => {
+    const restoreBtn = e.target.closest('.btn-restore-archived-user');
+    if (restoreBtn) {
+        const item = JSON.parse(restoreBtn.getAttribute('data-item'));
+        openRestoreUserModal(item);
+        return;
+    }
+
+    const deleteBtn = e.target.closest('.btn-delete-archived-user');
+    if (deleteBtn) {
+        const id = deleteBtn.getAttribute('data-id');
+        if (!confirm('ยืนยันลบรายการประวัตินี้?')) return;
+        try {
+            const res = await apiFetch(`/api/mikrotik/hotspot/archived-users/${id}`, { method: 'DELETE' });
+            if (res.success) {
+                fetchArchivedHotspotUsers();
+            }
+        } catch (err) {
+            alert(`เกิดข้อผิดพลาด: ${err.message}`);
+        }
+    }
+});
+
+async function openRestoreUserModal(item) {
+    const modal = document.getElementById('modal-hotspot-restore');
+    if (!modal) return;
+    
+    document.getElementById('restore-archive-id').value = item.id;
+    document.getElementById('restore-username').value = item.username;
+    document.getElementById('restore-password').value = item.password || '';
+    document.getElementById('restore-limit-uptime').value = item.limitUptime || '';
+    document.getElementById('restore-comment').value = item.comment ? `${item.comment} (Restored)` : 'Restored Coupon';
+    
+    const profileSelect = document.getElementById('restore-profile');
+    if (profileSelect) {
+        profileSelect.innerHTML = '<option value="">กำลังโหลดโปรไฟล์...</option>';
+        try {
+            const profiles = await apiFetch('/api/mikrotik/hotspot/profiles');
+            profileSelect.innerHTML = profiles.map(p => `<option value="${p.name}" ${p.name === item.profile ? 'selected' : ''}>${p.name}</option>`).join('');
+        } catch (err) {
+            profileSelect.innerHTML = '<option value="default">default</option>';
+        }
+    }
+    
+    document.getElementById('restore-error').style.display = 'none';
+    modal.classList.add('show');
+}
+
+document.getElementById('modal-hotspot-restore-close')?.addEventListener('click', () => {
+    document.getElementById('modal-hotspot-restore')?.classList.remove('show');
+});
+
+document.getElementById('form-hotspot-restore')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('restore-archive-id').value;
+    const username = document.getElementById('restore-username').value;
+    const password = document.getElementById('restore-password').value;
+    const profile = document.getElementById('restore-profile').value;
+    const limitUptime = document.getElementById('restore-limit-uptime').value;
+    const comment = document.getElementById('restore-comment').value;
+
+    const errEl = document.getElementById('restore-error');
+    errEl.style.display = 'none';
+
+    try {
+        const res = await apiFetch(`/api/mikrotik/hotspot/archived-users/${id}/restore`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username,
+                password,
+                profile,
+                limitUptime,
+                comment
+            })
+        });
+
+        if (res.success) {
+            alert(`สร้างบัญชี ${username} กลับเข้า MikroTik สำเร็จ!`);
+            document.getElementById('modal-hotspot-restore').classList.remove('show');
+            fetchArchivedHotspotUsers();
+            if (typeof activeHotspotTab !== 'undefined' && activeHotspotTab === 'tab-hotspot-accounts') {
+                fetchHotspotAccounts();
+            }
+        }
+    } catch (err) {
+        errEl.textContent = `เกิดข้อผิดพลาด: ${err.message}`;
+        errEl.style.display = 'block';
+    }
+});
 
 // Tab: Hotspot User Profiles Management
 async function fetchHotspotProfiles() {

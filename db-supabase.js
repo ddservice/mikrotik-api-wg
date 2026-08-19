@@ -591,6 +591,215 @@ async function saveMultiWanConfig(siteId, config) {
     return updated;
 }
 
+// ==========================================
+// ARCHIVED HOTSPOT USERS
+// ==========================================
+function _mapArchivedHotspotRow(l) {
+    return {
+        id: l.id,
+        username: l.username || '',
+        password: l.password || '',
+        profile: l.profile || 'default',
+        limitUptime: l.limit_uptime || '',
+        limitBytesTotal: l.limit_bytes_total || 0,
+        comment: l.comment || '',
+        siteName: l.site_name || '',
+        expiredAt: l.expired_at || l.deleted_at,
+        deletedAt: l.deleted_at,
+        deletedBy: l.deleted_by || 'System',
+        reason: l.reason || 'expired'
+    };
+}
+
+async function getArchivedHotspotUsers(options) {
+    options = options || {};
+    try {
+        var query = supabase.from('archived_hotspot_users')
+            .select('*', { count: 'exact' })
+            .order('deleted_at', { ascending: false });
+
+        if (options.siteName) query = query.eq('site_name', options.siteName);
+        if (options.search) {
+            var q = '%' + options.search + '%';
+            query = query.or('username.ilike.' + q + ',comment.ilike.' + q + ',profile.ilike.' + q);
+        }
+
+        var page = parseInt(options.page) || 1;
+        var limit = parseInt(options.limit) || 100;
+        var res = await query.range((page - 1) * limit, page * limit - 1);
+        if (res.error) throw res.error;
+        return {
+            users: (res.data || []).map(_mapArchivedHotspotRow),
+            total: res.count || 0,
+            page: page,
+            limit: limit,
+            pages: Math.ceil((res.count || 0) / limit) || 1
+        };
+    } catch(e) {
+        return { users: [], total: 0, page: 1, limit: 100, pages: 1 };
+    }
+}
+
+async function archiveDeletedHotspotUser(entry) {
+    try {
+        var id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+        var row = {
+            id: id,
+            username: entry.username || entry.name || '',
+            password: entry.password || '',
+            profile: entry.profile || 'default',
+            limit_uptime: entry.limitUptime || '',
+            limit_bytes_total: parseInt(entry.limitBytesTotal) || 0,
+            comment: entry.comment || '',
+            site_name: entry.siteName || '',
+            expired_at: entry.expiredAt || new Date().toISOString(),
+            deleted_at: new Date().toISOString(),
+            deleted_by: entry.deletedBy || 'System',
+            reason: entry.reason || 'manual_delete'
+        };
+        var res = await supabase.from('archived_hotspot_users').insert(row).select().single();
+        if (res.error) throw res.error;
+        return _mapArchivedHotspotRow(res.data);
+    } catch(e) {
+        console.error('Supabase archiveDeletedHotspotUser failed:', e.message || e);
+        return null;
+    }
+}
+
+async function archiveDeletedHotspotUsersBulk(entries) {
+    if (!entries || !entries.length) return 0;
+    try {
+        var rows = entries.map(function(entry) {
+            return {
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                username: entry.username || entry.name || '',
+                password: entry.password || '',
+                profile: entry.profile || 'default',
+                limit_uptime: entry.limitUptime || '',
+                limit_bytes_total: parseInt(entry.limitBytesTotal) || 0,
+                comment: entry.comment || '',
+                site_name: entry.siteName || '',
+                expired_at: entry.expiredAt || new Date().toISOString(),
+                deleted_at: new Date().toISOString(),
+                deleted_by: entry.deletedBy || 'System Auto',
+                reason: entry.reason || 'auto_cleanup'
+            };
+        });
+        var res = await supabase.from('archived_hotspot_users').insert(rows);
+        if (res.error) throw res.error;
+        return rows.length;
+    } catch(e) {
+        console.error('Supabase archiveDeletedHotspotUsersBulk failed:', e.message || e);
+        return 0;
+    }
+}
+
+async function deleteArchivedHotspotUser(id) {
+    try {
+        var res = await supabase.from('archived_hotspot_users').delete().eq('id', id);
+        return !res.error;
+    } catch(e) { return false; }
+}
+
+async function clearArchivedHotspotUsers(siteName) {
+    try {
+        var query = supabase.from('archived_hotspot_users').delete();
+        if (siteName) query = query.eq('site_name', siteName);
+        var res = await query;
+        return !res.error;
+    } catch(e) { return 0; }
+}
+
+async function getLineDigestConfig(siteId) {
+    try {
+        var key = 'line_digest_config' + (siteId ? ('_' + siteId) : '');
+        var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
+        var data = res.data && res.data.value;
+        if (!data && siteId) {
+            // fallback to default key
+            var resDefault = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
+            data = resDefault.data && resDefault.data.value;
+        }
+        if (!data) {
+            return { siteId: siteId || 'default', enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
+        }
+        return {
+            siteId: siteId || 'default',
+            enabled: !!data.enabled,
+            channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
+            channelSecret: data.channelSecret || '',
+            targetId: data.targetId || '',
+            digestTime: data.digestTime || '09:00',
+            includeHotspot: data.includeHotspot !== false,
+            includePppoe: data.includePppoe !== false,
+            lastSentDate: data.lastSentDate || ''
+        };
+    } catch (e) {
+        return { siteId: siteId || 'default', enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
+    }
+}
+
+async function saveLineDigestConfig(config, siteId) {
+    try {
+        var targetSiteId = siteId || config.siteId;
+        var key = 'line_digest_config' + (targetSiteId ? ('_' + targetSiteId) : '');
+        var current = await getLineDigestConfig(targetSiteId);
+        var updated = Object.assign({}, current, config, { siteId: targetSiteId || 'default' });
+        await supabase.from('app_settings').upsert({ key: key, value: updated, updated_at: new Date().toISOString() });
+        return updated;
+    } catch (e) {
+        return config;
+    }
+}
+
+// ==========================================
+// LINE USER BINDINGS
+// ==========================================
+async function getLineUserBinding(lineUserId) {
+    try {
+        var res = await supabase.from('line_user_bindings').select('*').eq('line_user_id', lineUserId).maybeSingle();
+        if (res.error || !res.data) return null;
+        return {
+            lineUserId: res.data.line_user_id,
+            username: res.data.username,
+            siteId: res.data.site_id || 'default',
+            siteName: res.data.site_name || 'Default',
+            linkedAt: res.data.linked_at
+        };
+    } catch(e) { return null; }
+}
+
+async function bindLineUser(lineUserId, username, siteId, siteName) {
+    try {
+        var row = {
+            line_user_id: lineUserId,
+            username: username,
+            site_id: siteId || 'default',
+            site_name: siteName || 'Default',
+            linked_at: new Date().toISOString()
+        };
+        var res = await supabase.from('line_user_bindings').upsert(row, { onConflict: 'line_user_id' }).select().single();
+        if (res.error) throw res.error;
+        return {
+            lineUserId: res.data.line_user_id,
+            username: res.data.username,
+            siteId: res.data.site_id,
+            siteName: res.data.site_name,
+            linkedAt: res.data.linked_at
+        };
+    } catch(e) {
+        return { lineUserId: lineUserId, username: username, siteId: siteId || 'default', siteName: siteName || 'Default', linkedAt: new Date().toISOString() };
+    }
+}
+
+
+async function unbindLineUser(lineUserId) {
+    try {
+        var res = await supabase.from('line_user_bindings').delete().eq('line_user_id', lineUserId);
+        return !res.error;
+    } catch(e) { return false; }
+}
+
 module.exports = {
     getMultiWanConfig: getMultiWanConfig, saveMultiWanConfig: saveMultiWanConfig,
     getConfig: getConfig, saveConfig: saveConfig,
@@ -608,5 +817,10 @@ module.exports = {
     getPppoeUsageLogs: getPppoeUsageLogs, getAllPppoeUsageLogsRaw: getAllPppoeUsageLogsRaw,
     addPppoeUsageLog: addPppoeUsageLog, getPppoeUsageSummary: getPppoeUsageSummary,
     getAutoCleanupConfig: getAutoCleanupConfig, saveAutoCleanupConfig: saveAutoCleanupConfig,
-    getMenuPermissions: getMenuPermissions, saveMenuPermissions: saveMenuPermissions
+    getMenuPermissions: getMenuPermissions, saveMenuPermissions: saveMenuPermissions,
+    getArchivedHotspotUsers: getArchivedHotspotUsers, archiveDeletedHotspotUser: archiveDeletedHotspotUser,
+    archiveDeletedHotspotUsersBulk: archiveDeletedHotspotUsersBulk,
+    deleteArchivedHotspotUser: deleteArchivedHotspotUser, clearArchivedHotspotUsers: clearArchivedHotspotUsers,
+    getLineDigestConfig: getLineDigestConfig, saveLineDigestConfig: saveLineDigestConfig,
+    getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser
 };
