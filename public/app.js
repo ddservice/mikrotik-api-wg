@@ -187,6 +187,22 @@ async function fetchSites() {
         if (genSiteTitleInput && activeSiteObj && !genSiteTitleInput.value) {
             genSiteTitleInput.value = activeSiteObj.name;
         }
+
+        // Also populate LINE digest site selector
+        const lineSiteSelect = document.getElementById('select-line-digest-site');
+        if (lineSiteSelect && data.sites) {
+            const prevVal = lineSiteSelect.value;
+            lineSiteSelect.innerHTML = '';
+            data.sites.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = `${s.name}`;
+                if (s.id === (prevVal || data.activeSiteId)) {
+                    opt.selected = true;
+                }
+                lineSiteSelect.appendChild(opt);
+            });
+        }
     } catch (err) {
         console.error('Failed to fetch sites:', err);
     }
@@ -1541,14 +1557,25 @@ if (btnCleanExpiredNow) {
 // ==========================================
 // LINE Official Account / Messaging API (Option 1 - Multi-Site Aware)
 // ==========================================
-async function fetchLineDigestConfig() {
+async function fetchLineDigestConfig(targetSiteId) {
     try {
-        const siteId = document.getElementById('select-active-site')?.value || '';
+        const lineSiteSelect = document.getElementById('select-line-digest-site');
+        const siteId = targetSiteId || (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
+        if (lineSiteSelect && siteId && lineSiteSelect.value !== siteId) {
+            lineSiteSelect.value = siteId;
+        }
         const config = await apiFetch(`/api/mikrotik/line-digest/config?siteId=${siteId}`);
         setLineDigestUI(config);
     } catch (e) {
         console.error('Failed to fetch LINE OA config:', e);
     }
+}
+
+const selectLineDigestSiteEl = document.getElementById('select-line-digest-site');
+if (selectLineDigestSiteEl) {
+    selectLineDigestSiteEl.addEventListener('change', (e) => {
+        fetchLineDigestConfig(e.target.value);
+    });
 }
 
 function setLineDigestUI(config) {
@@ -1558,14 +1585,19 @@ function setLineDigestUI(config) {
     const tokenInput = document.getElementById('line-channel-access-token');
     const targetInput = document.getElementById('line-target-id');
     const timeInput = document.getElementById('line-digest-time');
+    const lineSiteSelect = document.getElementById('select-line-digest-site');
 
     if (toggle) toggle.checked = !!config.enabled;
     if (tokenInput) tokenInput.value = config.channelAccessToken || '';
     if (targetInput) targetInput.value = config.targetId || '';
     if (timeInput && config.digestTime) timeInput.value = config.digestTime;
 
+    if (lineSiteSelect && config.siteId) {
+        lineSiteSelect.value = config.siteId;
+    }
+
     if (siteBadge && currentSitesData) {
-        const targetSiteId = config.siteId || currentSitesData.activeSiteId;
+        const targetSiteId = config.siteId || (lineSiteSelect ? lineSiteSelect.value : '') || currentSitesData.activeSiteId;
         const siteObj = (currentSitesData.sites || []).find(s => s.id === targetSiteId);
         if (siteObj) siteBadge.textContent = siteObj.name;
     }
@@ -1586,15 +1618,18 @@ function setLineDigestUI(config) {
 }
 
 document.getElementById('btn-save-line-digest')?.addEventListener('click', async () => {
+    const lineSiteSelect = document.getElementById('select-line-digest-site');
+    const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
     const enabled = document.getElementById('toggle-line-digest')?.checked || false;
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
     const digestTime = document.getElementById('line-digest-time')?.value || '09:00';
 
     try {
-        const updated = await apiFetch('/api/mikrotik/line-digest/config', {
+        const updated = await apiFetch(`/api/mikrotik/line-digest/config?siteId=${siteId}`, {
             method: 'POST',
             body: JSON.stringify({
+                siteId,
                 enabled,
                 channelAccessToken: token,
                 targetId,
@@ -1602,7 +1637,9 @@ document.getElementById('btn-save-line-digest')?.addEventListener('click', async
             })
         });
         setLineDigestUI(updated);
-        alert('บันทึกการตั้งค่า LINE Official Account เรียบร้อย!');
+        const siteObj = (currentSitesData.sites || []).find(s => s.id === siteId);
+        const siteName = siteObj ? siteObj.name : siteId;
+        alert(`บันทึกการตั้งค่า LINE Official Account ของสาขา "${siteName}" เรียบร้อยแล้ว!`);
     } catch (err) {
         alert('เกิดข้อผิดพลาด: ' + err.message);
     }
@@ -1623,6 +1660,8 @@ document.getElementById('toggle-line-digest')?.addEventListener('change', (e) =>
 });
 
 document.getElementById('btn-test-line-notify')?.addEventListener('click', async () => {
+    const lineSiteSelect = document.getElementById('select-line-digest-site');
+    const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
     if (!token || !targetId) {
@@ -1633,9 +1672,9 @@ document.getElementById('btn-test-line-notify')?.addEventListener('click', async
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่ง...';
     try {
-        await apiFetch('/api/mikrotik/line-digest/test', {
+        await apiFetch(`/api/mikrotik/line-digest/test?siteId=${siteId}`, {
             method: 'POST',
-            body: JSON.stringify({ token, targetId })
+            body: JSON.stringify({ siteId, token, targetId })
         });
         alert('ส่ง Push Message ทดสอบจาก LINE Official Account สำเร็จ! กรุณาเช็คใน LINE');
     } catch (err) {
@@ -1647,6 +1686,8 @@ document.getElementById('btn-test-line-notify')?.addEventListener('click', async
 });
 
 document.getElementById('btn-run-line-digest-now')?.addEventListener('click', async () => {
+    const lineSiteSelect = document.getElementById('select-line-digest-site');
+    const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
     if (!token || !targetId) {
@@ -1659,9 +1700,9 @@ document.getElementById('btn-run-line-digest-now')?.addEventListener('click', as
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่ง...';
     try {
-        const res = await apiFetch('/api/mikrotik/line-digest/run-now', {
+        const res = await apiFetch(`/api/mikrotik/line-digest/run-now?siteId=${siteId}`, {
             method: 'POST',
-            body: JSON.stringify({ token, targetId })
+            body: JSON.stringify({ siteId, token, targetId })
         });
         alert(`ส่งรายงาน Flex Card เข้า LINE สำเร็จ!\n(พบใกล้หมดอายุ: 1 วัน=${res.counts.d1}, 3 วัน=${res.counts.d3}, 7 วัน=${res.counts.d7})`);
     } catch (err) {

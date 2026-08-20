@@ -712,19 +712,22 @@ async function clearArchivedHotspotUsers(siteName) {
 
 async function getLineDigestConfig(siteId) {
     try {
-        var key = 'line_digest_config' + (siteId ? ('_' + siteId) : '');
+        var targetSiteId = siteId || 'default';
+        var key = 'line_digest_config_' + targetSiteId;
         var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
         var data = res.data && res.data.value;
-        if (!data && siteId) {
-            // fallback to default key
-            var resDefault = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
-            data = resDefault.data && resDefault.data.value;
+        if (!data) {
+            // Check legacy un-suffixed key if default site
+            if (targetSiteId === 'default') {
+                var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
+                data = resOld.data && resOld.data.value;
+            }
         }
         if (!data) {
-            return { siteId: siteId || 'default', enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
+            return { siteId: targetSiteId, enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
         }
         return {
-            siteId: siteId || 'default',
+            siteId: targetSiteId,
             enabled: !!data.enabled,
             channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
             channelSecret: data.channelSecret || '',
@@ -741,10 +744,10 @@ async function getLineDigestConfig(siteId) {
 
 async function saveLineDigestConfig(config, siteId) {
     try {
-        var targetSiteId = siteId || config.siteId;
-        var key = 'line_digest_config' + (targetSiteId ? ('_' + targetSiteId) : '');
+        var targetSiteId = siteId || config.siteId || 'default';
+        var key = 'line_digest_config_' + targetSiteId;
         var current = await getLineDigestConfig(targetSiteId);
-        var updated = Object.assign({}, current, config, { siteId: targetSiteId || 'default' });
+        var updated = Object.assign({}, current, config, { siteId: targetSiteId });
         await supabase.from('app_settings').upsert({ key: key, value: updated, updated_at: new Date().toISOString() });
         return updated;
     } catch (e) {

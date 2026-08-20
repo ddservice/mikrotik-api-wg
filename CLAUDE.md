@@ -369,6 +369,11 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-20** — Multi-Site LINE OA Group ID Isolation & Site-Specific Notification Management.
+  - Fixed cross-site fallback leak in `db-supabase.js` and `db.js` where sites without individual configurations inherited the global/default LINE target Group ID.
+  - Updated `server.js` `generateDailyExpiryDigest(siteId)` and LINE config/test/run-now endpoints to explicitly accept and isolate `siteId`.
+  - Added dedicated Site Selector dropdown directly inside the LINE OA settings card in `public/index.html` + `public/app.js` (`v=104.0`) so admin can select and configure Token, Target ID (Group ID), on/off toggle, and daily report time individually per branch (A4-Residence vs TingTing).
+
 - **2026-08-13 (10)** — Close remaining Express-stability follow-ups (no framework rewrite).
   - Slimmed `package.json` to production Express deps only (dropped Next/React/TanStack/
     otplib/qrcode/promptpay/zod/typescript tooling). `src/` stays archived under

@@ -413,7 +413,11 @@
                                                 <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #047857;">ส่ง Push Message / Flex Card สรุปวันหมดอายุประจำวัน และตอบกลับอัตโนมัติเมื่อกด Rich Menu</p>
                                             </div>
                                         </div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <div style="display: flex; align-items: center; gap: 6px;">
+                                                <label for="select-line-digest-site" style="font-size: 0.8rem; font-weight: 600; color: #065f46; margin: 0;"><i class="fa-solid fa-location-dot"></i> สาขา:</label>
+                                                <select id="select-line-digest-site" class="form-control form-control-sm" style="min-width: 140px; font-weight: 600; border-color: #a7f3d0; background: #fff;"></select>
+                                            </div>
                                             <span class="auto-cleanup-status-badge off" id="line-digest-status-badge">ปิดใช้งาน</span>
                                             <label class="switch switch-sm">
                                                 <input type="checkbox" id="toggle-line-digest">
@@ -2782,7 +2786,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=103.0"></script>
+    <script src="app.js?v=104.0"></script>
 </body>
 </html>
 

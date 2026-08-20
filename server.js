@@ -2435,9 +2435,10 @@ function createDailyDigestFlex(digestData) {
 }
 
 async function generateDailyExpiryDigest(reqOrSiteId = null) {
-    const config = await db.getLineDigestConfig();
+    const resolvedSiteId = typeof reqOrSiteId === 'string' ? reqOrSiteId : (reqOrSiteId?.query?.siteId || reqOrSiteId?.body?.siteId || reqOrSiteId?.headers?.['x-site-id'] || reqOrSiteId?.user?.assignedSiteId || null);
+    const config = await db.getLineDigestConfig(resolvedSiteId);
     return await executeOnRouter(reqOrSiteId, async (client) => {
-        const siteConfig = await db.getConfig(typeof reqOrSiteId === 'string' ? reqOrSiteId : reqOrSiteId?.user?.assignedSiteId);
+        const siteConfig = await db.getConfig(resolvedSiteId);
         const siteName = siteConfig.name || 'Main Site';
 
         const d1Users = [];

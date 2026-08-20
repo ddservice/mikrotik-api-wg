@@ -1004,8 +1004,7 @@ module.exports = {
     addPppoeUsageLog,
 function getLineDigestConfig(siteId) {
     try {
-        const sitesData = getSitesData();
-        const targetSiteId = siteId || sitesData.activeSiteId || 'default';
+        const targetSiteId = siteId || 'default';
         if (!fs.existsSync(SETTINGS_FILE)) {
             return {
                 siteId: targetSiteId,
@@ -1025,7 +1024,7 @@ function getLineDigestConfig(siteId) {
 
         return {
             siteId: targetSiteId,
-            enabled: siteConfig.enabled !== undefined ? !!siteConfig.enabled : (targetSiteId === 'default' ? !!data.lineDigestEnabled : false),
+            enabled: !!siteConfig.enabled,
             channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || (targetSiteId === 'default' ? (data.lineChannelAccessToken || data.lineNotifyToken || '') : ''),
             channelSecret: siteConfig.channelSecret || (targetSiteId === 'default' ? (data.lineChannelSecret || '') : ''),
             targetId: siteConfig.targetId || (targetSiteId === 'default' ? (data.lineTargetId || '') : ''),
@@ -1050,8 +1049,7 @@ function getLineDigestConfig(siteId) {
 }
 
 function saveLineDigestConfig(config, siteId) {
-    const sitesData = getSitesData();
-    const targetSiteId = siteId || config.siteId || sitesData.activeSiteId || 'default';
+    const targetSiteId = siteId || config.siteId || 'default';
     
     let allData = {};
     if (fs.existsSync(SETTINGS_FILE)) {
