@@ -965,11 +965,6 @@ function clearArchivedHotspotUsers(siteName) {
         let list = JSON.parse(fs.readFileSync(ARCHIVED_HOTSPOT_USERS_FILE, 'utf8'));
         const initial = list.length;
         if (siteName) {
-            list = list.filter(item => item.siteName !== siteName);
-        } else {
-            list = [];
-        }
-        fs.writeFileSync(ARCHIVED_HOTSPOT_USERS_FILE, JSON.stringify(list, null, 4), 'utf8');
         return initial - list.length;
     } catch (e) { return 0; }
 }
@@ -1002,9 +997,31 @@ module.exports = {
     getPppoeUsageLogs,
     getAllPppoeUsageLogsRaw,
     addPppoeUsageLog,
+    getPppoeUsageSummary,
+    getAutoCleanupConfig,
+    saveAutoCleanupConfig,
+    getMenuPermissions,
+    saveMenuPermissions,
+    getMultiWanConfig,
+    saveMultiWanConfig,
+    getArchivedHotspotUsers,
+    archiveDeletedHotspotUser,
+    archiveDeletedHotspotUsersBulk,
+    deleteArchivedHotspotUser,
+    clearArchivedHotspotUsers,
+    getLineDigestConfig,
+    saveLineDigestConfig,
+    getLineUserBinding,
+    bindLineUser,
+    unbindLineUser
+};
+
 function getLineDigestConfig(siteId) {
     try {
-        const targetSiteId = siteId || 'default';
+        const sitesData = getSitesData();
+        const activeId = sitesData.activeSiteId || (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        const targetSiteId = siteId || activeId;
+
         if (!fs.existsSync(SETTINGS_FILE)) {
             return {
                 siteId: targetSiteId,
@@ -1020,18 +1037,50 @@ function getLineDigestConfig(siteId) {
         }
         const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         const siteConfigKey = `line_digest_${targetSiteId}`;
-        const siteConfig = data[siteConfigKey] || {};
+        const siteConfig = data[siteConfigKey];
+
+        if (siteConfig) {
+            return {
+                siteId: targetSiteId,
+                enabled: !!siteConfig.enabled,
+                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '',
+                channelSecret: siteConfig.channelSecret || '',
+                targetId: siteConfig.targetId || '',
+                digestTime: siteConfig.digestTime || '09:00',
+                includeHotspot: siteConfig.includeHotspot !== false,
+                includePppoe: siteConfig.includePppoe !== false,
+                lastSentDate: siteConfig.lastSentDate || ''
+            };
+        }
+
+        // Only default/first site can check legacy un-suffixed keys
+        const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
+            if (data.lineDigestEnabled !== undefined || data.lineChannelAccessToken || data.lineNotifyToken) {
+                return {
+                    siteId: targetSiteId,
+                    enabled: !!data.lineDigestEnabled,
+                    channelAccessToken: data.lineChannelAccessToken || data.lineNotifyToken || '',
+                    channelSecret: data.lineChannelSecret || '',
+                    targetId: data.lineTargetId || '',
+                    digestTime: data.lineDigestTime || '09:00',
+                    includeHotspot: data.lineDigestHotspot !== false,
+                    includePppoe: data.lineDigestPppoe !== false,
+                    lastSentDate: data.lineDigestLastSentDate || ''
+                };
+            }
+        }
 
         return {
             siteId: targetSiteId,
-            enabled: !!siteConfig.enabled,
-            channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || (targetSiteId === 'default' ? (data.lineChannelAccessToken || data.lineNotifyToken || '') : ''),
-            channelSecret: siteConfig.channelSecret || (targetSiteId === 'default' ? (data.lineChannelSecret || '') : ''),
-            targetId: siteConfig.targetId || (targetSiteId === 'default' ? (data.lineTargetId || '') : ''),
-            digestTime: siteConfig.digestTime || (targetSiteId === 'default' ? (data.lineDigestTime || '09:00') : '09:00'),
-            includeHotspot: siteConfig.includeHotspot !== false,
-            includePppoe: siteConfig.includePppoe !== false,
-            lastSentDate: siteConfig.lastSentDate || (targetSiteId === 'default' ? (data.lineDigestLastSentDate || '') : '')
+            enabled: false,
+            channelAccessToken: '',
+            channelSecret: '',
+            targetId: '',
+            digestTime: '09:00',
+            includeHotspot: true,
+            includePppoe: true,
+            lastSentDate: ''
         };
     } catch (e) {
         return {
@@ -1049,7 +1098,9 @@ function getLineDigestConfig(siteId) {
 }
 
 function saveLineDigestConfig(config, siteId) {
-    const targetSiteId = siteId || config.siteId || 'default';
+    const sitesData = getSitesData();
+    const activeId = sitesData.activeSiteId || (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+    const targetSiteId = siteId || config.siteId || activeId;
     
     let allData = {};
     if (fs.existsSync(SETTINGS_FILE)) {
@@ -1061,7 +1112,7 @@ function saveLineDigestConfig(config, siteId) {
 
     const updatedSiteConfig = {
         enabled: config.enabled !== undefined ? !!config.enabled : currentSiteConfig.enabled,
-        channelAccessToken: config.channelAccessToken !== undefined ? config.channelAccessToken : (config.lineNotifyToken || currentSiteConfig.channelAccessToken),
+        channelAccessToken: config.channelAccessToken !== undefined ? config.channelAccessToken : currentSiteConfig.channelAccessToken,
         channelSecret: config.channelSecret !== undefined ? config.channelSecret : currentSiteConfig.channelSecret,
         targetId: config.targetId !== undefined ? config.targetId : currentSiteConfig.targetId,
         digestTime: config.digestTime || currentSiteConfig.digestTime,
@@ -1071,7 +1122,9 @@ function saveLineDigestConfig(config, siteId) {
     };
 
     allData[siteConfigKey] = updatedSiteConfig;
-    if (targetSiteId === 'default') {
+
+    const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+    if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
         allData.lineDigestEnabled = updatedSiteConfig.enabled;
         allData.lineChannelAccessToken = updatedSiteConfig.channelAccessToken;
         allData.lineChannelSecret = updatedSiteConfig.channelSecret;

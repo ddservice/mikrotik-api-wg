@@ -712,30 +712,59 @@ async function clearArchivedHotspotUsers(siteName) {
 
 async function getLineDigestConfig(siteId) {
     try {
-        var targetSiteId = siteId || 'default';
+        var sitesData = await getSites();
+        var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        var targetSiteId = siteId || activeId;
+
         var key = 'line_digest_config_' + targetSiteId;
         var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
         var data = res.data && res.data.value;
-        if (!data) {
-            // Check legacy un-suffixed key if default site
-            if (targetSiteId === 'default') {
-                var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
-                data = resOld.data && resOld.data.value;
+
+        if (data) {
+            return {
+                siteId: targetSiteId,
+                enabled: !!data.enabled,
+                channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
+                channelSecret: data.channelSecret || '',
+                targetId: data.targetId || '',
+                digestTime: data.digestTime || '09:00',
+                includeHotspot: data.includeHotspot !== false,
+                includePppoe: data.includePppoe !== false,
+                lastSentDate: data.lastSentDate || ''
+            };
+        }
+
+        // Check legacy key ONLY if targetSiteId is first site or default
+        var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
+            var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
+            var dataOld = resOld.data && resOld.data.value;
+            if (dataOld) {
+                return {
+                    siteId: targetSiteId,
+                    enabled: !!dataOld.enabled,
+                    channelAccessToken: dataOld.channelAccessToken || dataOld.lineNotifyToken || '',
+                    channelSecret: dataOld.channelSecret || '',
+                    targetId: dataOld.targetId || '',
+                    digestTime: dataOld.digestTime || '09:00',
+                    includeHotspot: dataOld.includeHotspot !== false,
+                    includePppoe: dataOld.includePppoe !== false,
+                    lastSentDate: dataOld.lastSentDate || ''
+                };
             }
         }
-        if (!data) {
-            return { siteId: targetSiteId, enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
-        }
+
+        // Strict default for any secondary site without explicit config: DISABLED
         return {
             siteId: targetSiteId,
-            enabled: !!data.enabled,
-            channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
-            channelSecret: data.channelSecret || '',
-            targetId: data.targetId || '',
-            digestTime: data.digestTime || '09:00',
-            includeHotspot: data.includeHotspot !== false,
-            includePppoe: data.includePppoe !== false,
-            lastSentDate: data.lastSentDate || ''
+            enabled: false,
+            channelAccessToken: '',
+            channelSecret: '',
+            targetId: '',
+            digestTime: '09:00',
+            includeHotspot: true,
+            includePppoe: true,
+            lastSentDate: ''
         };
     } catch (e) {
         return { siteId: siteId || 'default', enabled: false, channelAccessToken: '', channelSecret: '', targetId: '', digestTime: '09:00', includeHotspot: true, includePppoe: true, lastSentDate: '' };
@@ -744,11 +773,21 @@ async function getLineDigestConfig(siteId) {
 
 async function saveLineDigestConfig(config, siteId) {
     try {
-        var targetSiteId = siteId || config.siteId || 'default';
+        var sitesData = await getSites();
+        var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        var targetSiteId = siteId || config.siteId || activeId;
         var key = 'line_digest_config_' + targetSiteId;
+
         var current = await getLineDigestConfig(targetSiteId);
         var updated = Object.assign({}, current, config, { siteId: targetSiteId });
+
         await supabase.from('app_settings').upsert({ key: key, value: updated, updated_at: new Date().toISOString() });
+
+        var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
+            await supabase.from('app_settings').upsert({ key: 'line_digest_config', value: updated, updated_at: new Date().toISOString() });
+        }
+
         return updated;
     } catch (e) {
         return config;
