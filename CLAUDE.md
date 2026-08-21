@@ -207,8 +207,11 @@ Do **not** repeat these failures:
 - **LINE Official Account (LINE Messaging API v2) Multi-Site Integration**:
   Full replacement for deprecated LINE Notify. Configured per-site (`getLineDigestConfig(siteId)` & `saveLineDigestConfig(config, siteId)`).
   Supports Push Message (`sendLinePushMessage`), Reply Message (`sendLineMessagingApiReply`), and Flex Messages.
-  Includes a public Webhook (`POST /api/line/webhook`) for LINE OA Rich Menu auto-reply ("เช็ควันหมดอายุ", "ต่ออายุเน็ต", "ดูรหัสผ่าน", "ผูกบัญชี <username>", "คู่มือใช้งาน", "ติดต่อแอดมิน")
-  and a multi-site background scheduler that scans each site's router and sends a daily expiry summary Flex Card into that site's LINE OA / Group Target ID at the scheduled time.
+  Includes strict per-site isolation (`line_digest_config_<siteId>`) to prevent cross-site notification leaks (unconfigured secondary sites strictly default to disabled without falling back to another site's token/targetId).
+  Includes a dedicated `#select-line-digest-site` dropdown in the settings UI and a public Webhook (`POST /api/line/webhook`) for LINE OA Rich Menu auto-reply:
+  - `id` / `groupid` / `/id`: Auto-replies with the exact `groupId` / `userId` for easy setup.
+  - `เช็ควันหมดอายุ`, `ต่ออายุเน็ต`, `ดูรหัสผ่าน`, `ผูกบัญชี <username>`, `คู่มือใช้งาน`, `ติดต่อแอดมิน`.
+  Includes a multi-site background scheduler that scans each site's router independently and sends a daily expiry summary Flex Card into that site's LINE OA / Group Target ID at its scheduled time.
 - **`db/config.json` and `db/users.json` must never be git-tracked** — the
   former holds the real MikroTik router host/port/username/password in
   plaintext, the latter holds dashboard login password hashes. Both
