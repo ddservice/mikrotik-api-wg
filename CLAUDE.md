@@ -372,10 +372,13 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
-- **2026-08-23** — Permanent Restriction of LINE OA Expiry Notifications to A4 Site Only.
+- **2026-08-23** — Permanent Restriction of LINE OA Expiry Notifications to A4 Site Only & System Hardening.
   - Enforced strict `isA4Site` check in backend timer (`setInterval`), preventing any non-A4 sites (e.g. TingTing) from sending daily expiry digest messages to LINE.
   - Added startup database cleanup in `server.js` and strict guards in `db-supabase.js` and `db.js` (`getLineDigestConfig` & `saveLineDigestConfig`) to permanently force `enabled: false` and strip tokens for any non-A4 sites.
   - Updated frontend settings UI (`public/app.js` `v=105.0`) to lock LINE notification controls when non-A4 sites are selected, with clear status indicators.
+  - Added interactive Quick Reply action buttons (`LINE_QUICK_REPLY_MENU`) to all LINE Webhook replies for one-tap actions.
+  - Enhanced background auto-cleanup for expired Hotspot users to iterate safely across active sites.
+  - Added scheduled nightly database backup timer in `server.js` running `backup.js` at 02:00 AM Bangkok time.
 
 - **2026-08-20** — Multi-Site LINE OA Group ID Isolation & Site-Specific Notification Management.
   - Fixed cross-site fallback leak in `db-supabase.js` and `db.js` where sites without individual configurations inherited the global/default LINE target Group ID.

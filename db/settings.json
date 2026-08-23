@@ -1,4 +1,4 @@
 {
-    "autoCleanupExpired": false,
+    "autoCleanupExpired": true,
     "cleanupIntervalMinutes": 60
 }

@@ -2303,11 +2303,25 @@ async function sendLinePushMessage(token, targetId, messages) {
     return true;
 }
 
+const LINE_QUICK_REPLY_MENU = {
+    items: [
+        { type: "action", action: { type: "message", label: "⏳ เช็ควันหมดอายุ", text: "เช็ควันหมดอายุ" } },
+        { type: "action", action: { type: "message", label: "💳 ต่ออายุเน็ต", text: "ต่ออายุเน็ต" } },
+        { type: "action", action: { type: "message", label: "🔑 ดูรหัสผ่าน", text: "ดูรหัสผ่าน" } },
+        { type: "action", action: { type: "message", label: "📖 คู่มือใช้งาน", text: "คู่มือใช้งาน" } },
+        { type: "action", action: { type: "message", label: "💬 ติดต่อแอดมิน", text: "ติดต่อแอดมิน" } }
+    ]
+};
+
 async function sendLineMessagingApiReply(token, replyToken, messages) {
     if (!token || !replyToken) return;
+    const msgList = Array.isArray(messages) ? messages : [messages];
+    if (msgList.length > 0 && !msgList[msgList.length - 1].quickReply) {
+        msgList[msgList.length - 1].quickReply = LINE_QUICK_REPLY_MENU;
+    }
     const payload = {
         replyToken: replyToken,
-        messages: Array.isArray(messages) ? messages : [messages]
+        messages: msgList
     };
     try {
         await fetch('https://api.line.me/v2/bot/message/reply', {
@@ -2751,17 +2765,56 @@ setInterval(async () => {
 
 
 
-// Automated background cleanup interval (every 30 minutes)
+// Automated background cleanup interval (every 30 minutes, multi-site aware)
 setInterval(async () => {
     try {
         const config = await db.getAutoCleanupConfig();
         if (config && config.autoCleanupExpired) {
-            await runExpiredCleanup('Auto Task');
+            const sitesData = await db.getSites();
+            const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default' }];
+            for (const s of sites) {
+                try {
+                    await runExpiredCleanup('Auto Task', s.id);
+                } catch (err) {
+                    console.warn(`[Auto Cleanup] Error cleaning site ${s.name || s.id}:`, err.message);
+                }
+            }
         }
     } catch (e) {
         // Silent catch for background task
     }
 }, 30 * 60 * 1000);
+
+// Nightly Automated Database Backup Timer (checks every 1 minute, triggers at 02:00 AM Bangkok time)
+let lastNightlyBackupDate = '';
+setInterval(async () => {
+    try {
+        const now = new Date();
+        const bkkTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+        const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
+        const todayDateStr = bkkTime.toISOString().slice(0, 10);
+
+        if (currentHHMM === '02:00' && lastNightlyBackupDate !== todayDateStr) {
+            lastNightlyBackupDate = todayDateStr;
+            console.log(`[Backup] Starting scheduled nightly backup at ${currentHHMM}...`);
+            const { spawn } = require('child_process');
+            const backupProcess = spawn(process.execPath, [path.join(__dirname, 'backup.js')], {
+                stdio: 'inherit',
+                env: process.env
+            });
+            backupProcess.on('close', (code) => {
+                if (code === 0) {
+                    console.log(`[Backup] Scheduled nightly backup completed successfully for ${todayDateStr}`);
+                    db.addLog('System Auto', 'สำรองข้อมูลอัตโนมัติ', `สำรองข้อมูลประจำวัน (${todayDateStr}) เรียบร้อยแล้ว`);
+                } else {
+                    console.error(`[Backup] Nightly backup exited with code ${code}`);
+                }
+            });
+        }
+    } catch (e) {
+        console.error('[Backup] Scheduled backup error:', e.message || e);
+    }
+}, 60000);
 
 
 // Bulk Generate Hotspot Users (Vouchers)
