@@ -1578,6 +1578,15 @@ if (selectLineDigestSiteEl) {
     });
 }
 
+function isLineA4Site(siteId, siteName = '') {
+    const id = String(siteId || '').toLowerCase().trim();
+    const name = String(siteName || '').toLowerCase().trim();
+    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
+    if (id.includes('a4') || name.includes('a4')) return true;
+    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
+    return false;
+}
+
 function setLineDigestUI(config) {
     const toggle = document.getElementById('toggle-line-digest');
     const badge = document.getElementById('line-digest-status-badge');
@@ -1586,21 +1595,72 @@ function setLineDigestUI(config) {
     const targetInput = document.getElementById('line-target-id');
     const timeInput = document.getElementById('line-digest-time');
     const lineSiteSelect = document.getElementById('select-line-digest-site');
+    const saveBtn = document.getElementById('btn-save-line-digest');
+    const testBtn = document.getElementById('btn-test-line-notify');
+    const runNowBtn = document.getElementById('btn-run-line-digest-now');
 
-    if (toggle) toggle.checked = !!config.enabled;
-    if (tokenInput) tokenInput.value = config.channelAccessToken || '';
-    if (targetInput) targetInput.value = config.targetId || '';
-    if (timeInput && config.digestTime) timeInput.value = config.digestTime;
+    const targetSiteId = config.siteId || (lineSiteSelect ? lineSiteSelect.value : '') || (currentSitesData ? currentSitesData.activeSiteId : '');
+    const siteObj = (currentSitesData?.sites || []).find(s => s.id === targetSiteId);
+    const siteName = siteObj ? siteObj.name : targetSiteId;
+    const isA4 = isLineA4Site(targetSiteId, siteName);
+
+    if (siteBadge) {
+        siteBadge.textContent = siteName;
+    }
 
     if (lineSiteSelect && config.siteId) {
         lineSiteSelect.value = config.siteId;
     }
 
-    if (siteBadge && currentSitesData) {
-        const targetSiteId = config.siteId || (lineSiteSelect ? lineSiteSelect.value : '') || currentSitesData.activeSiteId;
-        const siteObj = (currentSitesData.sites || []).find(s => s.id === targetSiteId);
-        if (siteObj) siteBadge.textContent = siteObj.name;
+    if (!isA4) {
+        if (toggle) {
+            toggle.checked = false;
+            toggle.disabled = true;
+        }
+        if (tokenInput) {
+            tokenInput.value = '';
+            tokenInput.disabled = true;
+        }
+        if (targetInput) {
+            targetInput.value = '';
+            targetInput.disabled = true;
+        }
+        if (timeInput) {
+            timeInput.disabled = true;
+        }
+        if (saveBtn) saveBtn.disabled = true;
+        if (testBtn) testBtn.disabled = true;
+        if (runNowBtn) runNowBtn.disabled = true;
+
+        if (badge) {
+            badge.textContent = 'ปิดใช้งาน (เฉพาะ A4)';
+            badge.className = 'auto-cleanup-status-badge off';
+            badge.style.background = '#fef2f2';
+            badge.style.color = '#dc2626';
+        }
+        return;
     }
+
+    // Is A4 site
+    if (toggle) {
+        toggle.checked = !!config.enabled;
+        toggle.disabled = false;
+    }
+    if (tokenInput) {
+        tokenInput.value = config.channelAccessToken || '';
+        tokenInput.disabled = false;
+    }
+    if (targetInput) {
+        targetInput.value = config.targetId || '';
+        targetInput.disabled = false;
+    }
+    if (timeInput) {
+        if (config.digestTime) timeInput.value = config.digestTime;
+        timeInput.disabled = false;
+    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (testBtn) testBtn.disabled = false;
+    if (runNowBtn) runNowBtn.disabled = false;
 
     if (badge) {
         if (config.enabled) {
@@ -1620,6 +1680,14 @@ function setLineDigestUI(config) {
 document.getElementById('btn-save-line-digest')?.addEventListener('click', async () => {
     const lineSiteSelect = document.getElementById('select-line-digest-site');
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
+    const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
+    const siteName = siteObj ? siteObj.name : siteId;
+
+    if (!isLineA4Site(siteId, siteName)) {
+        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
+        return;
+    }
+
     const enabled = document.getElementById('toggle-line-digest')?.checked || false;
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
@@ -1637,8 +1705,6 @@ document.getElementById('btn-save-line-digest')?.addEventListener('click', async
             })
         });
         setLineDigestUI(updated);
-        const siteObj = (currentSitesData.sites || []).find(s => s.id === siteId);
-        const siteName = siteObj ? siteObj.name : siteId;
         alert(`บันทึกการตั้งค่า LINE Official Account ของสาขา "${siteName}" เรียบร้อยแล้ว!`);
     } catch (err) {
         alert('เกิดข้อผิดพลาด: ' + err.message);
@@ -1662,6 +1728,14 @@ document.getElementById('toggle-line-digest')?.addEventListener('change', (e) =>
 document.getElementById('btn-test-line-notify')?.addEventListener('click', async () => {
     const lineSiteSelect = document.getElementById('select-line-digest-site');
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
+    const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
+    const siteName = siteObj ? siteObj.name : siteId;
+
+    if (!isLineA4Site(siteId, siteName)) {
+        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
+        return;
+    }
+
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
     if (!token || !targetId) {
@@ -1688,6 +1762,14 @@ document.getElementById('btn-test-line-notify')?.addEventListener('click', async
 document.getElementById('btn-run-line-digest-now')?.addEventListener('click', async () => {
     const lineSiteSelect = document.getElementById('select-line-digest-site');
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
+    const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
+    const siteName = siteObj ? siteObj.name : siteId;
+
+    if (!isLineA4Site(siteId, siteName)) {
+        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
+        return;
+    }
+
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
     if (!token || !targetId) {

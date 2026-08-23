@@ -710,11 +710,38 @@ async function clearArchivedHotspotUsers(siteName) {
     } catch(e) { return 0; }
 }
 
+function isA4Site(siteId, siteName) {
+    var id = String(siteId || '').toLowerCase().trim();
+    var name = String(siteName || '').toLowerCase().trim();
+    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
+    if (id.includes('a4') || name.includes('a4')) return true;
+    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
+    return false;
+}
+
 async function getLineDigestConfig(siteId) {
     try {
         var sitesData = await getSites();
         var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         var targetSiteId = siteId || activeId;
+        var siteObj = sitesData && sitesData.sites && sitesData.sites.find(function(s) { return s.id === targetSiteId; });
+        var siteName = siteObj ? siteObj.name : '';
+        var isA4 = isA4Site(targetSiteId, siteName);
+
+        // Strict isolation: Non-A4 sites are permanently disabled from LINE notifications
+        if (!isA4) {
+            return {
+                siteId: targetSiteId,
+                enabled: false,
+                channelAccessToken: '',
+                channelSecret: '',
+                targetId: '',
+                digestTime: '09:00',
+                includeHotspot: true,
+                includePppoe: true,
+                lastSentDate: ''
+            };
+        }
 
         var key = 'line_digest_config_' + targetSiteId;
         var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
@@ -776,21 +803,32 @@ async function saveLineDigestConfig(config, siteId) {
         var sitesData = await getSites();
         var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         var targetSiteId = siteId || config.siteId || activeId;
-        var key = 'line_digest_config_' + targetSiteId;
+        var siteObj = sitesData && sitesData.sites && sitesData.sites.find(function(s) { return s.id === targetSiteId; });
+        var siteName = siteObj ? siteObj.name : '';
+        var isA4 = isA4Site(targetSiteId, siteName);
 
+        var key = 'line_digest_config_' + targetSiteId;
         var current = await getLineDigestConfig(targetSiteId);
-        var updated = Object.assign({}, current, config, { siteId: targetSiteId });
+
+        var finalConfig = Object.assign({}, config);
+        if (!isA4) {
+            finalConfig.enabled = false;
+            finalConfig.channelAccessToken = '';
+            finalConfig.targetId = '';
+        }
+
+        var updated = Object.assign({}, current, finalConfig, { siteId: targetSiteId, enabled: isA4 ? !!finalConfig.enabled : false });
 
         await supabase.from('app_settings').upsert({ key: key, value: updated, updated_at: new Date().toISOString() });
 
         var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
+        if (isA4 && (targetSiteId === 'default' || targetSiteId === firstSiteId)) {
             await supabase.from('app_settings').upsert({ key: 'line_digest_config', value: updated, updated_at: new Date().toISOString() });
         }
 
-        return updated;
+        return getLineDigestConfig(targetSiteId);
     } catch (e) {
-        return config;
+        throw e;
     }
 }
 

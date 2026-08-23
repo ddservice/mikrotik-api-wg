@@ -2689,13 +2689,27 @@ app.post('/api/mikrotik/line-digest/run-now', requireAuth(['admin', 'co-admin'])
     }
 });
 
-// Background Timer for Daily LINE Expiry Digest (checks every 1 minute for all sites)
+function isA4Site(siteId, siteName = '') {
+    const id = String(siteId || '').toLowerCase().trim();
+    const name = String(siteName || '').toLowerCase().trim();
+    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
+    if (id.includes('a4') || name.includes('a4')) return true;
+    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
+    return false;
+}
+
+// Background Timer for Daily LINE Expiry Digest (checks every 1 minute for A4 site only)
 setInterval(async () => {
     try {
         const sitesData = await db.getSites();
         const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default', name: 'Main Site' }];
 
         for (const site of sites) {
+            // Strictly allow ONLY A4 site notifications permanently
+            if (!isA4Site(site.id, site.name)) {
+                continue;
+            }
+
             const config = await db.getLineDigestConfig(site.id);
             if (!config || !config.enabled || !config.channelAccessToken || !config.targetId) continue;
 
@@ -2705,7 +2719,7 @@ setInterval(async () => {
             const todayDateStr = bkkTime.toISOString().slice(0, 10);
 
             if (currentHHMM === config.digestTime && config.lastSentDate !== todayDateStr) {
-                console.log(`[LINE OA Digest] Triggering daily digest for site ${site.name} (${site.id}) at ${currentHHMM}...`);
+                console.log(`[LINE OA Digest] Triggering daily digest for A4 site ${site.name} (${site.id}) at ${currentHHMM}...`);
                 const digest = await generateDailyExpiryDigest(site.id);
                 const flexMsg = createDailyDigestFlex(digest);
                 await sendLinePushMessage(config.channelAccessToken, config.targetId, flexMsg);
@@ -2717,6 +2731,22 @@ setInterval(async () => {
         console.error('[LINE OA Digest] Automated digest error:', e.message || e);
     }
 }, 60000);
+
+// Automatically ensure non-A4 sites have LINE notifications permanently disabled
+(async function cleanupNonA4LineConfigs() {
+    try {
+        const sitesData = await db.getSites();
+        if (sitesData && sitesData.sites) {
+            for (const site of sitesData.sites) {
+                if (!isA4Site(site.id, site.name)) {
+                    await db.saveLineDigestConfig({ enabled: false, channelAccessToken: '', targetId: '' }, site.id);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[LINE OA] Cleanup non-A4 config notice:', err.message);
+    }
+})();
 
 
 

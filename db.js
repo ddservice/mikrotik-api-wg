@@ -1016,11 +1016,38 @@ module.exports = {
     unbindLineUser
 };
 
+function isA4Site(siteId, siteName = '') {
+    const id = String(siteId || '').toLowerCase().trim();
+    const name = String(siteName || '').toLowerCase().trim();
+    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
+    if (id.includes('a4') || name.includes('a4')) return true;
+    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
+    return false;
+}
+
 function getLineDigestConfig(siteId) {
     try {
         const sitesData = getSitesData();
         const activeId = sitesData.activeSiteId || (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         const targetSiteId = siteId || activeId;
+        const siteObj = sitesData.sites && sitesData.sites.find(s => s.id === targetSiteId);
+        const siteName = siteObj ? siteObj.name : '';
+        const isA4 = isA4Site(targetSiteId, siteName);
+
+        // Strict isolation: Non-A4 sites are permanently disabled from LINE notifications
+        if (!isA4) {
+            return {
+                siteId: targetSiteId,
+                enabled: false,
+                channelAccessToken: '',
+                channelSecret: '',
+                targetId: '',
+                digestTime: '09:00',
+                includeHotspot: true,
+                includePppoe: true,
+                lastSentDate: ''
+            };
+        }
 
         if (!fs.existsSync(SETTINGS_FILE)) {
             return {
@@ -1042,10 +1069,10 @@ function getLineDigestConfig(siteId) {
         if (siteConfig) {
             return {
                 siteId: targetSiteId,
-                enabled: !!siteConfig.enabled,
-                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '',
-                channelSecret: siteConfig.channelSecret || '',
-                targetId: siteConfig.targetId || '',
+                enabled: isA4 ? !!siteConfig.enabled : false,
+                channelAccessToken: isA4 ? (siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '') : '',
+                channelSecret: isA4 ? (siteConfig.channelSecret || '') : '',
+                targetId: isA4 ? (siteConfig.targetId || '') : '',
                 digestTime: siteConfig.digestTime || '09:00',
                 includeHotspot: siteConfig.includeHotspot !== false,
                 includePppoe: siteConfig.includePppoe !== false,
@@ -1101,6 +1128,9 @@ function saveLineDigestConfig(config, siteId) {
     const sitesData = getSitesData();
     const activeId = sitesData.activeSiteId || (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
     const targetSiteId = siteId || config.siteId || activeId;
+    const siteObj = sitesData.sites && sitesData.sites.find(s => s.id === targetSiteId);
+    const siteName = siteObj ? siteObj.name : '';
+    const isA4 = isA4Site(targetSiteId, siteName);
     
     let allData = {};
     if (fs.existsSync(SETTINGS_FILE)) {
@@ -1110,21 +1140,28 @@ function saveLineDigestConfig(config, siteId) {
     const siteConfigKey = `line_digest_${targetSiteId}`;
     const currentSiteConfig = getLineDigestConfig(targetSiteId);
 
+    const finalConfig = Object.assign({}, config);
+    if (!isA4) {
+        finalConfig.enabled = false;
+        finalConfig.channelAccessToken = '';
+        finalConfig.targetId = '';
+    }
+
     const updatedSiteConfig = {
-        enabled: config.enabled !== undefined ? !!config.enabled : currentSiteConfig.enabled,
-        channelAccessToken: config.channelAccessToken !== undefined ? config.channelAccessToken : currentSiteConfig.channelAccessToken,
-        channelSecret: config.channelSecret !== undefined ? config.channelSecret : currentSiteConfig.channelSecret,
-        targetId: config.targetId !== undefined ? config.targetId : currentSiteConfig.targetId,
-        digestTime: config.digestTime || currentSiteConfig.digestTime,
-        includeHotspot: config.includeHotspot !== undefined ? config.includeHotspot !== false : currentSiteConfig.includeHotspot,
-        includePppoe: config.includePppoe !== undefined ? config.includePppoe !== false : currentSiteConfig.includePppoe,
-        lastSentDate: config.lastSentDate !== undefined ? config.lastSentDate : currentSiteConfig.lastSentDate
+        enabled: isA4 ? (finalConfig.enabled !== undefined ? !!finalConfig.enabled : currentSiteConfig.enabled) : false,
+        channelAccessToken: isA4 ? (finalConfig.channelAccessToken !== undefined ? finalConfig.channelAccessToken : currentSiteConfig.channelAccessToken) : '',
+        channelSecret: isA4 ? (finalConfig.channelSecret !== undefined ? finalConfig.channelSecret : currentSiteConfig.channelSecret) : '',
+        targetId: isA4 ? (finalConfig.targetId !== undefined ? finalConfig.targetId : currentSiteConfig.targetId) : '',
+        digestTime: finalConfig.digestTime || currentSiteConfig.digestTime,
+        includeHotspot: finalConfig.includeHotspot !== undefined ? finalConfig.includeHotspot !== false : currentSiteConfig.includeHotspot,
+        includePppoe: finalConfig.includePppoe !== undefined ? finalConfig.includePppoe !== false : currentSiteConfig.includePppoe,
+        lastSentDate: finalConfig.lastSentDate !== undefined ? finalConfig.lastSentDate : currentSiteConfig.lastSentDate
     };
 
     allData[siteConfigKey] = updatedSiteConfig;
 
     const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-    if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
+    if (isA4 && (targetSiteId === 'default' || targetSiteId === firstSiteId)) {
         allData.lineDigestEnabled = updatedSiteConfig.enabled;
         allData.lineChannelAccessToken = updatedSiteConfig.channelAccessToken;
         allData.lineChannelSecret = updatedSiteConfig.channelSecret;
