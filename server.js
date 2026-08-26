@@ -240,7 +240,55 @@ async function resolveForcedSiteName(req, requestedSiteName) {
     return allowed ? allowed.name : '__no_access__';
 }
 
-// Router connection runner helper — strictly enforces user site permissions
+// ==========================================
+// HIGH PERFORMANCE: Router Connection Pooling Engine
+// ==========================================
+const routerClientPool = new Map(); // key -> { client, config, poolKey, lastUsed }
+
+async function getPooledRouterClient(targetSiteId) {
+    const config = await db.getConfig(targetSiteId);
+    if (!config.host || !config.username) {
+        throw new Error(`Router connection (${config.name || targetSiteId || 'Site'}) is not configured. Please setup Router Settings.`);
+    }
+
+    const poolKey = `${config.id || targetSiteId || 'default'}_${config.host}_${config.port}_${config.username}`;
+    let entry = routerClientPool.get(poolKey);
+
+    if (entry && entry.client && entry.client.connected) {
+        entry.lastUsed = Date.now();
+        return entry;
+    }
+
+    // Clean up dead client if present
+    if (entry && entry.client) {
+        try { entry.client.close(); } catch (_) {}
+    }
+
+    const client = new RouterOSClient(config.host, config.port, config.username, config.password);
+    await client.connect();
+
+    entry = {
+        client,
+        config,
+        poolKey,
+        lastUsed: Date.now()
+    };
+    routerClientPool.set(poolKey, entry);
+    return entry;
+}
+
+// Auto cleanup idle pooled clients after 60s
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of routerClientPool.entries()) {
+        if (now - entry.lastUsed > 60000) {
+            try { entry.client.close(); } catch (_) {}
+            routerClientPool.delete(key);
+        }
+    }
+}, 15000);
+
+// Router connection runner helper — strictly enforces user site permissions with Connection Pooling
 async function executeOnRouter(arg1, arg2, arg3) {
     let fn;
     let targetSiteId = null;
@@ -268,16 +316,18 @@ async function executeOnRouter(arg1, arg2, arg3) {
         targetSiteId = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : null);
     }
 
-    const config = await db.getConfig(targetSiteId);
-    if (!config.host || !config.username) {
-        throw new Error(`Router connection (${config.name || targetSiteId || 'Site'}) is not configured. Please setup Router Settings.`);
-    }
-    const client = new RouterOSClient(config.host, config.port, config.username, config.password);
-    await client.connect();
+    let poolEntry;
     try {
-        return await fn(client);
-    } finally {
-        client.close();
+        poolEntry = await getPooledRouterClient(targetSiteId);
+        return await fn(poolEntry.client);
+    } catch (err) {
+        // If socket was disconnected mid-flight, evict from pool and retry once with fresh connect
+        if (poolEntry) {
+            try { poolEntry.client.close(); } catch (_) {}
+            routerClientPool.delete(poolEntry.poolKey);
+        }
+        poolEntry = await getPooledRouterClient(targetSiteId);
+        return await fn(poolEntry.client);
     }
 }
 
