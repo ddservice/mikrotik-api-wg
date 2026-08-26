@@ -1515,9 +1515,41 @@ app.get('/api/mikrotik/diagnose-site', requireAuth(['admin', 'co-admin', 'user']
     }
 });
 
+// Helper to fetch official MikroTik latest versions from upgrade.mikrotik.com
+let _mikrotikLatestVersions = { v7: null, v6: null, lastFetched: 0 };
+
+async function getOfficialMikrotikLatestVersions() {
+    const now = Date.now();
+    if (_mikrotikLatestVersions.v7 && (now - _mikrotikLatestVersions.lastFetched < 3600000)) {
+        return _mikrotikLatestVersions;
+    }
+    const https = require('https');
+    function fetchUrl(url) {
+        return new Promise((resolve) => {
+            https.get(url, { timeout: 3500 }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(data.trim().split(/\s+/)[0] || null));
+            }).on('error', () => resolve(null));
+        });
+    }
+
+    try {
+        const [v7, v6] = await Promise.all([
+            fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.7'),
+            fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.6')
+        ]);
+        if (v7) _mikrotikLatestVersions.v7 = v7;
+        if (v6) _mikrotikLatestVersions.v6 = v6;
+        _mikrotikLatestVersions.lastFetched = now;
+    } catch (_) {}
+    return _mikrotikLatestVersions;
+}
+
 // 1. Overview System Resource status
 app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
+        const officialVersions = await getOfficialMikrotikLatestVersions();
         const stats = await executeOnRouter(req, async (client) => {
             const resources = await client.exec('/system/resource/print');
             const routerboard = await client.exec('/system/routerboard/print');
@@ -1530,9 +1562,17 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
             const rb = routerboard[0] || {};
             const h = health[0] || {};
             
+            const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
+            const isV6 = (r.version || '').startsWith('6');
+            const latestOfficial = isV6 ? officialVersions.v6 : officialVersions.v7;
+            const hasUpdate = !!(latestOfficial && currentVer !== 'N/A' && latestOfficial !== currentVer);
+
             return {
                 uptime: r.uptime || 'N/A',
                 version: r.version || 'N/A',
+                currentVersion: currentVer,
+                latestVersion: latestOfficial || null,
+                hasUpdate: hasUpdate,
                 cpuLoad: r['cpu-load'] ? `${r['cpu-load']}%` : 'N/A',
                 freeMemory: r['free-memory'] ? parseInt(r['free-memory']) : 0,
                 totalMemory: r['total-memory'] ? parseInt(r['total-memory']) : 0,
@@ -1556,14 +1596,21 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
 // Check RouterOS updates
 app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req, res) => {
     try {
+        const officialVersions = await getOfficialMikrotikLatestVersions();
         const result = await executeOnRouter(req, async (client) => {
             const updates = await client.exec('/system/package/update/check-for-updates');
+            const resources = await client.exec('/system/resource/print');
             const u = updates[0] || {};
+            const r = resources[0] || {};
+            const installed = u['installed-version'] || u['current-version'] || (r.version ? r.version.split(' ')[0] : 'N/A');
+            const isV6 = (installed || '').startsWith('6');
+            let latest = u['latest-version'] || (isV6 ? officialVersions.v6 : officialVersions.v7) || 'N/A';
+            
             return {
                 channel: u.channel || 'stable',
-                installedVersion: u['installed-version'] || u['current-version'] || 'N/A',
-                latestVersion: u['latest-version'] || 'N/A',
-                status: u.status || 'N/A'
+                installedVersion: installed,
+                latestVersion: latest,
+                status: u.status || (latest && installed && latest !== installed ? 'New version is available' : 'System is already up to date')
             };
         });
         res.json(result);

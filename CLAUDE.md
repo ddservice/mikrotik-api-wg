@@ -372,6 +372,11 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (10)** — Humanized Uptime Formatting & Official MikroTik ROS Latest Version Integration.
+  - Formatted Overview Uptime into compact, human-readable Thai intervals (e.g. `14 สัปดาห์ 1 วัน`, `2 วัน 18 ชม.`) with full exact uptime tooltip, eliminating frame overflow and wrapped text.
+  - Integrated official MikroTik RouterOS latest version checker (`upgrade.mikrotik.com/routeros/LATEST.7` and `LATEST.6`) in `/api/mikrotik/status` and `/api/mikrotik/system/update-check`.
+  - Added live "มีเวอร์ชันใหม่: vX.X" / "เวอร์ชันล่าสุดแล้ว" badge and 1-Click "อัปเดต" quick action directly on the RouterOS Version card (`public/index.html` + `public/app.js` `v=111.0`).
+
 - **2026-08-26 (9)** — Complete Multi-Site Connection Restoration & 4 Sites Online.
   - Successfully connected and verified all 4 production sites:
     1. `Auioun@WiFi` (Main Site): `b4a00a4696aa.sn.mynetname.net:8927` (hAP ac^2, ROS 6.49.7).

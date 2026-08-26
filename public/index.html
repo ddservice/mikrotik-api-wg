@@ -161,11 +161,11 @@
                                 <p id="stat-ram">- / - MB</p>
                             </div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" id="stat-card-uptime" title="ระยะเวลาเปิดทำงานต่อเนื่องของเราท์เตอร์">
                             <div class="stat-icon uptime"><i class="fa-solid fa-clock-rotate-left"></i></div>
-                            <div class="stat-info">
-                                <h3>Uptime</h3>
-                                <p id="stat-uptime">-</p>
+                            <div class="stat-info" style="min-width:0; flex:1;">
+                                <h3>Uptime (เปิดทำงาน)</h3>
+                                <p id="stat-uptime" style="font-size:1.15rem; font-weight:700; color:#1e293b; margin:2px 0 0; word-break:break-word; line-height:1.3;">-</p>
                             </div>
                         </div>
                         <div class="stat-card">
@@ -176,11 +176,17 @@
                             </div>
                         </div>
                         <!-- RouterOS Version Card -->
-                        <div class="stat-card">
+                        <div class="stat-card" id="stat-card-ros-version" style="cursor:pointer;" title="คลิกเพื่อตรวจเช็คหรืออัปเดต RouterOS">
                             <div class="stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-code-branch"></i></div>
-                            <div class="stat-info">
-                                <h3>RouterOS Version</h3>
-                                <p id="stat-ros-version">-</p>
+                            <div class="stat-info" style="min-width:0; flex:1;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <h3>RouterOS Version</h3>
+                                    <button type="button" id="btn-quick-ros-update" class="btn btn-sm btn-primary" style="display:none; padding:2px 8px; font-size:0.72rem; height:auto; border-radius:12px; font-weight:600;" title="คลิกเพื่ออัปเดต RouterOS">
+                                        <i class="fa-solid fa-cloud-arrow-down"></i> อัปเดต
+                                    </button>
+                                </div>
+                                <p id="stat-ros-version" style="font-size:1.15rem; font-weight:700; color:#1e293b; margin:2px 0 0; word-break:break-word;">-</p>
+                                <div id="stat-ros-latest-badge" style="font-size:0.75rem; margin-top:3px; display:none;"></div>
                             </div>
                         </div>
                         <!-- RouterBOARD Firmware Card -->
@@ -2944,7 +2950,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=110.0"></script>
+    <script src="app.js?v=111.0"></script>
 </body>
 </html>
 

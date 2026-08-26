@@ -60,9 +60,45 @@ function formatSpeed(bitsPerSecond) {
 }
 
 function formatTime(uptimeStr) {
-    // RouterOS uptime looks like: 2w4d12h30m15s or 12h30m15s or 05:30:10
-    // We just return it directly as RouterOS formats it nicely
-    return uptimeStr || '-';
+    if (!uptimeStr || uptimeStr === '-' || uptimeStr === 'N/A') return '-';
+    
+    // Format RouterOS raw uptime (e.g. 14w1d18h27m4s, 2d05:30:10, 4h20m) into clean readable Thai
+    const str = String(uptimeStr).trim();
+    const weeksMatch = str.match(/(\d+)w/i);
+    const daysMatch = str.match(/(\d+)d/i);
+    const hoursMatch = str.match(/(\d+)h/i);
+    const minsMatch = str.match(/(\d+)m/i);
+    const secsMatch = str.match(/(\d+)s/i);
+
+    const weeks = weeksMatch ? parseInt(weeksMatch[1]) : 0;
+    const days = daysMatch ? parseInt(daysMatch[1]) : 0;
+    const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+    const mins = minsMatch ? parseInt(minsMatch[1]) : 0;
+    const secs = secsMatch ? parseInt(secsMatch[1]) : 0;
+
+    const parts = [];
+    if (weeks > 0) parts.push(`${weeks} สัปดาห์`);
+    if (days > 0) parts.push(`${days} วัน`);
+    if (hours > 0 && parts.length < 2) parts.push(`${hours} ชม.`);
+    if (mins > 0 && parts.length < 2) parts.push(`${mins} นาที`);
+    if (parts.length === 0 && secs > 0) parts.push(`${secs} วินาที`);
+
+    if (parts.length > 0) {
+        return parts.join(' ');
+    }
+
+    // HH:MM:SS format
+    if (str.includes(':')) {
+        const timeParts = str.split(':');
+        if (timeParts.length === 3) {
+            const h = parseInt(timeParts[0]) || 0;
+            const m = parseInt(timeParts[1]) || 0;
+            if (h > 0) return `${h} ชม. ${m} นาที`;
+            return `${m} นาที`;
+        }
+    }
+
+    return str;
 }
 
 async function apiFetch(endpoint, options = {}) {
@@ -745,12 +781,36 @@ async function fetchSystemStatus() {
         const totalMB = Math.round(status.totalMemory / (1024 * 1024));
         document.getElementById('stat-ram').textContent = `${freeMB} / ${totalMB} MB`;
         
-        document.getElementById('stat-uptime').textContent = formatTime(status.uptime);
+        const uptimeEl = document.getElementById('stat-uptime');
+        if (uptimeEl) {
+            uptimeEl.textContent = formatTime(status.uptime);
+            uptimeEl.title = `Uptime เต็ม: ${status.uptime || '-'}`;
+        }
         document.getElementById('stat-model').textContent = status.model;
 
-        // RouterOS Version
+        // RouterOS Version & Update Status
         const rosEl = document.getElementById('stat-ros-version');
+        const rosBadge = document.getElementById('stat-ros-latest-badge');
+        const btnQuickUpdate = document.getElementById('btn-quick-ros-update');
+
         if (rosEl) rosEl.textContent = status.version || '-';
+        if (rosBadge) {
+            if (status.latestVersion) {
+                rosBadge.style.display = 'block';
+                if (status.hasUpdate) {
+                    rosBadge.innerHTML = `<span style="color:#d97706; font-weight:700;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชันใหม่: v${status.latestVersion}</span>`;
+                    if (btnQuickUpdate && CURRENT_USER && CURRENT_USER.role === 'admin') {
+                        btnQuickUpdate.style.display = 'inline-flex';
+                    }
+                } else {
+                    rosBadge.innerHTML = `<span style="color:#15803d; font-weight:600;"><i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว (v${status.latestVersion})</span>`;
+                    if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
+                }
+            } else {
+                rosBadge.style.display = 'none';
+                if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
+            }
+        }
 
         // RouterBOARD Firmware
         const fwEl = document.getElementById('stat-firmware');
@@ -785,6 +845,10 @@ async function fetchSystemStatus() {
         document.getElementById('stat-model').textContent = 'Cannot Connect';
         const rosEl = document.getElementById('stat-ros-version');
         if (rosEl) rosEl.textContent = '-';
+        const rosBadge = document.getElementById('stat-ros-latest-badge');
+        if (rosBadge) rosBadge.style.display = 'none';
+        const btnQuickUpdate = document.getElementById('btn-quick-ros-update');
+        if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
         const fwEl = document.getElementById('stat-firmware');
         if (fwEl) fwEl.textContent = '-';
     }
@@ -2934,7 +2998,7 @@ document.querySelectorAll('#modal-security-script .modal-cancel, #modal-security
 // ==========================================
 
 // 1. Check & Install RouterOS Update
-document.getElementById('btn-check-ros-update')?.addEventListener('click', async () => {
+async function triggerCheckRosUpdateModal() {
     const modal = document.getElementById('modal-ros-update');
     const loading = document.getElementById('ros-update-loading');
     const content = document.getElementById('ros-update-content');
@@ -2963,6 +3027,17 @@ document.getElementById('btn-check-ros-update')?.addEventListener('click', async
         if (loading) loading.style.display = 'none';
         alert('เกิดข้อผิดพลาดในการตรวจสอบอัปเดต: ' + err.message);
         if (modal) modal.classList.remove('active');
+    }
+}
+
+document.getElementById('btn-check-ros-update')?.addEventListener('click', triggerCheckRosUpdateModal);
+document.getElementById('btn-quick-ros-update')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    triggerCheckRosUpdateModal();
+});
+document.getElementById('stat-card-ros-version')?.addEventListener('click', () => {
+    if (CURRENT_USER && CURRENT_USER.role === 'admin') {
+        triggerCheckRosUpdateModal();
     }
 });
 
