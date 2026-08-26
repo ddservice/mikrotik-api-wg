@@ -736,6 +736,32 @@ async function fetchSystemStatus() {
         
         document.getElementById('stat-uptime').textContent = formatTime(status.uptime);
         document.getElementById('stat-model').textContent = status.model;
+
+        // RouterOS Version
+        const rosEl = document.getElementById('stat-ros-version');
+        if (rosEl) rosEl.textContent = status.version || '-';
+
+        // RouterBOARD Firmware
+        const fwEl = document.getElementById('stat-firmware');
+        if (fwEl) {
+            if (status.upgradeFirmware && status.upgradeFirmware !== 'N/A' && status.upgradeFirmware !== status.currentFirmware) {
+                fwEl.innerHTML = `${status.currentFirmware} <span style="color:#d97706; font-size:0.75rem; font-weight:700;">(อัปเกรด: ${status.upgradeFirmware})</span>`;
+            } else {
+                fwEl.textContent = status.currentFirmware || status.version || '-';
+            }
+        }
+
+        // Health Badge (Temperature & Voltage)
+        const healthBadge = document.getElementById('router-health-badge');
+        const healthTemp = document.getElementById('health-temp');
+        if (healthBadge && healthTemp) {
+            if (status.temperature || status.voltage) {
+                healthBadge.style.display = 'inline-flex';
+                healthTemp.textContent = `${status.temperature ? status.temperature : ''} ${status.voltage ? '(' + status.voltage + ')' : ''}`.trim();
+            } else {
+                healthBadge.style.display = 'none';
+            }
+        }
         
         updateTimer.innerHTML = `<i class="fa-solid fa-rotate"></i> อัปเดตล่าสุด: ${new Date().toLocaleTimeString()}`;
     } catch (err) {
@@ -746,6 +772,10 @@ async function fetchSystemStatus() {
         document.getElementById('stat-ram').textContent = '-';
         document.getElementById('stat-uptime').textContent = '-';
         document.getElementById('stat-model').textContent = 'Cannot Connect';
+        const rosEl = document.getElementById('stat-ros-version');
+        if (rosEl) rosEl.textContent = '-';
+        const fwEl = document.getElementById('stat-firmware');
+        if (fwEl) fwEl.textContent = '-';
     }
 }
 
@@ -1578,15 +1608,6 @@ if (selectLineDigestSiteEl) {
     });
 }
 
-function isLineA4Site(siteId, siteName = '') {
-    const id = String(siteId || '').toLowerCase().trim();
-    const name = String(siteName || '').toLowerCase().trim();
-    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
-    if (id.includes('a4') || name.includes('a4')) return true;
-    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
-    return false;
-}
-
 function setLineDigestUI(config) {
     const toggle = document.getElementById('toggle-line-digest');
     const badge = document.getElementById('line-digest-status-badge');
@@ -1602,7 +1623,6 @@ function setLineDigestUI(config) {
     const targetSiteId = config.siteId || (lineSiteSelect ? lineSiteSelect.value : '') || (currentSitesData ? currentSitesData.activeSiteId : '');
     const siteObj = (currentSitesData?.sites || []).find(s => s.id === targetSiteId);
     const siteName = siteObj ? siteObj.name : targetSiteId;
-    const isA4 = isLineA4Site(targetSiteId, siteName);
 
     if (siteBadge) {
         siteBadge.textContent = siteName;
@@ -1612,36 +1632,6 @@ function setLineDigestUI(config) {
         lineSiteSelect.value = config.siteId;
     }
 
-    if (!isA4) {
-        if (toggle) {
-            toggle.checked = false;
-            toggle.disabled = true;
-        }
-        if (tokenInput) {
-            tokenInput.value = '';
-            tokenInput.disabled = true;
-        }
-        if (targetInput) {
-            targetInput.value = '';
-            targetInput.disabled = true;
-        }
-        if (timeInput) {
-            timeInput.disabled = true;
-        }
-        if (saveBtn) saveBtn.disabled = true;
-        if (testBtn) testBtn.disabled = true;
-        if (runNowBtn) runNowBtn.disabled = true;
-
-        if (badge) {
-            badge.textContent = 'ปิดใช้งาน (เฉพาะ A4)';
-            badge.className = 'auto-cleanup-status-badge off';
-            badge.style.background = '#fef2f2';
-            badge.style.color = '#dc2626';
-        }
-        return;
-    }
-
-    // Is A4 site
     if (toggle) {
         toggle.checked = !!config.enabled;
         toggle.disabled = false;
@@ -1664,7 +1654,7 @@ function setLineDigestUI(config) {
 
     if (badge) {
         if (config.enabled) {
-            badge.textContent = `เปิดใช้งาน (${config.digestTime} น.)`;
+            badge.textContent = `เปิดใช้งาน (${config.digestTime || '09:00'} น.)`;
             badge.className = 'auto-cleanup-status-badge on';
             badge.style.background = '#dcfce7';
             badge.style.color = '#15803d';
@@ -1682,11 +1672,6 @@ document.getElementById('btn-save-line-digest')?.addEventListener('click', async
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
     const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
     const siteName = siteObj ? siteObj.name : siteId;
-
-    if (!isLineA4Site(siteId, siteName)) {
-        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
-        return;
-    }
 
     const enabled = document.getElementById('toggle-line-digest')?.checked || false;
     const token = document.getElementById('line-channel-access-token')?.value || '';
@@ -1728,13 +1713,6 @@ document.getElementById('toggle-line-digest')?.addEventListener('change', (e) =>
 document.getElementById('btn-test-line-notify')?.addEventListener('click', async () => {
     const lineSiteSelect = document.getElementById('select-line-digest-site');
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
-    const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
-    const siteName = siteObj ? siteObj.name : siteId;
-
-    if (!isLineA4Site(siteId, siteName)) {
-        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
-        return;
-    }
 
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
@@ -1762,13 +1740,6 @@ document.getElementById('btn-test-line-notify')?.addEventListener('click', async
 document.getElementById('btn-run-line-digest-now')?.addEventListener('click', async () => {
     const lineSiteSelect = document.getElementById('select-line-digest-site');
     const siteId = (lineSiteSelect ? lineSiteSelect.value : '') || document.getElementById('select-active-site')?.value || '';
-    const siteObj = (currentSitesData?.sites || []).find(s => s.id === siteId);
-    const siteName = siteObj ? siteObj.name : siteId;
-
-    if (!isLineA4Site(siteId, siteName)) {
-        alert('การแจ้งเตือน LINE สงวนสิทธิ์สำหรับสาขา A4 เท่านั้น');
-        return;
-    }
 
     const token = document.getElementById('line-channel-access-token')?.value || '';
     const targetId = document.getElementById('line-target-id')?.value || '';
@@ -2944,6 +2915,201 @@ document.getElementById('btn-copy-security-script')?.addEventListener('click', (
 document.querySelectorAll('#modal-security-script .modal-cancel, #modal-security-script .modal-close-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.getElementById('modal-security-script')?.classList.remove('active');
+    });
+});
+
+// ==========================================
+// Router Operations & System Maintenance Handlers
+// ==========================================
+
+// 1. Check & Install RouterOS Update
+document.getElementById('btn-check-ros-update')?.addEventListener('click', async () => {
+    const modal = document.getElementById('modal-ros-update');
+    const loading = document.getElementById('ros-update-loading');
+    const content = document.getElementById('ros-update-content');
+    const installBtn = document.getElementById('btn-confirm-ros-install');
+
+    if (modal) modal.classList.add('active');
+    if (loading) loading.style.display = 'block';
+    if (content) content.style.display = 'none';
+    if (installBtn) installBtn.style.display = 'none';
+
+    try {
+        const update = await apiFetch('/api/mikrotik/system/update-check');
+        document.getElementById('ros-update-channel').textContent = update.channel || 'stable';
+        document.getElementById('ros-update-installed').textContent = update.installedVersion || '-';
+        document.getElementById('ros-update-latest').textContent = update.latestVersion || '-';
+        document.getElementById('ros-update-status').textContent = update.status || '-';
+
+        const isNewAvailable = update.latestVersion && update.installedVersion && update.latestVersion !== update.installedVersion && update.latestVersion !== 'N/A';
+        if (installBtn && isNewAvailable) {
+            installBtn.style.display = 'inline-flex';
+        }
+
+        if (loading) loading.style.display = 'none';
+        if (content) content.style.display = 'block';
+    } catch (err) {
+        if (loading) loading.style.display = 'none';
+        alert('เกิดข้อผิดพลาดในการตรวจสอบอัปเดต: ' + err.message);
+        if (modal) modal.classList.remove('active');
+    }
+});
+
+document.getElementById('btn-confirm-ros-install')?.addEventListener('click', async () => {
+    if (!confirm('⚠️ คุณแน่ใจหรือไม่ว่าต้องการดาวน์โหลดและติดตั้ง RouterOS เวอร์ชันใหม่ทันที?\n\nเราท์เตอร์จะทำการ Reboot อัตโนมัติและอาจตัดการเชื่อมต่อชั่วคราวประมาณ 1-2 นาที')) return;
+
+    const btn = document.getElementById('btn-confirm-ros-install');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสั่งติดตั้ง...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/update-install', { method: 'POST' });
+        alert(res.message || 'สั่งติดตั้ง RouterOS เรียบร้อยแล้ว ระบบกำลังเริ่มต้นใหม่');
+        document.getElementById('modal-ros-update')?.classList.remove('active');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาดในการสั่งติดตั้ง: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-download"></i> ดาวน์โหลดและติดตั้งทันที';
+    }
+});
+
+// 2. Upgrade RouterBOARD Firmware
+document.getElementById('btn-upgrade-firmware')?.addEventListener('click', async () => {
+    if (!confirm('คุณต้องการสั่งอัปเกรด RouterBOARD Firmware ของบอร์ดหรือไม่?\n\n(หลังจากสั่งอัปเกรดสำเร็จ จะต้องทำการรีบูตเราท์เตอร์ 1 ครั้ง เพื่อให้ Firmware ตัวใหม่เริ่มทำงาน)')) return;
+
+    const btn = document.getElementById('btn-upgrade-firmware');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังอัปเกรด...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/firmware-upgrade', { method: 'POST' });
+        if (confirm(`${res.message}\n\nคุณต้องการสั่งรีบูตเราท์เตอร์ตอนนี้เลยหรือไม่?`)) {
+            await apiFetch('/api/mikrotik/system/reboot', { method: 'POST' });
+            alert('สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว กรุณารอสักครู่ (30-60 วินาที)');
+        }
+        fetchSystemStatus();
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bolt text-warning"></i> <span>อัปเกรด Firmware บอร์ด</span>';
+    }
+});
+
+// 3. Reboot Router
+document.getElementById('btn-system-reboot')?.addEventListener('click', async () => {
+    if (!confirm('⚠️ คำเตือน: คุณต้องการรีบูตเราท์เตอร์ (Reboot) ทันทีใช่หรือไม่?\n\nการเชื่อมต่ออินเทอร์เน็ตและบริการทั้งหมดจะหยุดชั่วคราวประมาณ 30-60 วินาที')) return;
+
+    const btn = document.getElementById('btn-system-reboot');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสั่งรีบูต...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/reboot', { method: 'POST' });
+        alert(res.message || 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว');
+    } catch (err) {
+        alert('สั่งรีบูต: ' + (err.message || 'ส่งคำสั่งเรียบร้อยแล้ว'));
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-power-off text-danger"></i> <span>รีบูตเราท์เตอร์ (Reboot)</span>';
+    }
+});
+
+// 4. Flush DNS Cache
+document.getElementById('btn-flush-dns')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-flush-dns');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังล้าง...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/flush-dns', { method: 'POST' });
+        alert(res.message || 'ล้าง DNS Cache บนเราท์เตอร์เรียบร้อยแล้ว');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-broom text-secondary"></i> <span>ล้าง DNS Cache</span>';
+    }
+});
+
+// 5. Ping Test
+document.getElementById('btn-ping-test')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-ping-test');
+    if (modal) modal.classList.add('active');
+});
+
+document.getElementById('btn-run-ping-now')?.addEventListener('click', async () => {
+    const hostInput = document.getElementById('ping-host-input');
+    const host = (hostInput ? hostInput.value : '8.8.8.8').trim() || '8.8.8.8';
+    const box = document.getElementById('ping-results-box');
+    const btn = document.getElementById('btn-run-ping-now');
+
+    if (box) box.textContent = `กำลังส่งคำสั่ง Ping ไปยัง ${host} จากเราท์เตอร์ MikroTik (โปรดรอสักครู่)...`;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลัง Ping...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/ping-test', {
+            method: 'POST',
+            body: JSON.stringify({ host, count: 4 })
+        });
+
+        if (box) {
+            let output = `--- PING ${res.host} STATS ---\n`;
+            if (res.results && res.results.length > 0) {
+                res.results.forEach((p, idx) => {
+                    output += `Seq ${idx + 1}: Host=${p.host || res.host}, Size=${p.size || '56'}b, TTL=${p.ttl || 'N/A'}, Time=${p.time || 'N/A'}, Status=${p.status || 'OK'}\n`;
+                });
+                const packetLoss = res.results.filter(p => p.status === 'timeout').length;
+                output += `\nสรุปผล: ส่ง ${res.results.length} แพ็กเก็ต, สูญหาย ${packetLoss} (${Math.round((packetLoss / res.results.length) * 100)}% loss)`;
+            } else {
+                output += 'ไม่ได้รับข้อมูลตอบกลับจากเราท์เตอร์';
+            }
+            box.textContent = output;
+        }
+    } catch (err) {
+        if (box) box.textContent = `เกิดข้อผิดพลาดในการ Ping: ${err.message}`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มทดสอบ';
+    }
+});
+
+// 6. Quick Backup (.backup)
+document.getElementById('btn-system-backup')?.addEventListener('click', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const backupName = prompt('ระบุชื่อไฟล์สำรองคอนฟิก (ไม่ต้องใส่นามสกุล .backup):', `backup-${today}`);
+    if (!backupName) return;
+
+    const btn = document.getElementById('btn-system-backup');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสำรอง...';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/backup', {
+            method: 'POST',
+            body: JSON.stringify({ name: backupName })
+        });
+        alert(res.message || 'สำรองคอนฟิกเราท์เตอร์เรียบร้อยแล้ว');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>';
+    }
+});
+
+// Modal close listeners for new modals
+document.querySelectorAll('#modal-ros-update .modal-cancel, #modal-ros-update .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-ros-update')?.classList.remove('active');
+    });
+});
+
+document.querySelectorAll('#modal-ping-test .modal-cancel, #modal-ping-test .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-ping-test')?.classList.remove('active');
     });
 });
 

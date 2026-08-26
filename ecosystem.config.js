@@ -56,7 +56,18 @@ module.exports = {
                 // their public key without manual copy-paste. Optional: if
                 // unset, WireGuard scripts still work, just fall back to the
                 // fully-manual paste-back flow.
-                // PUBLIC_APP_URL: 'https://yourdomain.com'
+                // PUBLIC_APP_URL: 'https://yourdomain.com',
+
+                // ==========================================
+                // Cloudflare R2 Backup (Site: Mikrotikapi-db)
+                // ==========================================
+                R2_ACCESS_KEY_ID: '78059e3268d79b09600de14776ad345a',
+                R2_SECRET_ACCESS_KEY: 'd2f634ec540b296b0fb6323254aee1e6b59788d9ea9702318cf8603f344c0d64',
+                R2_ENDPOINT: 'https://b8fd2913de1c592db914b68e01d645c8.r2.cloudflarestorage.com',
+                R2_BUCKET: 'ddservicedb',
+                R2_SITE_NAME: 'Mikrotikapi-db',
+                BACKUP_RCLONE_REMOTES: 'r2',
+                BACKUP_RCLONE_DEST_DIR: 'ddservicedb/Mikrotikapi-db'
             },
 
             // Log files

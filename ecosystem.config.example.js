@@ -59,7 +59,13 @@ module.exports = {
                 // their public key without manual copy-paste. Optional: if
                 // unset, WireGuard scripts still work, just fall back to the
                 // fully-manual paste-back flow.
-                // PUBLIC_APP_URL: 'https://yourdomain.com'
+                // PUBLIC_APP_URL: 'https://yourdomain.com',
+
+                // ==========================================
+                // Cloudflare R2 / Off-site DB Backup
+                // ==========================================
+                // BACKUP_RCLONE_REMOTES: 'r2',
+                // BACKUP_RCLONE_DEST_DIR: 'ddservicedb/Mikrotikapi-db'
             },
 
             // Log files

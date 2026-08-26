@@ -175,6 +175,22 @@
                                 <p id="stat-model">-</p>
                             </div>
                         </div>
+                        <!-- RouterOS Version Card -->
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-code-branch"></i></div>
+                            <div class="stat-info">
+                                <h3>RouterOS Version</h3>
+                                <p id="stat-ros-version">-</p>
+                            </div>
+                        </div>
+                        <!-- RouterBOARD Firmware Card -->
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#fef3c7; color:#d97706;"><i class="fa-solid fa-microchip"></i></div>
+                            <div class="stat-info">
+                                <h3>Firmware / Boot</h3>
+                                <p id="stat-firmware">-</p>
+                            </div>
+                        </div>
                         <!-- P3: Hotspot Online Card -->
                         <div class="stat-card stat-card-hotspot" id="stat-card-online" style="cursor:pointer;" title="คลิกเพื่อดูผู้ใช้งาน Hotspot">
                             <div class="stat-icon hotspot-online"><i class="fa-solid fa-users"></i></div>
@@ -191,6 +207,52 @@
                                 <p id="stat-pppoe-rooms">-</p>
                             </div>
                             <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
+                        </div>
+                    </div>
+
+                    <!-- Router Operations & System Maintenance Panel -->
+                    <div class="card mt-24" style="background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                        <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <div class="card-title" style="display:flex; align-items:center; gap:10px;">
+                                <div style="width:36px; height:36px; border-radius:8px; background:linear-gradient(135deg, #0284c7, #0369a1); display:flex; align-items:center; justify-content:center; color:#fff;">
+                                    <i class="fa-solid fa-sliders"></i>
+                                </div>
+                                <div>
+                                    <h4 style="margin:0; font-size:1.05rem; font-weight:700; color:#1e293b;">การจัดการและดูแลรักษาระบบเราท์เตอร์ (Router Operations)</h4>
+                                    <p style="margin:2px 0 0; font-size:0.8rem; color:#64748b;">ตรวจสอบอัปเดต RouterOS, อัปเกรด Firmware, รีบูต และเครื่องมือจัดการด่วน</p>
+                                </div>
+                            </div>
+                            <div id="router-health-badge" style="font-size:0.8rem; font-weight:600; color:#0f766e; background:#ccfbf1; padding:4px 10px; border-radius:20px; display:none;">
+                                <i class="fa-solid fa-temperature-half"></i> <span id="health-temp">-</span>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding: 20px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                                <!-- Button 1: Check & Update RouterOS -->
+                                <button type="button" class="btn btn-secondary" id="btn-check-ros-update" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd; border-radius:8px;">
+                                    <i class="fa-solid fa-rotate text-primary"></i> <span>ตรวจ & อัปเดต ROS</span>
+                                </button>
+                                <!-- Button 2: Upgrade Firmware -->
+                                <button type="button" class="btn btn-secondary" id="btn-upgrade-firmware" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#fffbeb; color:#b45309; border:1px solid #fde68a; border-radius:8px;">
+                                    <i class="fa-solid fa-bolt text-warning"></i> <span>อัปเกรด Firmware บอร์ด</span>
+                                </button>
+                                <!-- Button 3: Reboot Router -->
+                                <button type="button" class="btn btn-secondary" id="btn-system-reboot" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px;">
+                                    <i class="fa-solid fa-power-off text-danger"></i> <span>รีบูตเราท์เตอร์ (Reboot)</span>
+                                </button>
+                                <!-- Button 4: Flush DNS Cache -->
+                                <button type="button" class="btn btn-secondary" id="btn-flush-dns" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; border-radius:8px;">
+                                    <i class="fa-solid fa-broom text-secondary"></i> <span>ล้าง DNS Cache</span>
+                                </button>
+                                <!-- Button 5: Ping Test -->
+                                <button type="button" class="btn btn-secondary" id="btn-ping-test" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; border-radius:8px;">
+                                    <i class="fa-solid fa-network-wired text-info"></i> <span>ทดสอบ Ping เน็ต</span>
+                                </button>
+                                <!-- Button 6: Quick Backup -->
+                                <button type="button" class="btn btn-secondary" id="btn-system-backup" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:8px;">
+                                    <i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -2783,10 +2845,79 @@
                 </div>
             </div>
         </div>
+    <!-- ========================================== -->
+    <!-- MODAL: ROUTEROS UPDATE CHECK & INSTALL -->
+    <!-- ========================================== -->
+    <div id="modal-ros-update" class="modal-wrapper">
+        <div class="modal-card" style="max-width:550px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-rotate text-primary"></i> ตรวจสอบและอัปเดต RouterOS</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="ros-update-loading" style="text-align:center; padding:30px 0;">
+                    <i class="fa-solid fa-spinner fa-spin text-primary" style="font-size:2rem;"></i>
+                    <p style="margin-top:12px; color:var(--text-muted);">กำลังตรวจสอบเวอร์ชันล่าสุดจาก MikroTik Cloud...</p>
+                </div>
+                <div id="ros-update-content" style="display:none;">
+                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin-bottom:16px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                            <span style="color:#64748b; font-size:0.9rem;">Release Channel:</span>
+                            <span id="ros-update-channel" style="font-weight:700; color:#0369a1;">stable</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                            <span style="color:#64748b; font-size:0.9rem;">เวอร์ชันปัจจุบัน (Installed):</span>
+                            <span id="ros-update-installed" style="font-weight:700; color:#1e293b;">-</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                            <span style="color:#64748b; font-size:0.9rem;">เวอร์ชันล่าสุด (Latest):</span>
+                            <span id="ros-update-latest" style="font-weight:700; color:#16a34a;">-</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:#64748b; font-size:0.9rem;">สถานะ:</span>
+                            <span id="ros-update-status" style="font-weight:600; color:#d97706;">-</span>
+                        </div>
+                    </div>
+                    <div id="ros-update-alert" class="alert alert-info" style="font-size:0.85rem; padding:10px 14px; margin-bottom:16px; border-radius:6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe;">
+                        <i class="fa-solid fa-circle-info"></i> การกดติดตั้ง RouterOS ระบบจะทำการดาวน์โหลดไฟล์แพ็กเกจและรีสตาร์ทเราท์เตอร์ให้อัตโนมัติใน 1-2 นาที
+                    </div>
+                </div>
+                <div class="modal-footer mt-16" style="display:flex; justify-content:space-between; align-items:center;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-ros-install" style="display:none;"><i class="fa-solid fa-download"></i> ดาวน์โหลดและติดตั้งทันที</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: PING TEST -->
+    <!-- ========================================== -->
+    <div id="modal-ping-test" class="modal-wrapper">
+        <div class="modal-card" style="max-width:550px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-network-wired text-info"></i> ทดสอบการเชื่อมต่ออินเทอร์เน็ต (Ping Test)</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-ping-test" onsubmit="return false;">
+                    <div style="display:flex; gap:10px; margin-bottom:14px;">
+                        <input type="text" id="ping-host-input" class="form-control" placeholder="เช่น 8.8.8.8 หรือ 1.1.1.1" value="8.8.8.8" style="flex:1;">
+                        <button type="button" class="btn btn-primary" id="btn-run-ping-now"><i class="fa-solid fa-play"></i> เริ่มทดสอบ</button>
+                    </div>
+                </form>
+                <div id="ping-results-box" style="background:#0f172a; color:#38bdf8; font-family:monospace; font-size:0.85rem; padding:14px; border-radius:8px; height:180px; overflow-y:auto; white-space:pre-wrap;">
+กดปุ่ม "เริ่มทดสอบ" เพื่อส่งคำสั่ง Ping จากตัวเราท์เตอร์ MikroTik...
+                </div>
+                <div class="modal-footer mt-16" style="display:flex; justify-content:flex-end;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=105.0"></script>
+    <script src="app.js?v=107.0"></script>
 </body>
 </html>
 

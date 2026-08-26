@@ -372,6 +372,27 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (3)** — Overview RouterOS Version, Firmware Display & Router Operations Panel.
+  - Added real-time display cards for RouterOS Version, RouterBOARD Firmware (Current vs Upgrade), and System Health (Temperature / Voltage).
+  - Built comprehensive Router Operations & Maintenance Panel with 6 quick actions:
+    1. Check & Install RouterOS Update (`/system/package/update/check-for-updates` & `/install`).
+    2. Upgrade RouterBOARD Firmware (`/system/routerboard/upgrade`).
+    3. Reboot Router with safety confirmations (`/system/reboot`).
+    4. Flush Router DNS Cache (`/ip/dns/cache/flush`).
+    5. Live Ping & Latency Test (`/ping address=8.8.8.8 count=4`).
+    6. Quick Router Config Backup (.backup) (`/system/backup/save`).
+  - Added interactive modals for RouterOS update checking and live ping diagnostics (`public/index.html` + `public/app.js` `v=107.0`).
+
+- **2026-08-26 (2)** — Native Cloudflare R2 Off-site Disaster Recovery Backup Integration.
+  - Implemented direct zero-dependency S3 SigV4 uploader in `backup.js` for Cloudflare R2.
+  - Configured automated daily backup destination to bucket `ddservicedb` under site folder `Mikrotikapi-db` (`ddservicedb/Mikrotikapi-db/YYYY-MM-DD/`).
+  - Added setup script `scripts/setup-r2-backup.sh` and updated `ecosystem.config.js` environment variables.
+
+- **2026-08-26** — Multi-Site Isolated LINE OA Expiry Notifications (Strict Per-Branch Routing).
+  - Unlocked independent LINE OA expiry notifications for all branches (A4, TingTing, and additional branches) with strict per-site isolation.
+  - Removed restrictive `isA4Site` filter and removed `cleanupNonA4LineConfigs()` in `server.js`, `db.js`, `db-supabase.js`, and `public/app.js` (`v=106.0`).
+  - Guaranteed zero cross-site mixing: Each branch strictly scans its own router and sends its daily Flex Card summary exclusively to its own configured LINE OA Channel Access Token and Target/Group ID.
+
 - **2026-08-23** — Permanent Restriction of LINE OA Expiry Notifications to A4 Site Only & System Hardening.
   - Enforced strict `isA4Site` check in backend timer (`setInterval`), preventing any non-A4 sites (e.g. TingTing) from sending daily expiry digest messages to LINE.
   - Added startup database cleanup in `server.js` and strict guards in `db-supabase.js` and `db.js` (`getLineDigestConfig` & `saveLineDigestConfig`) to permanently force `enabled: false` and strip tokens for any non-A4 sites.

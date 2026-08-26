@@ -1365,9 +1365,14 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
         const stats = await executeOnRouter(req, async (client) => {
             const resources = await client.exec('/system/resource/print');
             const routerboard = await client.exec('/system/routerboard/print');
+            let health = [];
+            try {
+                health = await client.exec('/system/health/print');
+            } catch (e) {}
             
             const r = resources[0] || {};
             const rb = routerboard[0] || {};
+            const h = health[0] || {};
             
             return {
                 uptime: r.uptime || 'N/A',
@@ -1378,10 +1383,117 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
                 cpu: r.cpu || 'N/A',
                 boardName: r['board-name'] || 'N/A',
                 model: rb.model || r['board-name'] || 'MikroTik Router',
-                serialNumber: rb['serial-number'] || 'N/A'
+                serialNumber: rb['serial-number'] || 'N/A',
+                currentFirmware: rb['current-firmware'] || r.version || 'N/A',
+                upgradeFirmware: rb['upgrade-firmware'] || 'N/A',
+                factoryFirmware: rb['factory-firmware'] || 'N/A',
+                temperature: h.temperature ? `${h.temperature}°C` : (h['cpu-temperature'] ? `${h['cpu-temperature']}°C` : null),
+                voltage: h.voltage ? `${(parseFloat(h.voltage) / (h.voltage > 100 ? 10 : 1)).toFixed(1)}V` : null
             };
         });
         res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Check RouterOS updates
+app.get('/api/mikrotik/system/update-check', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            const updates = await client.exec('/system/package/update/check-for-updates');
+            const u = updates[0] || {};
+            return {
+                channel: u.channel || 'stable',
+                installedVersion: u['installed-version'] || u['current-version'] || 'N/A',
+                latestVersion: u['latest-version'] || 'N/A',
+                status: u.status || 'N/A'
+            };
+        });
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Install RouterOS update
+app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/system/package/update/install');
+        });
+        db.addLog(req.user.username, 'อัปเดต RouterOS', 'สั่งดาวน์โหลดและติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
+        res.json({ success: true, message: 'สั่งดาวน์โหลดและติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตอัตโนมัติ' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Upgrade RouterBOARD Firmware
+app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async (req, res) => {
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            await client.exec('/system/routerboard/upgrade');
+            const rb = await client.exec('/system/routerboard/print');
+            return rb[0] || {};
+        });
+        db.addLog(req.user.username, 'อัปเกรด RouterBOARD Firmware', 'สั่งอัปเกรด Firmware สำเร็จ (ต้องการรีบูตเพื่อให้มีผล)');
+        res.json({ success: true, message: 'อัปเกรด RouterBOARD Firmware เรียบร้อยแล้ว กรุณารีบูตเราท์เตอร์เพื่อให้ Firmware ใหม่เริ่มทำงาน', routerboard: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reboot Router
+app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res) => {
+    try {
+        executeOnRouter(req, async (client) => {
+            await client.exec('/system/reboot');
+        }).catch(() => {});
+        db.addLog(req.user.username, 'รีบูตเราท์เตอร์', 'สั่ง Reboot เราท์เตอร์ผ่านแดชบอร์ด');
+        res.json({ success: true, message: 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว ระบบกำลังเริ่มต้นใหม่ใน 30-60 วินาที' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Flush DNS Cache
+app.post('/api/mikrotik/system/flush-dns', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/dns/cache/flush');
+        });
+        db.addLog(req.user.username, 'ล้าง DNS Cache', 'สั่ง Flush DNS Cache บนเราท์เตอร์สำเร็จ');
+        res.json({ success: true, message: 'ล้าง DNS Cache บนเราท์เตอร์สำเร็จเรียบร้อย' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Ping Test
+app.post('/api/mikrotik/system/ping-test', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const host = req.body.host || '8.8.8.8';
+        const count = req.body.count || '4';
+        const result = await executeOnRouter(req, async (client) => {
+            return await client.exec('/ping', { address: host, count: String(count) });
+        });
+        res.json({ success: true, host, count, results: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Quick Router Backup (.backup)
+app.post('/api/mikrotik/system/backup', requireAuth(['admin']), async (req, res) => {
+    try {
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const name = (req.body.name || `backup-${dateStr}`).replace(/[^a-zA-Z0-9_-]/g, '');
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/system/backup/save', { name });
+        });
+        db.addLog(req.user.username, 'สำรองคอนฟิกเราท์เตอร์', `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์สำเร็จ`);
+        res.json({ success: true, message: `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์เรียบร้อยแล้ว` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -2703,27 +2815,13 @@ app.post('/api/mikrotik/line-digest/run-now', requireAuth(['admin', 'co-admin'])
     }
 });
 
-function isA4Site(siteId, siteName = '') {
-    const id = String(siteId || '').toLowerCase().trim();
-    const name = String(siteName || '').toLowerCase().trim();
-    if (id.includes('tingting') || name.includes('tingting') || id === 'site_2') return false;
-    if (id.includes('a4') || name.includes('a4')) return true;
-    if (id === 'site_1' || id === 'default' || name.includes('main') || name.includes('หลัก')) return true;
-    return false;
-}
-
-// Background Timer for Daily LINE Expiry Digest (checks every 1 minute for A4 site only)
+// Background Timer for Daily LINE Expiry Digest (checks every 1 minute, multi-site isolated)
 setInterval(async () => {
     try {
         const sitesData = await db.getSites();
         const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default', name: 'Main Site' }];
 
         for (const site of sites) {
-            // Strictly allow ONLY A4 site notifications permanently
-            if (!isA4Site(site.id, site.name)) {
-                continue;
-            }
-
             const config = await db.getLineDigestConfig(site.id);
             if (!config || !config.enabled || !config.channelAccessToken || !config.targetId) continue;
 
@@ -2733,7 +2831,7 @@ setInterval(async () => {
             const todayDateStr = bkkTime.toISOString().slice(0, 10);
 
             if (currentHHMM === config.digestTime && config.lastSentDate !== todayDateStr) {
-                console.log(`[LINE OA Digest] Triggering daily digest for A4 site ${site.name} (${site.id}) at ${currentHHMM}...`);
+                console.log(`[LINE OA Digest] Triggering daily digest for site ${site.name} (${site.id}) at ${currentHHMM}...`);
                 const digest = await generateDailyExpiryDigest(site.id);
                 const flexMsg = createDailyDigestFlex(digest);
                 await sendLinePushMessage(config.channelAccessToken, config.targetId, flexMsg);
@@ -2745,22 +2843,6 @@ setInterval(async () => {
         console.error('[LINE OA Digest] Automated digest error:', e.message || e);
     }
 }, 60000);
-
-// Automatically ensure non-A4 sites have LINE notifications permanently disabled
-(async function cleanupNonA4LineConfigs() {
-    try {
-        const sitesData = await db.getSites();
-        if (sitesData && sitesData.sites) {
-            for (const site of sitesData.sites) {
-                if (!isA4Site(site.id, site.name)) {
-                    await db.saveLineDigestConfig({ enabled: false, channelAccessToken: '', targetId: '' }, site.id);
-                }
-            }
-        }
-    } catch (err) {
-        console.warn('[LINE OA] Cleanup non-A4 config notice:', err.message);
-    }
-})();
 
 
 
