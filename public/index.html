@@ -2916,8 +2916,35 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- MODAL: SITE DIAGNOSTICS -->
+    <!-- ========================================== -->
+    <div id="modal-site-diagnostics" class="modal-wrapper">
+        <div class="modal-card" style="max-width:620px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-stethoscope text-primary"></i> วิเคราะห์และตรวจสอบการเชื่อมต่อไซต์งาน</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="diag-site-info" style="margin-bottom:14px; font-size:0.9rem; font-weight:600; color:#1e293b;">
+                    กำลังตรวจสอบไซต์งาน...
+                </div>
+                <div id="diag-steps-list" style="display:flex; flex-direction:column; gap:10px; max-height:360px; overflow-y:auto; padding-right:4px;">
+                    <div style="text-align:center; padding:20px 0; color:var(--text-muted);">
+                        <i class="fa-solid fa-spinner fa-spin text-primary" style="font-size:1.8rem;"></i>
+                        <p style="margin-top:8px;">กำลังทดสอบ DNS, WireGuard, TCP Port และ RouterOS Authentication ทีละขั้นตอน...</p>
+                    </div>
+                </div>
+                <div class="modal-footer mt-16" style="display:flex; justify-content:space-between; align-items:center;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                    <button type="button" class="btn btn-primary" id="btn-re-diagnose"><i class="fa-solid fa-rotate"></i> ทดสอบซ้ำอีกครั้ง</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Script loading -->
-    <script src="app.js?v=109.0"></script>
+    <script src="app.js?v=110.0"></script>
 </body>
 </html>
 

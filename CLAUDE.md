@@ -372,6 +372,15 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (7)** — 5-Step Deep Site Diagnostic Engine & Root Cause Inspector.
+  - Implemented `/api/mikrotik/diagnose-site` in `server.js` executing 5 distinct root-cause tests:
+    1. Site configuration lookup & completeness check.
+    2. DNS Hostname resolution to IP.
+    3. WireGuard VPN peer handshake & keepalive verification (`wg show wg0 dump`).
+    4. Raw TCP Port socket connectivity (detecting closed ports, firewall blocks, or timeouts).
+    5. RouterOS API authentication & system identity retrieval (`/system/resource/print`, `/system/identity/print`).
+  - Added interactive Site Diagnostics Modal in `public/index.html` and `public/app.js` (`v=110.0`) with color-coded breakdown and actionable troubleshooting steps.
+
 - **2026-08-26 (6)** — Multi-Site Live Connection Status & UI Clarity in Site Management.
   - Replaced misleading "ปิดใช้งาน" label in `#table-sites` with clear "สแตนด์บาย (Standby)" vs "เลือกใช้งานอยู่ (Active)".
   - Added automatic real-time live connectivity testing and status badges (`ออนไลน์ (Online)` / `ออฟไลน์ (Offline)`) for every site in the Multi-Site Management table (`public/index.html` + `public/app.js` `v=109.0`).

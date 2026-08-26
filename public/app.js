@@ -3732,21 +3732,11 @@ async function fetchSitesManagement() {
             });
         });
 
-        // Bind Test buttons
+        // Bind Test buttons to open step-by-step diagnostic breakdown
         document.querySelectorAll('.btn-test-site-item').forEach(btn => {
-            btn.addEventListener('click', async () => {
+            btn.addEventListener('click', () => {
                 const siteId = btn.getAttribute('data-id');
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-                try {
-                    await apiFetch(`/api/mikrotik/test-connection?siteId=${siteId}`);
-                    alert('การเชื่อมต่อสำเร็จ! เราท์เตอร์ตอบรับปกติ');
-                } catch (err) {
-                    alert(`เชื่อมต่อล้มเหลว: ${err.message}`);
-                } finally {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fa-solid fa-plug"></i> ทดสอบ';
-                }
+                openSiteDiagnosticModal(siteId);
             });
         });
 
@@ -3776,9 +3766,90 @@ async function fetchSitesManagement() {
         });
 
     } catch (err) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">ผิดพลาด: ${err.message}</td></tr>`;
     }
 }
+
+// Site Deep Diagnostics Modal Controller
+let _currentDiagSiteId = null;
+
+async function openSiteDiagnosticModal(siteId) {
+    _currentDiagSiteId = siteId;
+    const modal = document.getElementById('modal-site-diagnostics');
+    const infoEl = document.getElementById('diag-site-info');
+    const stepsListEl = document.getElementById('diag-steps-list');
+
+    if (modal) modal.classList.add('active');
+    if (infoEl) infoEl.textContent = `กำลังวิเคราะห์ไซต์งาน (${siteId})...`;
+    if (stepsListEl) {
+        stepsListEl.innerHTML = `
+            <div style="text-align:center; padding:30px 0; color:var(--text-muted);">
+                <i class="fa-solid fa-spinner fa-spin text-primary" style="font-size:2rem;"></i>
+                <p style="margin-top:12px; font-size:0.9rem;">กำลังทดสอบ DNS, WireGuard VPN, พอร์ต TCP และสิทธิ์ RouterOS Login...</p>
+            </div>
+        `;
+    }
+
+    try {
+        const data = await apiFetch(`/api/mikrotik/diagnose-site?siteId=${siteId}`);
+        if (infoEl && data.site) {
+            infoEl.innerHTML = `📍 ไซต์งาน: <strong>${data.site.name || siteId}</strong> (<code>${data.site.host}:${data.site.port}</code>) — ${data.success ? '<span style="color:#15803d; font-weight:700;">🟢 เชื่อมต่อสมบูรณ์ (Online)</span>' : '<span style="color:#b91c1c; font-weight:700;">🔴 ตรวจพบปัญหา (Offline)</span>'}`;
+        }
+
+        if (stepsListEl) {
+            stepsListEl.innerHTML = '';
+            if (data.steps && data.steps.length > 0) {
+                data.steps.forEach(step => {
+                    const stepDiv = document.createElement('div');
+                    let icon = '<i class="fa-solid fa-circle-check" style="color:#16a34a; font-size:1.15rem;"></i>';
+                    let bg = '#f0fdf4';
+                    let border = '#bbf7d0';
+                    let titleColor = '#166534';
+
+                    if (step.status === 'fail') {
+                        icon = '<i class="fa-solid fa-circle-xmark" style="color:#dc2626; font-size:1.15rem;"></i>';
+                        bg = '#fef2f2';
+                        border = '#fecaca';
+                        titleColor = '#991b1b';
+                    } else if (step.status === 'warn') {
+                        icon = '<i class="fa-solid fa-triangle-exclamation" style="color:#d97706; font-size:1.15rem;"></i>';
+                        bg = '#fffbeb';
+                        border = '#fde68a';
+                        titleColor = '#92400e';
+                    }
+
+                    stepDiv.style.cssText = `background:${bg}; border:1px solid ${border}; border-radius:8px; padding:10px 14px; display:flex; gap:12px; align-items:flex-start;`;
+                    stepDiv.innerHTML = `
+                        <div style="margin-top:2px;">${icon}</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; color:${titleColor}; font-size:0.88rem;">${step.step}</div>
+                            <div style="font-size:0.82rem; color:#334155; margin-top:3px; word-break:break-word; line-height:1.4;">${step.detail}</div>
+                        </div>
+                    `;
+                    stepsListEl.appendChild(stepDiv);
+                });
+            }
+        }
+    } catch (err) {
+        if (stepsListEl) {
+            stepsListEl.innerHTML = `
+                <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px; color:#b91c1c;">
+                    <strong>เกิดข้อผิดพลาดในการตรวจสอบ:</strong> ${err.message}
+                </div>
+            `;
+        }
+    }
+}
+
+document.getElementById('btn-re-diagnose')?.addEventListener('click', () => {
+    if (_currentDiagSiteId) openSiteDiagnosticModal(_currentDiagSiteId);
+});
+
+document.querySelectorAll('#modal-site-diagnostics .modal-cancel, #modal-site-diagnostics .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-site-diagnostics')?.classList.remove('active');
+    });
+});
 
 // Site Modal Handlers
 const modalSite = document.getElementById('modal-site');
