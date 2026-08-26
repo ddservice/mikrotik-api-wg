@@ -372,6 +372,14 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (9)** — Complete Multi-Site Connection Restoration & 4 Sites Online.
+  - Successfully connected and verified all 4 production sites:
+    1. `Auioun@WiFi` (Main Site): `b4a00a4696aa.sn.mynetname.net:8927` (hAP ac^2, ROS 6.49.7).
+    2. `TingTing@WiFi`: `10.10.88.2:8728` (hEX, WireGuard VPN).
+    3. `A4-Residence` (`CCR2004`): `10.10.88.3:8728` (CCR2004-16G-2S+, WireGuard VPN).
+    4. `SuksawatWiFi` (Suksawad-cmu): `10.10.88.4:8728` (hEX, ROS 7.24.1, WireGuard VPN).
+  - Built diagnostic and repair scripts `scripts/diagnose-vps-status.js`, `scripts/fix-and-sync-sites.js`, and `scripts/test-suksawad.js`.
+
 - **2026-08-26 (8)** — Automatic Startup WireGuard Peer Sync & Robust Config Fallback.
   - Implemented automatic WireGuard peer registration on startup (`syncAllWireguardPeersOnStartup`) in `server.js` to ensure all database-registered peers are immediately provisioned in Linux Kernel `wg0`.
   - Reinforced `getConfig` in both `db-supabase.js` and `db.js` with fallback host/port/username resolution, ensuring secondary sites (`10.10.88.x` WireGuard) never encounter empty connection objects.
