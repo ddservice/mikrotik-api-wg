@@ -88,50 +88,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// ==========================================
-// HIGH PERFORMANCE: Native Zlib Response Gzip Compression
-// ==========================================
-const zlib = require('zlib');
-app.use((req, res, next) => {
-    const acceptEncoding = req.headers['accept-encoding'] || '';
-    if (!acceptEncoding.includes('gzip')) {
-        return next();
-    }
 
-    const originalSend = res.send;
-    res.send = function (body) {
-        if (res.headersSent || !body) {
-            return originalSend.call(this, body);
-        }
-
-        const contentType = res.getHeader('Content-Type') || '';
-        const isCompressible = typeof body === 'string' || Buffer.isBuffer(body);
-
-        if (!isCompressible || (res.statusCode >= 300 && res.statusCode !== 304)) {
-            return originalSend.call(this, body);
-        }
-
-        const shouldCompress = /json|text|javascript|css|html|xml|svg/i.test(String(contentType));
-        if (!shouldCompress) {
-            return originalSend.call(this, body);
-        }
-
-        const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
-        if (buf.length < 1024) { // Do not compress small payloads < 1KB
-            return originalSend.call(this, body);
-        }
-
-        zlib.gzip(buf, (err, compressed) => {
-            if (err) {
-                return originalSend.call(this, body);
-            }
-            res.setHeader('Content-Encoding', 'gzip');
-            res.setHeader('Content-Length', compressed.length);
-            originalSend.call(this, compressed);
-        });
-    };
-    next();
-});
 
 // ==========================================
 // P2 SECURITY: CORS — ล็อก origin ที่อนุญาต

@@ -124,33 +124,28 @@ async function apiFetch(endpoint, options = {}) {
     }
     
     if (response.status === 401) {
-        // Session expired or invalid
         logout();
         throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
     }
 
-    // P2 Security: ดัก status code เพื่อให้ handler ตรวจ 429 ได้
+    const text = await response.text().catch(() => '');
+    let data = {};
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch (_) {
+            data = { error: text };
+        }
+    }
+
     if (response.status === 429) {
-        const data429 = await response.json().catch(() => ({}));
-        const err429 = new Error(data429.error || 'พยายามเข้าระบบมากเกินไป');
+        const err429 = new Error(data.error || 'พยายามเข้าระบบมากเกินไป');
         err429.status = 429;
         throw err429;
     }
-    
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-        throw new Error(`เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (HTTP ${response.status}) กรุณาเข้าใช้งานผ่าน http://localhost:3000 และเปิดเซิร์ฟเวอร์ด้วยคำสั่ง node server.js`);
-    }
-
-    let data;
-    try {
-        data = await response.json();
-    } catch (e) {
-        throw new Error('รูปแบบข้อมูลจากเซิร์ฟเวอร์ไม่ถูกต้อง (JSON syntax error)');
-    }
 
     if (!response.ok) {
-        const err = new Error(data.error || 'เกิดข้อผิดพลาดในการเรียกข้อมูล');
+        const err = new Error(data.error || `เกิดข้อผิดพลาด (${response.status})`);
         err.status = response.status;
         throw err;
     }
