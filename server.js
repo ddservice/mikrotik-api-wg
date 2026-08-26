@@ -1647,6 +1647,29 @@ app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async 
     }
 });
 
+// Full System Upgrade Stage 2: Firmware Upgrade + Automated Final Reboot
+app.post('/api/mikrotik/system/full-upgrade-stage2', requireAuth(['admin']), async (req, res) => {
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            await client.exec('/system/routerboard/upgrade');
+            const rb = await client.exec('/system/routerboard/print');
+            // Trigger reboot after 1.5s
+            setTimeout(async () => {
+                try {
+                    await executeOnRouter(req, async (c2) => {
+                        await c2.exec('/system/reboot');
+                    });
+                } catch (_) {}
+            }, 1500);
+            return rb[0] || {};
+        });
+        db.addLog(req.user.username, 'อัปเกรด Firmware อัตโนมัติ (Stage 2)', 'สั่งอัปเกรด RouterBOARD Firmware พร้อมรีบูตอัตโนมัติ');
+        res.json({ success: true, message: 'สั่งอัปเกรด RouterBOARD Firmware พร้อมสั่งรีบูตเรียบร้อยแล้ว', routerboard: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Reboot Router
 app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res) => {
     try {

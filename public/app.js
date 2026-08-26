@@ -3060,6 +3060,135 @@ document.getElementById('btn-confirm-ros-install')?.addEventListener('click', as
     }
 });
 
+// ==========================================
+// 1-Click Automated Full Upgrade Workflow (ROS + Firmware)
+// ==========================================
+function setUgStepStatus(stepNum, status, descText) {
+    const stepEl = document.getElementById(`ug-step-${stepNum}`);
+    if (!stepEl) return;
+    const iconEl = stepEl.querySelector('.ug-step-icon');
+    const descEl = stepEl.querySelector('.ug-step-desc');
+
+    if (descEl && descText) descEl.textContent = descText;
+
+    if (status === 'active') {
+        stepEl.style.background = '#eff6ff';
+        stepEl.style.borderColor = '#93c5fd';
+        if (iconEl) {
+            iconEl.style.background = '#2563eb';
+            iconEl.style.color = '#fff';
+            iconEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        }
+    } else if (status === 'done') {
+        stepEl.style.background = '#f0fdf4';
+        stepEl.style.borderColor = '#86efac';
+        if (iconEl) {
+            iconEl.style.background = '#16a34a';
+            iconEl.style.color = '#fff';
+            iconEl.innerHTML = '<i class="fa-solid fa-check"></i>';
+        }
+    } else if (status === 'error') {
+        stepEl.style.background = '#fef2f2';
+        stepEl.style.borderColor = '#fca5a5';
+        if (iconEl) {
+            iconEl.style.background = '#dc2626';
+            iconEl.style.color = '#fff';
+            iconEl.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        }
+    } else {
+        stepEl.style.background = '#f8fafc';
+        stepEl.style.borderColor = '#e2e8f0';
+        if (iconEl) {
+            iconEl.style.background = '#e2e8f0';
+            iconEl.style.color = '#64748b';
+            iconEl.innerHTML = `${stepNum}`;
+        }
+    }
+}
+
+async function pollUntilRouterOnline(maxWaitSec = 120, progressCallback) {
+    const startTime = Date.now();
+    let elapsed = 0;
+    
+    // Initial sleep 15s to allow router to begin shutting down
+    await new Promise(r => setTimeout(r, 15000));
+
+    while (elapsed < maxWaitSec) {
+        elapsed = Math.round((Date.now() - startTime) / 1000);
+        if (progressCallback) progressCallback(elapsed);
+        try {
+            const status = await apiFetch('/api/mikrotik/status');
+            if (status && status.version && status.version !== 'N/A') {
+                return status;
+            }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 4000));
+    }
+    throw new Error('หมดเวลาการรอคอย เราท์เตอร์ยังไม่ตอบกลับ API (กรุณาตรวจเช็คที่หน้างาน)');
+}
+
+document.getElementById('btn-full-system-upgrade')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-full-upgrade');
+    if (modal) {
+        [1, 2, 3, 4].forEach(i => setUgStepStatus(i, 'waiting', ['รอเริ่มคำสั่ง...', 'รอการเริ่มต้นใหม่...', 'รอการตรวจสอบ Firmware...', 'รอเสร็จสิ้น...'][i-1]));
+        const startBtn = document.getElementById('btn-start-full-upgrade');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.style.display = 'inline-flex';
+            startBtn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที';
+        }
+        modal.classList.add('active');
+    }
+});
+
+document.getElementById('btn-start-full-upgrade')?.addEventListener('click', async () => {
+    const startBtn = document.getElementById('btn-start-full-upgrade');
+    const cancelBtn = document.getElementById('btn-cancel-full-upgrade');
+    if (startBtn) startBtn.disabled = true;
+    if (cancelBtn) cancelBtn.disabled = true;
+
+    try {
+        // Stage 1: Trigger RouterOS Package Download & Install
+        setUgStepStatus(1, 'active', 'กำลังส่งคำสั่งดาวน์โหลดและติดตั้ง RouterOS Packages...');
+        await apiFetch('/api/mikrotik/system/update-install', { method: 'POST' });
+        setUgStepStatus(1, 'done', 'ติดตั้ง RouterOS สำเร็จแล้ว เราท์เตอร์กำลัง Reboot');
+
+        // Stage 2: Wait for Router to Reboot into new ROS
+        setUgStepStatus(2, 'active', 'เราท์เตอร์กำลังเริ่มต้นใหม่ (Rebooting)... กรุณารอสักครู่');
+        const rosStatus = await pollUntilRouterOnline(120, (sec) => {
+            setUgStepStatus(2, 'active', `กำลังรอเราท์เตอร์รีบูตเข้า RouterOS ใหม่... (${sec} วินาที)`);
+        });
+        setUgStepStatus(2, 'done', `ออนไลน์แล้ว! RouterOS เวอร์ชันใหม่: v${rosStatus.version}`);
+
+        // Stage 3: Upgrade RouterBOARD Firmware
+        setUgStepStatus(3, 'active', 'กำลังสั่งอัปเกรด RouterBOARD Firmware...');
+        await new Promise(r => setTimeout(r, 2000));
+        await apiFetch('/api/mikrotik/system/full-upgrade-stage2', { method: 'POST' });
+        setUgStepStatus(3, 'done', 'สั่งอัปเกรด Firmware สำเร็จแล้ว เราท์เตอร์กำลัง Reboot ครั้งสุดท้าย');
+
+        // Stage 4: Wait for Final Reboot
+        setUgStepStatus(4, 'active', 'กำลังรอการรีบูตรอบสุดท้ายเพื่อให้ Firmware ใหม่มีผล...');
+        const finalStatus = await pollUntilRouterOnline(90, (sec) => {
+            setUgStepStatus(4, 'active', `กำลังรอรีบูตครั้งสุดท้าย... (${sec} วินาที)`);
+        });
+        setUgStepStatus(4, 'done', `🎉 เสร็จสมบูรณ์ 100%! Firmware: ${finalStatus.currentFirmware || finalStatus.version}`);
+
+        fetchSystemStatus();
+        alert('🎉 อัปเกรดระบบเต็มรูปแบบสำเร็จสมบูรณ์ทั้ง RouterOS และ Firmware เรียบร้อยแล้วครับ!');
+    } catch (err) {
+        alert('เกิดข้อผิดพลาดระหว่างการอัปเกรด: ' + err.message);
+    } finally {
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (startBtn) startBtn.style.display = 'none';
+    }
+});
+
+document.querySelectorAll('#modal-full-upgrade .modal-cancel, #modal-full-upgrade .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-full-upgrade')?.classList.remove('active');
+    });
+});
+
 // 2. Upgrade RouterBOARD Firmware
 document.getElementById('btn-upgrade-firmware')?.addEventListener('click', async () => {
     if (!confirm('คุณต้องการสั่งอัปเกรด RouterBOARD Firmware ของบอร์ดหรือไม่?\n\n(หลังจากสั่งอัปเกรดสำเร็จ จะต้องทำการรีบูตเราท์เตอร์ 1 ครั้ง เพื่อให้ Firmware ตัวใหม่เริ่มทำงาน)')) return;

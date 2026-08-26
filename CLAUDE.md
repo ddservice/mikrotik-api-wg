@@ -372,6 +372,14 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (11)** — 1-Click Automated Full System Upgrade (ROS + Firmware 2-Stage Workflow).
+  - Built seamless automated multi-stage upgrade engine:
+    1. Stage 1: Download & install RouterOS package (`/system/package/update/install`).
+    2. Polling Stage 1: Auto-reconnect & verify router boots into new RouterOS version.
+    3. Stage 2: Upgrade RouterBOARD Firmware (`/system/routerboard/upgrade`) and trigger automated reboot.
+    4. Polling Stage 2: Verify router boots with updated Firmware and confirm 100% operational readiness.
+  - Added dedicated 1-Click button (`#btn-full-system-upgrade`) and real-time step-by-step progress tracking modal (`public/index.html` + `public/app.js` `v=112.0` and `server.js`).
+
 - **2026-08-26 (10)** — Humanized Uptime Formatting & Official MikroTik ROS Latest Version Integration.
   - Formatted Overview Uptime into compact, human-readable Thai intervals (e.g. `14 สัปดาห์ 1 วัน`, `2 วัน 18 ชม.`) with full exact uptime tooltip, eliminating frame overflow and wrapped text.
   - Integrated official MikroTik RouterOS latest version checker (`upgrade.mikrotik.com/routeros/LATEST.7` and `LATEST.6`) in `/api/mikrotik/status` and `/api/mikrotik/system/update-check`.

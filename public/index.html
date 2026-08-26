@@ -234,6 +234,10 @@
                         </div>
                         <div class="card-body" style="padding: 20px;">
                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                                <!-- Primary Action: 1-Click Automated Full Upgrade -->
+                                <button type="button" class="btn btn-primary" id="btn-full-system-upgrade" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; border:none; border-radius:8px; grid-column: 1 / -1; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>อัปเกรดระบบเต็มรูปแบบ 1-Click (อัปเดต ROS ➔ รีบูต ➔ อัปเกรด Firmware ➔ รีบูตจบงาน)</span>
+                                </button>
                                 <!-- Button 1: Check & Update RouterOS -->
                                 <button type="button" class="btn btn-secondary" id="btn-check-ros-update" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd; border-radius:8px;">
                                     <i class="fa-solid fa-rotate text-primary"></i> <span>ตรวจ & อัปเดต ROS</span>
@@ -2949,8 +2953,66 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- MODAL: FULL SYSTEM UPGRADE (ROS + FIRMWARE) -->
+    <!-- ========================================== -->
+    <div id="modal-full-upgrade" class="modal-wrapper">
+        <div class="modal-card" style="max-width:580px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> อัปเกรดระบบเต็มรูปแบบ 1-Click (ROS + Firmware)</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="full-upgrade-alert" class="alert alert-info" style="font-size:0.85rem; padding:10px 14px; margin-bottom:16px; border-radius:6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe;">
+                    <i class="fa-solid fa-circle-info"></i> ระบบจะทำตามขั้นตอนอัตโนมัติ: <strong>1. อัปเดต RouterOS</strong> ➔ <strong>2. รีบูตรอบที่ 1</strong> ➔ <strong>3. อัปเกรด Firmware</strong> ➔ <strong>4. รีบูตรอบสุดท้าย</strong>
+                </div>
+
+                <!-- Steps Progress List -->
+                <div id="full-upgrade-steps" style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+                    <!-- Step 1 -->
+                    <div class="upgrade-step-item" id="ug-step-1" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; gap:12px; align-items:center;">
+                        <div class="ug-step-icon" style="width:28px; height:28px; border-radius:50%; background:#e2e8f0; color:#64748b; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.85rem;">1</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; color:#1e293b; font-size:0.9rem;">ดาวน์โหลด & ติดตั้ง RouterOS Package</div>
+                            <div class="ug-step-desc" style="font-size:0.8rem; color:#64748b;">รอเริ่มคำสั่ง...</div>
+                        </div>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="upgrade-step-item" id="ug-step-2" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; gap:12px; align-items:center;">
+                        <div class="ug-step-icon" style="width:28px; height:28px; border-radius:50%; background:#e2e8f0; color:#64748b; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.85rem;">2</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; color:#1e293b; font-size:0.9rem;">รอเราท์เตอร์รีสตาร์ทเข้า RouterOS ใหม่</div>
+                            <div class="ug-step-desc" style="font-size:0.8rem; color:#64748b;">รอการเริ่มต้นใหม่...</div>
+                        </div>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="upgrade-step-item" id="ug-step-3" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; gap:12px; align-items:center;">
+                        <div class="ug-step-icon" style="width:28px; height:28px; border-radius:50%; background:#e2e8f0; color:#64748b; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.85rem;">3</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; color:#1e293b; font-size:0.9rem;">อัปเกรด RouterBOARD Firmware</div>
+                            <div class="ug-step-desc" style="font-size:0.8rem; color:#64748b;">รอการตรวจสอบ Firmware...</div>
+                        </div>
+                    </div>
+                    <!-- Step 4 -->
+                    <div class="upgrade-step-item" id="ug-step-4" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; gap:12px; align-items:center;">
+                        <div class="ug-step-icon" style="width:28px; height:28px; border-radius:50%; background:#e2e8f0; color:#64748b; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.85rem;">4</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; color:#1e293b; font-size:0.9rem;">รีบูตรอบสุดท้าย & พร้อมใช้งาน</div>
+                            <div class="ug-step-desc" style="font-size:0.8rem; color:#64748b;">รอเสร็จสิ้น...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer mt-16" style="display:flex; justify-content:space-between; align-items:center;">
+                    <button type="button" class="btn btn-secondary modal-cancel" id="btn-cancel-full-upgrade">ปิด</button>
+                    <button type="button" class="btn btn-primary" id="btn-start-full-upgrade"><i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Script loading -->
-    <script src="app.js?v=111.0"></script>
+    <script src="app.js?v=112.0"></script>
 </body>
 </html>
 
