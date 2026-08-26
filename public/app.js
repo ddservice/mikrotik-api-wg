@@ -3060,11 +3060,11 @@ async function triggerCheckRosUpdateModal() {
 document.getElementById('btn-check-ros-update')?.addEventListener('click', triggerCheckRosUpdateModal);
 document.getElementById('btn-quick-ros-update')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    triggerCheckRosUpdateModal();
+    openFullUpgradeModal();
 });
 document.getElementById('stat-card-ros-version')?.addEventListener('click', () => {
-    if (CURRENT_USER && CURRENT_USER.role === 'admin') {
-        triggerCheckRosUpdateModal();
+    if (CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'co-admin')) {
+        openFullUpgradeModal();
     }
 });
 
@@ -3154,7 +3154,7 @@ async function pollUntilRouterOnline(maxWaitSec = 120, progressCallback) {
     throw new Error('หมดเวลาการรอคอย เราท์เตอร์ยังไม่ตอบกลับ API (กรุณาตรวจเช็คที่หน้างาน)');
 }
 
-document.getElementById('btn-full-system-upgrade')?.addEventListener('click', () => {
+function openFullUpgradeModal() {
     const modal = document.getElementById('modal-full-upgrade');
     if (modal) {
         [1, 2, 3, 4].forEach(i => setUgStepStatus(i, 'waiting', ['รอเริ่มคำสั่ง...', 'รอการเริ่มต้นใหม่...', 'รอการตรวจสอบ Firmware...', 'รอเสร็จสิ้น...'][i-1]));
@@ -3166,7 +3166,9 @@ document.getElementById('btn-full-system-upgrade')?.addEventListener('click', ()
         }
         modal.classList.add('active');
     }
-});
+}
+
+document.getElementById('btn-full-system-upgrade')?.addEventListener('click', openFullUpgradeModal);
 
 document.getElementById('btn-start-full-upgrade')?.addEventListener('click', async () => {
     const startBtn = document.getElementById('btn-start-full-upgrade');
