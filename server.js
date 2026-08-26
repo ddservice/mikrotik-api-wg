@@ -1515,8 +1515,8 @@ app.get('/api/mikrotik/diagnose-site', requireAuth(['admin', 'co-admin', 'user']
     }
 });
 
-// Helper to fetch official MikroTik latest versions from upgrade.mikrotik.com
-let _mikrotikLatestVersions = { v7: null, v6: null, lastFetched: 0 };
+// Helper to fetch official MikroTik latest versions from upgrade.mikrotik.com and fleet intelligence
+let _mikrotikLatestVersions = { v7: '7.24.1', v6: '6.49.20', lastFetched: 0 };
 
 function compareSemver(v1, v2) {
     // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if v1 == v2
@@ -1537,7 +1537,7 @@ function compareSemver(v1, v2) {
 
 async function getOfficialMikrotikLatestVersions() {
     const now = Date.now();
-    if (_mikrotikLatestVersions.v7 && (now - _mikrotikLatestVersions.lastFetched < 3600000)) {
+    if (now - _mikrotikLatestVersions.lastFetched < 3600000) {
         return _mikrotikLatestVersions;
     }
     const https = require('https');
@@ -1556,8 +1556,8 @@ async function getOfficialMikrotikLatestVersions() {
             fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.7'),
             fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.6')
         ]);
-        if (v7) _mikrotikLatestVersions.v7 = v7;
-        if (v6) _mikrotikLatestVersions.v6 = v6;
+        if (v7 && compareSemver(v7, _mikrotikLatestVersions.v7) > 0) _mikrotikLatestVersions.v7 = v7;
+        if (v6 && compareSemver(v6, _mikrotikLatestVersions.v6) > 0) _mikrotikLatestVersions.v6 = v6;
         _mikrotikLatestVersions.lastFetched = now;
     } catch (_) {}
     return _mikrotikLatestVersions;
@@ -1581,14 +1581,24 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
             
             const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
             const isV6 = (r.version || '').startsWith('6');
-            let latestOfficial = isV6 ? officialVersions.v6 : officialVersions.v7;
-            const isNew = !!(latestOfficial && currentVer !== 'N/A' && compareSemver(latestOfficial, currentVer) > 0);
+
+            // Fleet intelligence: remember highest version seen across fleet
+            if (currentVer !== 'N/A') {
+                if (isV6) {
+                    if (compareSemver(currentVer, _mikrotikLatestVersions.v6) > 0) _mikrotikLatestVersions.v6 = currentVer;
+                } else {
+                    if (compareSemver(currentVer, _mikrotikLatestVersions.v7) > 0) _mikrotikLatestVersions.v7 = currentVer;
+                }
+            }
+
+            const latestKnown = isV6 ? _mikrotikLatestVersions.v6 : _mikrotikLatestVersions.v7;
+            const isNew = !!(latestKnown && currentVer !== 'N/A' && compareSemver(latestKnown, currentVer) > 0);
 
             return {
                 uptime: r.uptime || 'N/A',
                 version: r.version || 'N/A',
                 currentVersion: currentVer,
-                latestVersion: isNew ? latestOfficial : currentVer,
+                latestVersion: isNew ? latestKnown : currentVer,
                 hasUpdate: isNew,
                 cpuLoad: r['cpu-load'] ? `${r['cpu-load']}%` : 'N/A',
                 freeMemory: r['free-memory'] ? parseInt(r['free-memory']) : 0,
