@@ -3539,12 +3539,6 @@ function renderGlobalSearchResults(results, emptyText = 'ไม่พบข้�
         container.appendChild(itemEl);
     });
 }
-        alert('เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>';
-    }
-});
 
 // Modal close listeners for new modals
 document.querySelectorAll('#modal-ros-update .modal-cancel, #modal-ros-update .modal-close-btn').forEach(btn => {
