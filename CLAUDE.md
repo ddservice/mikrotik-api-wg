@@ -372,6 +372,10 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (8)** — Automatic Startup WireGuard Peer Sync & Robust Config Fallback.
+  - Implemented automatic WireGuard peer registration on startup (`syncAllWireguardPeersOnStartup`) in `server.js` to ensure all database-registered peers are immediately provisioned in Linux Kernel `wg0`.
+  - Reinforced `getConfig` in both `db-supabase.js` and `db.js` with fallback host/port/username resolution, ensuring secondary sites (`10.10.88.x` WireGuard) never encounter empty connection objects.
+
 - **2026-08-26 (7)** — 5-Step Deep Site Diagnostic Engine & Root Cause Inspector.
   - Implemented `/api/mikrotik/diagnose-site` in `server.js` executing 5 distinct root-cause tests:
     1. Site configuration lookup & completeness check.

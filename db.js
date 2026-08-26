@@ -110,12 +110,13 @@ function getConfig(siteId) {
         (s.id && s.id.toLowerCase() === targetIdStr.toLowerCase()) ||
         (s.name && s.name.toLowerCase() === targetIdStr.toLowerCase())
     ) || data.sites.find(s => s.id === data.activeSiteId) || data.sites[0] || {};
+    const host = site.host || site.wireguardIp || '';
     return {
         id: site.id,
         name: site.name,
-        host: site.host || '',
-        port: site.port || 8728,
-        username: site.username || '',
+        host: host,
+        port: parseInt(site.port) || 8728,
+        username: site.username || 'admin',
         password: site.password || '',
         connectionType: site.connectionType || 'wireguard',
         wireguardIp: site.wireguardIp || ''

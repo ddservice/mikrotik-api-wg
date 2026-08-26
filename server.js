@@ -960,6 +960,25 @@ function registerVpsPeer(wireguardIp, clientPublicKey) {
     execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
 }
 
+// Auto-sync all WireGuard peers from database to wg0 on startup
+(async function syncAllWireguardPeersOnStartup() {
+    try {
+        const sitesData = await db.getSites();
+        if (sitesData && sitesData.sites) {
+            for (const s of sitesData.sites) {
+                if (s.connectionType === 'wireguard' && s.wireguardPublicKey && s.wireguardIp) {
+                    try {
+                        registerVpsPeer(s.wireguardIp, s.wireguardPublicKey);
+                        console.log(`[WireGuard Sync] Registered peer ${s.name} (${s.wireguardIp}) on VPS`);
+                    } catch (_) {}
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[WireGuard Startup Sync Notice]:', err.message);
+    }
+})();
+
 // Add new site (Admin only)
 app.post('/api/sites', requireAuth(['admin']), async (req, res) => {
     const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled } = req.body;

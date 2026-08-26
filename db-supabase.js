@@ -161,9 +161,17 @@ async function getConfig(siteId) {
                (s.id && s.id.toLowerCase() === targetIdStr.toLowerCase()) ||
                (s.name && s.name.toLowerCase() === targetIdStr.toLowerCase());
     }) || d.sites.find(function(s) { return s.is_active; }) || d.sites[0] || {};
-    return { id: site.id, name: site.name, host: site.host || '',
-             port: site.port || 8728, username: site.username || '', password: site.password || '',
-             connectionType: site.connection_type || 'wireguard', wireguardIp: site.wireguard_ip || '' };
+    var host = site.host || site.wireguard_ip || site.wireguardIp || '';
+    return {
+        id: site.id,
+        name: site.name,
+        host: host,
+        port: parseInt(site.port) || 8728,
+        username: site.username || 'admin',
+        password: site.password || '',
+        connectionType: site.connection_type || site.connectionType || 'wireguard',
+        wireguardIp: site.wireguard_ip || site.wireguardIp || ''
+    };
 }
 
 async function saveConfig(config, siteId) {
