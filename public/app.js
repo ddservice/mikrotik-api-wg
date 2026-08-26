@@ -3668,20 +3668,24 @@ async function fetchSitesManagement() {
             let realIpCell = '<span class="text-muted">-</span>';
             if (site.connectionType === 'wireguard') {
                 realIpCell = peer && peer.endpoint
-                    ? `<code>${peer.endpoint}</code> ${peer.connected ? '<span style="color:var(--success);font-size:0.75rem;">● เชื่อมต่ออยู่</span>' : '<span style="color:var(--text-muted);font-size:0.75rem;">ไม่มี handshake</span>'}`
+                    ? `<code>${peer.endpoint}</code> ${peer.connected ? '<span style="color:var(--success);font-size:0.75rem;">● Handshake OK</span>' : '<span style="color:var(--text-muted);font-size:0.75rem;">ไม่มี handshake</span>'}`
                     : '<span class="text-muted">ยังไม่เคยเชื่อมต่อ</span>';
             }
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
                     ${isActive
-                        ? `<span class="site-status-badge site-status-active"><i class="fa-solid fa-circle-check"></i> กำลังใช้งาน</span>`
-                        : `<span class="site-status-badge site-status-normal"><i class="fa-regular fa-circle"></i> ปิดใช้งาน</span>`}
+                        ? `<span class="site-status-badge site-status-active"><i class="fa-solid fa-circle-check"></i> เลือกใช้งานอยู่</span>`
+                        : `<span class="site-status-badge" style="background:#f1f5f9; color:#64748b; border:1px solid #e2e8f0;"><i class="fa-regular fa-circle"></i> สแตนด์บาย</span>`}
                 </td>
                 <td><strong>${site.name}</strong></td>
                 <td><code>${site.host}</code></td>
                 <td>${site.port}</td>
-                <td>${site.username}</td>
+                <td>
+                    <span id="site-conn-badge-${site.id}" class="badge" style="background:#f8fafc; color:#64748b; border:1px solid #cbd5e1; padding:3px 8px; border-radius:12px; font-size:0.75rem;">
+                        <i class="fa-solid fa-spinner fa-spin"></i> กำลังตรวจสอบ...
+                    </span>
+                </td>
                 <td style="font-size:0.82rem;">${realIpCell}</td>
                 <td class="text-center">
                     <div style="display:flex; gap:6px; justify-content:center;">
@@ -3693,6 +3697,24 @@ async function fetchSitesManagement() {
                 </td>
             `;
             tableBody.appendChild(tr);
+        });
+
+        // Automatically test real-time connection status for each site
+        data.sites.forEach(async (site) => {
+            const badgeEl = document.getElementById(`site-conn-badge-${site.id}`);
+            if (!badgeEl) return;
+            try {
+                await apiFetch(`/api/mikrotik/test-connection?siteId=${site.id}`);
+                badgeEl.className = 'badge badge-success';
+                badgeEl.style.cssText = 'background:#dcfce7; color:#15803d; border:1px solid #86efac; padding:3px 8px; border-radius:12px; font-weight:600; font-size:0.75rem;';
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> ออนไลน์ (Online)';
+                badgeEl.title = 'เชื่อมต่อเราท์เตอร์สำเร็จ';
+            } catch (e) {
+                badgeEl.className = 'badge badge-danger';
+                badgeEl.style.cssText = 'background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; padding:3px 8px; border-radius:12px; font-weight:600; font-size:0.75rem;';
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> ออฟไลน์ (Offline)';
+                badgeEl.title = e.message || 'ไม่สามารถเชื่อมต่อได้';
+            }
         });
         
         // Bind Switch buttons

@@ -1350,13 +1350,13 @@ app.post('/api/config', requireAuth(['admin']), async (req, res) => {
 // MikroTik Router API Proxy Routes
 // ==========================================
 
-// Check router connection test (supports ?siteId=)
-app.get('/api/mikrotik/test-connection', requireAuth(['admin']), async (req, res) => {
-    const siteId = req.query.siteId;
+// Check router connection test (supports ?siteId= or header)
+app.get('/api/mikrotik/test-connection', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const siteId = req.query.siteId || req.headers?.['x-site-id'];
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(siteId, async (client) => {
             await client.exec('/system/resource/print');
-        }, siteId);
+        });
         res.json({ success: true, message: 'Connected successfully' });
     } catch (err) {
         res.status(500).json({ error: `Connection failed: ${err.message}` });

@@ -372,6 +372,11 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (6)** — Multi-Site Live Connection Status & UI Clarity in Site Management.
+  - Replaced misleading "ปิดใช้งาน" label in `#table-sites` with clear "สแตนด์บาย (Standby)" vs "เลือกใช้งานอยู่ (Active)".
+  - Added automatic real-time live connectivity testing and status badges (`ออนไลน์ (Online)` / `ออฟไลน์ (Offline)`) for every site in the Multi-Site Management table (`public/index.html` + `public/app.js` `v=109.0`).
+  - Allowed all authenticated roles to query `/api/mikrotik/test-connection?siteId=...` so every staff can check router health.
+
 - **2026-08-26 (5)** — Instant Router Offline/Online LINE Alert, In-Memory Caching & 1-Click R2 Restore Script.
   - Implemented 60-second real-time Router Connectivity Monitor in `server.js` with automated LINE OA Push Alerts (`🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline]` and `✅ [ระบบกลับมาออนไลน์]`).
   - Added Server-side In-Memory Caching (20s TTL) with instant invalidation for `sites` and `config` in `db-supabase.js`, cutting database roundtrip latency and Supabase connection overhead.
