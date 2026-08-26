@@ -74,6 +74,11 @@ async function apiFetch(endpoint, options = {}) {
     if (API_TOKEN) {
         headers['Authorization'] = `Bearer ${API_TOKEN}`;
     }
+
+    const activeSiteVal = document.getElementById('select-active-site')?.value;
+    if (activeSiteVal && !headers['X-Site-Id'] && !headers['x-site-id']) {
+        headers['X-Site-Id'] = activeSiteVal;
+    }
     
     let response;
     try {
@@ -265,6 +270,12 @@ function configureMenuRoles(role) {
     });
     if (document.getElementById('nav-admins')) document.getElementById('nav-admins').style.display = 'none';
     if (document.getElementById('nav-settings')) document.getElementById('nav-settings').style.display = 'none';
+
+    // Super Admin exclusive panels (Router Operations & Maintenance)
+    const routerOpsPanel = document.getElementById('panel-router-operations');
+    if (routerOpsPanel) {
+        routerOpsPanel.style.display = (role === 'admin') ? 'block' : 'none';
+    }
 
     if (role === 'admin') {
         // admin always sees everything

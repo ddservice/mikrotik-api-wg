@@ -104,14 +104,21 @@ function saveSitesData(sitesData) {
 function getConfig(siteId) {
     const data = getSitesData();
     const targetId = siteId || data.activeSiteId;
-    const site = data.sites.find(s => s.id === targetId) || data.sites[0] || {};
+    const targetIdStr = String(targetId || '').trim();
+    const site = data.sites.find(s =>
+        s.id === targetIdStr || s.name === targetIdStr ||
+        (s.id && s.id.toLowerCase() === targetIdStr.toLowerCase()) ||
+        (s.name && s.name.toLowerCase() === targetIdStr.toLowerCase())
+    ) || data.sites.find(s => s.id === data.activeSiteId) || data.sites[0] || {};
     return {
         id: site.id,
         name: site.name,
         host: site.host || '',
         port: site.port || 8728,
         username: site.username || '',
-        password: site.password || ''
+        password: site.password || '',
+        connectionType: site.connectionType || 'wireguard',
+        wireguardIp: site.wireguardIp || ''
     };
 }
 

@@ -372,6 +372,12 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (4)** — Multi-Site Connection Resilience & Super Admin Access Restriction for Router Operations.
+  - Restricted Router Operations & Maintenance Panel (`#panel-router-operations`) and all 6 backend endpoints exclusively to Super Admin (`role === 'admin'`). Co-Admin and User roles cannot view or execute system maintenance actions.
+  - Enhanced multi-site routing in `executeOnRouter` across `server.js` to automatically extract site ID from query, body, `X-Site-Id` header, and site locks.
+  - Added automatic `X-Site-Id` header injection to `apiFetch` in `public/app.js` (`v=108.0`) to guarantee UI actions target the exact active site without cross-site interference.
+  - Improved `getConfig(siteId)` in `db-supabase.js` and `db.js` to match both site `id` and `name` with case-insensitivity and trim, resolving multi-site disconnects when site names or varied casings are passed.
+
 - **2026-08-26 (3)** — Overview RouterOS Version, Firmware Display & Router Operations Panel.
   - Added real-time display cards for RouterOS Version, RouterBOARD Firmware (Current vs Upgrade), and System Health (Temperature / Voltage).
   - Built comprehensive Router Operations & Maintenance Panel with 6 quick actions:

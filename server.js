@@ -284,32 +284,36 @@ async function resolveForcedSiteName(req, requestedSiteName) {
 }
 
 // Router connection runner helper — strictly enforces user site permissions
-async function executeOnRouter(reqOrFn, fnOrSiteId, siteIdParam) {
+async function executeOnRouter(arg1, arg2, arg3) {
     let fn;
     let targetSiteId = null;
 
-    if (typeof reqOrFn === 'function') {
+    if (typeof arg1 === 'function') {
         // Form: executeOnRouter(fn, siteId)
-        fn = reqOrFn;
-        targetSiteId = typeof fnOrSiteId === 'string' ? fnOrSiteId : null;
-    } else if (reqOrFn && typeof reqOrFn === 'object' && reqOrFn.user) {
-        // Form: executeOnRouter(req, fn, siteId)
-        const req = reqOrFn;
-        fn = typeof fnOrSiteId === 'function' ? fnOrSiteId : fn;
-        if (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
-            // STRICT BOUNDARY: Non-admin users with assignedSiteId are ALWAYS locked to their assigned site!
-            targetSiteId = req.user.assignedSiteId;
-        } else {
-            targetSiteId = siteIdParam || req.query?.siteId || null;
+        fn = arg1;
+        targetSiteId = typeof arg2 === 'string' ? arg2 : null;
+    } else if (typeof arg2 === 'function') {
+        fn = arg2;
+        if (typeof arg1 === 'string') {
+            // Form: executeOnRouter(siteId, fn)
+            targetSiteId = arg1;
+        } else if (arg1 && typeof arg1 === 'object') {
+            // Form: executeOnRouter(req, fn, siteIdParam)
+            const req = arg1;
+            if (req.user && req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
+                targetSiteId = req.user.assignedSiteId;
+            } else {
+                targetSiteId = arg3 || req.query?.siteId || req.body?.siteId || req.headers?.['x-site-id'] || null;
+            }
         }
     } else {
-        fn = fnOrSiteId;
-        targetSiteId = typeof reqOrFn === 'string' ? reqOrFn : null;
+        fn = arg2 || arg1;
+        targetSiteId = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : null);
     }
 
     const config = await db.getConfig(targetSiteId);
     if (!config.host || !config.username) {
-        throw new Error(`Router connection (${config.name || 'Site'}) is not configured. Please setup Router Settings.`);
+        throw new Error(`Router connection (${config.name || targetSiteId || 'Site'}) is not configured. Please setup Router Settings.`);
     }
     const client = new RouterOSClient(config.host, config.port, config.username, config.password);
     await client.connect();
@@ -1398,7 +1402,7 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
 });
 
 // Check RouterOS updates
-app.get('/api/mikrotik/system/update-check', requireAuth(['admin', 'co-admin']), async (req, res) => {
+app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req, res) => {
     try {
         const result = await executeOnRouter(req, async (client) => {
             const updates = await client.exec('/system/package/update/check-for-updates');
@@ -1458,7 +1462,7 @@ app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res)
 });
 
 // Flush DNS Cache
-app.post('/api/mikrotik/system/flush-dns', requireAuth(['admin', 'co-admin']), async (req, res) => {
+app.post('/api/mikrotik/system/flush-dns', requireAuth(['admin']), async (req, res) => {
     try {
         await executeOnRouter(req, async (client) => {
             await client.exec('/ip/dns/cache/flush');
@@ -1471,7 +1475,7 @@ app.post('/api/mikrotik/system/flush-dns', requireAuth(['admin', 'co-admin']), a
 });
 
 // Ping Test
-app.post('/api/mikrotik/system/ping-test', requireAuth(['admin', 'co-admin']), async (req, res) => {
+app.post('/api/mikrotik/system/ping-test', requireAuth(['admin']), async (req, res) => {
     try {
         const host = req.body.host || '8.8.8.8';
         const count = req.body.count || '4';
