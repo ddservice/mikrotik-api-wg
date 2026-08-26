@@ -105,12 +105,27 @@ async function authenticateUser(username, password) {
 }
 
 // ==========================================
-// SITES
+// SITES (With In-Memory Cache)
 // ==========================================
+let _sitesCache = null;
+let _sitesCacheTime = 0;
+const SITES_CACHE_TTL_MS = 20000; // 20s TTL
+
+function invalidateSitesCache() {
+    _sitesCache = null;
+    _sitesCacheTime = 0;
+}
+
 async function _getSitesRaw() {
+    const now = Date.now();
+    if (_sitesCache && (now - _sitesCacheTime < SITES_CACHE_TTL_MS)) {
+        return _sitesCache;
+    }
     var res = await supabase.from('sites').select('*').order('created_at', { ascending: true });
     if (res.error) throw new Error(res.error.message);
-    return res.data || [];
+    _sitesCache = res.data || [];
+    _sitesCacheTime = now;
+    return _sitesCache;
 }
 
 async function getSitesData() {
@@ -158,6 +173,7 @@ async function saveConfig(config, siteId) {
     if (config.password !== undefined) updates.password = config.password;
     var res = await supabase.from('sites').update(updates).eq('id', targetId);
     if (res.error) throw new Error(res.error.message);
+    invalidateSitesCache();
     return config;
 }
 
@@ -166,6 +182,7 @@ async function setActiveSite(siteId) {
     if (res.error || !res.data) throw new Error('Site not found');
     await supabase.from('sites').update({ is_active: false }).neq('id', '__none__');
     await supabase.from('sites').update({ is_active: true }).eq('id', siteId);
+    invalidateSitesCache();
     return res.data;
 }
 
@@ -203,6 +220,7 @@ async function addSite(siteData) {
                 is_active: sites.length === 0 };
     var res = await supabase.from('sites').insert(row).select().single();
     if (res.error) throw new Error(res.error.message);
+    invalidateSitesCache();
     return res.data;
 }
 
@@ -228,6 +246,7 @@ async function updateSite(id, updateData) {
     if (updateData.dnsLoggingEnabled !== undefined) u.dns_logging_enabled = !!updateData.dnsLoggingEnabled;
     var res = await supabase.from('sites').update(u).eq('id', id).select().single();
     if (res.error) throw new Error(res.error.message);
+    invalidateSitesCache();
     return res.data;
 }
 
@@ -241,6 +260,7 @@ async function deleteSite(id) {
         var rem = sites.filter(function(s) { return s.id !== id; });
         if (rem.length > 0) await supabase.from('sites').update({ is_active: true }).eq('id', rem[0].id);
     }
+    invalidateSitesCache();
     return true;
 }
 

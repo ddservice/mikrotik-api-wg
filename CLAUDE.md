@@ -372,6 +372,11 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (5)** — Instant Router Offline/Online LINE Alert, In-Memory Caching & 1-Click R2 Restore Script.
+  - Implemented 60-second real-time Router Connectivity Monitor in `server.js` with automated LINE OA Push Alerts (`🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline]` and `✅ [ระบบกลับมาออนไลน์]`).
+  - Added Server-side In-Memory Caching (20s TTL) with instant invalidation for `sites` and `config` in `db-supabase.js`, cutting database roundtrip latency and Supabase connection overhead.
+  - Added 1-Click Disaster Recovery script [`scripts/restore-from-r2.sh`](file:///z:/independentz/Web/Mikrotik/scripts/restore-from-r2.sh) for Cloudflare R2 backup restoration.
+
 - **2026-08-26 (4)** — Multi-Site Connection Resilience & Super Admin Access Restriction for Router Operations.
   - Restricted Router Operations & Maintenance Panel (`#panel-router-operations`) and all 6 backend endpoints exclusively to Super Admin (`role === 'admin'`). Co-Admin and User roles cannot view or execute system maintenance actions.
   - Enhanced multi-site routing in `executeOnRouter` across `server.js` to automatically extract site ID from query, body, `X-Site-Id` header, and site locks.

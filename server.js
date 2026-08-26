@@ -2848,6 +2848,78 @@ setInterval(async () => {
     }
 }, 60000);
 
+// ==========================================
+// Router Connectivity & Instant Offline/Online Alert Monitor (Every 60s)
+// ==========================================
+const siteHealthState = new Map(); // siteId -> { consecutiveFailures: 0, isDown: false, downSince: null }
+
+setInterval(async () => {
+    try {
+        const sitesData = await db.getSites();
+        const sites = (sitesData && sitesData.sites) || [];
+        for (const site of sites) {
+            if (!site.host || !site.username) continue;
+            let state = siteHealthState.get(site.id);
+            if (!state) {
+                state = { consecutiveFailures: 0, isDown: false, downSince: null };
+                siteHealthState.set(site.id, state);
+            }
+
+            try {
+                // Quick ping test to router via API
+                await executeOnRouter(site.id, async (client) => {
+                    await client.exec('/system/resource/print');
+                });
+
+                // Success
+                if (state.isDown) {
+                    // Router came back online!
+                    const downDurationMin = state.downSince ? Math.round((Date.now() - state.downSince.getTime()) / 60000) : 0;
+                    state.isDown = false;
+                    state.consecutiveFailures = 0;
+                    state.downSince = null;
+
+                    console.log(`[Site Monitor] ✅ Site ${site.name} (${site.id}) is BACK ONLINE after ${downDurationMin} min.`);
+                    db.addLog('System Monitor', 'เราท์เตอร์กลับมาออนไลน์', `เราท์เตอร์สาขา ${site.name} กลับมาเชื่อมต่อได้ตามปกติ (หยุดทำงานไป ${downDurationMin} นาที)`);
+
+                    // Send LINE Alert if configured
+                    const lineConfig = await db.getLineDigestConfig(site.id);
+                    if (lineConfig && lineConfig.channelAccessToken && lineConfig.targetId) {
+                        const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                        await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
+                            type: 'text',
+                            text: `✅ [ระบบกลับมาออนไลน์]\n\n📍 สาขา: ${site.name}\n⏱️ เวลา: ${nowStr}\n🔄 ออฟไลน์ไปประมาณ: ${downDurationMin} นาที\n(ระบบกลับมาเชื่อมต่อและทำงานตามปกติแล้วครับ)`
+                        }).catch(e => console.warn('[LINE Site Monitor Error]', e.message));
+                    }
+                } else {
+                    state.consecutiveFailures = 0;
+                }
+            } catch (connErr) {
+                state.consecutiveFailures++;
+                if (state.consecutiveFailures >= 2 && !state.isDown) {
+                    state.isDown = true;
+                    state.downSince = new Date();
+
+                    console.error(`[Site Monitor] 🚨 Site ${site.name} is DOWN!`);
+                    db.addLog('System Monitor', 'เราท์เตอร์หลุดการเชื่อมต่อ', `🚨 เราท์เตอร์สาขา ${site.name} ขาดการเชื่อมต่อ (Offline): ${connErr.message}`);
+
+                    // Send Urgent LINE Alert if configured
+                    const lineConfig = await db.getLineDigestConfig(site.id);
+                    if (lineConfig && lineConfig.channelAccessToken && lineConfig.targetId) {
+                        const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                        await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
+                            type: 'text',
+                            text: `🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline]\n\n📍 สาขา: ${site.name}\n⏱️ ขาดการเชื่อมต่อเมื่อ: ${nowStr}\n⚠️ สาเหตุ: ${connErr.message || 'ไม่สามารถติดต่อเราท์เตอร์ได้'}\n\nกรุณาตรวจสอบระบบไฟฟ้าหรือการเชื่อมต่ออินเทอร์เน็ตที่หน้างาน`
+                        }).catch(e => console.warn('[LINE Site Monitor Error]', e.message));
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[Site Monitor Interval Error]:', err.message);
+    }
+}, 60000);
+
 
 
 
