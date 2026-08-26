@@ -251,29 +251,34 @@ async function fetchSites() {
 
 const selectActiveSiteEl = document.getElementById('select-active-site');
 if (selectActiveSiteEl) {
-    selectActiveSiteEl.addEventListener('change', async (e) => {
+    selectActiveSiteEl.addEventListener('change', (e) => {
         const siteId = e.target.value;
         if (!siteId) return;
 
-        // Show immediate loading indicator in table
+        // Instant local state update (0ms UI lag)
+        if (currentSitesData) {
+            currentSitesData.activeSiteId = siteId;
+        }
+
+        // Show immediate loading indicator in tables
         const hotspotTbody = document.querySelector('#table-hotspot-users tbody');
         if (hotspotTbody && currentActivePage === 'page-hotspot') {
-            hotspotTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูลเราท์เตอร์สาขาใหม่...</td></tr>';
+            hotspotTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูล...</td></tr>';
         }
         const activeTbody = document.querySelector('#table-active-users tbody');
         if (activeTbody && currentActivePage === 'page-hotspot') {
             activeTbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดเซสชันออนไลน์...</td></tr>';
         }
 
-        try {
-            await apiFetch(`/api/sites/switch/${siteId}`, { method: 'POST' });
-            await fetchSites();
-            loadPageData(currentActivePage);
-            fetchLineDigestConfig(siteId);
-            startPolling();
-        } catch (err) {
-            alert('ไม่สามารถสลับไซต์งานได้: ' + err.message);
-        }
+        // 1. Asynchronously persist active site in DB (non-blocking)
+        apiFetch(`/api/sites/switch/${siteId}`, { method: 'POST' }).catch(err => {
+            console.error('Failed to persist active site switch:', err);
+        });
+
+        // 2. Immediately trigger page reload & polling
+        loadPageData(currentActivePage);
+        fetchLineDigestConfig(siteId);
+        startPolling();
     });
 }
 
