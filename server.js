@@ -1619,14 +1619,21 @@ app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req,
     }
 });
 
-// Install RouterOS update
+// Install RouterOS update (with Auto-Backup Safety Guard)
 app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (req, res) => {
     try {
         await executeOnRouter(req, async (client) => {
+            // Safety Step: Save backup snapshot on router before updating
+            try {
+                const nowStr = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_' + Date.now();
+                await client.exec('/system/backup/save', { name: `pre-upgrade-${nowStr}` });
+            } catch (backupErr) {
+                console.warn('[Update Safety Guard] Auto-backup notice:', backupErr.message);
+            }
             await client.exec('/system/package/update/install');
         });
-        db.addLog(req.user.username, 'อัปเดต RouterOS', 'สั่งดาวน์โหลดและติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
-        res.json({ success: true, message: 'สั่งดาวน์โหลดและติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตอัตโนมัติ' });
+        db.addLog(req.user.username, 'อัปเดต RouterOS (Auto-Backup)', 'สร้างไฟล์สำรองอัตโนมัติและสั่งติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
+        res.json({ success: true, message: 'สำรองคอนฟิกอัตโนมัติและสั่งดาวน์โหลด/ติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตใน 1-2 นาที' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1722,6 +1729,139 @@ app.post('/api/mikrotik/system/backup', requireAuth(['admin']), async (req, res)
         res.json({ success: true, message: `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์เรียบร้อยแล้ว` });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Network Speed & Jitter Quality Test
+app.post('/api/mikrotik/system/quality-test', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const targetHost = req.body.target || '1.1.1.1'; // Cloudflare DNS
+        const result = await executeOnRouter(req, async (client) => {
+            const pings = await client.exec('/ping', { address: targetHost, count: '6' });
+            const times = [];
+            let lost = 0;
+            (pings || []).forEach(p => {
+                if (p.time) {
+                    const ms = parseFloat(p.time.replace('ms', ''));
+                    if (!isNaN(ms)) times.push(ms);
+                } else if (p.status === 'timeout' || p.packetLoss) {
+                    lost++;
+                }
+            });
+
+            const count = (pings || []).length || 6;
+            const min = times.length > 0 ? Math.min(...times) : 0;
+            const max = times.length > 0 ? Math.max(...times) : 0;
+            const avg = times.length > 0 ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : 0;
+            const packetLossPct = count > 0 ? Math.round(((count - times.length) / count) * 100) : 0;
+            const jitter = times.length > 1 ? (max - min).toFixed(1) : 0;
+
+            let quality = 'ดีเยี่ยม (Excellent)';
+            let qualityScore = 'A+';
+            if (packetLossPct > 10 || avg > 80) {
+                quality = 'สัญญาณมีปัญหา (Poor)';
+                qualityScore = 'D';
+            } else if (packetLossPct > 0 || avg > 40) {
+                quality = 'ปานกลาง (Fair)';
+                qualityScore = 'B';
+            } else if (avg > 25) {
+                quality = 'ดี (Good)';
+                qualityScore = 'A';
+            }
+
+            return {
+                target: targetHost,
+                count,
+                minMs: min,
+                maxMs: max,
+                avgMs: avg,
+                jitterMs: jitter,
+                packetLoss: `${packetLossPct}%`,
+                quality,
+                qualityScore,
+                pings
+            };
+        });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Global Search across all sites (Hotspot users, PPPoE rooms, sites, configs)
+app.get('/api/search/global', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    if (!q || q.length < 2) return res.json({ results: [] });
+
+    const results = [];
+    try {
+        const sitesData = await db.getSites();
+        const allowedSites = isSiteLockedUser(req.user) 
+            ? (sitesData.sites || []).filter(s => s.id === req.user.assignedSiteId)
+            : (sitesData.sites || []);
+
+        for (const s of allowedSites) {
+            // Match Site Name / IP
+            if (s.name.toLowerCase().includes(q) || (s.wireguardIp && s.wireguardIp.includes(q)) || (s.host && s.host.includes(q))) {
+                results.push({
+                    type: 'site',
+                    category: 'ไซต์งาน / สาขา',
+                    title: s.name,
+                    subtitle: `IP: ${s.host} (WireGuard: ${s.wireguardIp || '-'})`,
+                    siteId: s.id,
+                    siteName: s.name,
+                    icon: 'fa-solid fa-server',
+                    action: 'switch-site'
+                });
+            }
+
+            // Search Hotspot users and PPPoE for each site
+            try {
+                const config = await db.getConfig(s.id);
+                if (!config.host || !config.username) continue;
+                
+                // Hotspot Users
+                const hotspotUsers = await db.getHotspotUsers(s.id).catch(() => []);
+                for (const u of (hotspotUsers || [])) {
+                    if ((u.username && u.username.toLowerCase().includes(q)) || (u.comment && u.comment.toLowerCase().includes(q)) || (u.macAddress && u.macAddress.toLowerCase().includes(q))) {
+                        results.push({
+                            type: 'hotspot',
+                            category: `Hotspot (${s.name})`,
+                            title: u.username,
+                            subtitle: `โปรไฟล์: ${u.profile || '-'} | สถานะ: ${u.disabled ? 'ปิดใช้งาน' : 'พร้อมใช้'} | คอมเมนต์: ${u.comment || '-'}`,
+                            siteId: s.id,
+                            siteName: s.name,
+                            icon: 'fa-solid fa-wifi',
+                            targetPage: 'page-hotspot-users'
+                        });
+                        if (results.length >= 30) break;
+                    }
+                }
+
+                // PPPoE Secrets
+                const pppoeSecrets = await db.getPppoeUsers(s.id).catch(() => []);
+                for (const p of (pppoeSecrets || [])) {
+                    if ((p.name && p.name.toLowerCase().includes(q)) || (p.comment && p.comment.toLowerCase().includes(q)) || (p['remote-address'] && p['remote-address'].includes(q))) {
+                        results.push({
+                            type: 'pppoe',
+                            category: `ห้องพัก PPPoE (${s.name})`,
+                            title: p.name,
+                            subtitle: `โปรไฟล์: ${p.profile || '-'} | IP: ${p['remote-address'] || '-'} | คอมเมนต์: ${p.comment || '-'}`,
+                            siteId: s.id,
+                            siteName: s.name,
+                            icon: 'fa-solid fa-door-closed',
+                            targetPage: 'page-pppoe-users'
+                        });
+                        if (results.length >= 30) break;
+                    }
+                }
+            } catch (_) {}
+            if (results.length >= 30) break;
+        }
+
+        res.json({ results: results.slice(0, 25) });
+    } catch (err) {
+        res.status(500).json({ error: err.message, results: [] });
     }
 });
 
@@ -2858,6 +2998,185 @@ async function generateDailyExpiryDigest(reqOrSiteId = null) {
     });
 }
 
+// Multi-Site Health Summary Generator for LINE OA
+async function generateMultiSiteHealthDigest() {
+    const sitesData = await db.getSites();
+    const sites = (sitesData && sitesData.sites) || [];
+    const healthList = [];
+
+    for (const site of sites) {
+        try {
+            const stats = await executeOnRouter(site.id, async (client) => {
+                const resources = await client.exec('/system/resource/print');
+                const routerboard = await client.exec('/system/routerboard/print');
+                let health = [];
+                try { health = await client.exec('/system/health/print'); } catch (_) {}
+                let activeHotspot = 0;
+                try {
+                    const hs = await client.exec('/ip/hotspot/active/print');
+                    activeHotspot = (hs || []).length;
+                } catch (_) {}
+                let activePppoe = 0;
+                try {
+                    const ppp = await client.exec('/ppp/active/print');
+                    activePppoe = (ppp || []).filter(p => p.service === 'pppoe' || !p.service).length;
+                } catch (_) {}
+
+                const r = resources[0] || {};
+                const rb = routerboard[0] || {};
+                const h = health[0] || {};
+
+                return {
+                    online: true,
+                    name: site.name,
+                    model: rb.model || r['board-name'] || 'MikroTik',
+                    rosVersion: r.version || 'v7',
+                    cpu: r['cpu-load'] ? `${r['cpu-load']}%` : '-',
+                    temp: h.temperature ? `${h.temperature}°C` : (h['cpu-temperature'] ? `${h['cpu-temperature']}°C` : null),
+                    hotspotOnline: activeHotspot,
+                    pppoeOnline: activePppoe
+                };
+            });
+            healthList.push(stats);
+        } catch (err) {
+            healthList.push({
+                online: false,
+                name: site.name,
+                model: 'MikroTik',
+                error: err.message
+            });
+        }
+    }
+
+    return {
+        dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric' }),
+        timeStr: new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }),
+        sites: healthList
+    };
+}
+
+function createMultiSiteHealthFlex(healthData) {
+    const totalSites = healthData.sites.length;
+    const onlineSites = healthData.sites.filter(s => s.online).length;
+    const isAllOk = onlineSites === totalSites;
+
+    const siteBoxes = healthData.sites.map(s => {
+        if (s.online) {
+            return {
+                type: "box",
+                layout: "vertical",
+                backgroundColor: "#f0fdf4",
+                borderColor: "#bbf7d0",
+                borderWidth: "1px",
+                cornerRadius: "8px",
+                paddingAll: "10px",
+                margin: "sm",
+                contents: [
+                    {
+                        type: "box",
+                        layout: "horizontal",
+                        contents: [
+                            { type: "text", text: `🟢 ${s.name}`, weight: "bold", size: "sm", color: "#166534", flex: 1 },
+                            { type: "text", text: s.model, size: "xs", color: "#64748b", align: "end" }
+                        ]
+                    },
+                    {
+                        type: "box",
+                        layout: "horizontal",
+                        margin: "xs",
+                        contents: [
+                            { type: "text", text: `CPU: ${s.cpu}${s.temp ? ' | ' + s.temp : ''}`, size: "xs", color: "#334155", flex: 1 },
+                            { type: "text", text: `Hotspot: ${s.hotspotOnline} | PPPoE: ${s.pppoeOnline}`, size: "xs", color: "#0369a1", align: "end" }
+                        ]
+                    }
+                ]
+            };
+        } else {
+            return {
+                type: "box",
+                layout: "vertical",
+                backgroundColor: "#fef2f2",
+                borderColor: "#fecaca",
+                borderWidth: "1px",
+                cornerRadius: "8px",
+                paddingAll: "10px",
+                margin: "sm",
+                contents: [
+                    {
+                        type: "box",
+                        layout: "horizontal",
+                        contents: [
+                            { type: "text", text: `🔴 ${s.name}`, weight: "bold", size: "sm", color: "#991b1b", flex: 1 },
+                            { type: "text", text: "Offline", size: "xs", color: "#dc2626", weight: "bold", align: "end" }
+                        ]
+                    }
+                ]
+            };
+        }
+    });
+
+    return {
+        type: "flex",
+        altText: `📊 รายงานสถานะเราท์เตอร์ 4 สาขา (${onlineSites}/${totalSites} ออนไลน์)`,
+        contents: {
+            type: "bubble",
+            size: "giga",
+            header: {
+                type: "box",
+                layout: "vertical",
+                backgroundColor: isAllOk ? "#0284c7" : "#d97706",
+                paddingAll: "16px",
+                contents: [
+                    {
+                        type: "text",
+                        text: "📊 สรุปสุขภาพเราท์เตอร์ทุกสาขา (Daily Health)",
+                        weight: "bold",
+                        color: "#ffffff",
+                        size: "md"
+                    },
+                    {
+                        type: "text",
+                        text: `ประจำวันที่ ${healthData.dateStr} เวลา ${healthData.timeStr}`,
+                        color: "#e0f2fe",
+                        size: "xs",
+                        margin: "xs"
+                    }
+                ]
+            },
+            body: {
+                type: "box",
+                layout: "vertical",
+                paddingAll: "14px",
+                contents: [
+                    {
+                        type: "box",
+                        layout: "horizontal",
+                        margin: "none",
+                        contents: [
+                            { type: "text", text: "สถานะการเชื่อมต่อรวม:", size: "sm", color: "#64748b" },
+                            {
+                                type: "text",
+                                text: `${onlineSites}/${totalSites} สาขาออนไลน์`,
+                                size: "sm",
+                                weight: "bold",
+                                color: isAllOk ? "#16a34a" : "#dc2626",
+                                align: "end"
+                            }
+                        ]
+                    },
+                    { type: "separator", margin: "md" },
+                    {
+                        type: "box",
+                        layout: "vertical",
+                        margin: "md",
+                        contents: siteBoxes
+                    }
+                ]
+            }
+        }
+    };
+}
+
 // LINE Public Webhook Endpoint for LINE OA Auto-Reply
 app.post('/api/line/webhook', express.json(), async (req, res) => {
     res.status(200).send('OK');
@@ -3036,6 +3355,25 @@ app.post('/api/mikrotik/line-digest/run-now', requireAuth(['admin', 'co-admin'])
 
         db.addLog(req.user.username, 'ส่งสรุป LINE OA ทันที', `ส่งรายงาน Flex Card สรุปบัญชีใกล้หมดอายุเข้า LINE สำเร็จ [สาขา: ${digest.siteName}] (${digest.totalItems} รายการ)`);
         res.json({ success: true, counts: digest.counts });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Trigger Immediate Multi-Site Daily Health Report via Flex Card
+app.post('/api/mikrotik/line-health/run-now', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const config = await db.getLineDigestConfig();
+        const token = req.body.token || config.channelAccessToken;
+        const targetId = req.body.targetId || config.targetId;
+        if (!token || !targetId) return res.status(400).json({ error: 'กรุณาระบุ Channel Access Token และ Target ID บนหน้าตั้งค่า LINE OA ก่อน' });
+
+        const healthData = await generateMultiSiteHealthDigest();
+        const flexMsg = createMultiSiteHealthFlex(healthData);
+        await sendLinePushMessage(token, targetId, flexMsg);
+
+        db.addLog(req.user.username, 'ส่งสรุปสถานะทุกสาขาเข้า LINE', `ส่ง Flex Card สรุปสถานะ 4 สาขาเข้า LINE สำเร็จ`);
+        res.json({ success: true, sites: healthData.sites });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

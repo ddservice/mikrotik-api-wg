@@ -1837,7 +1837,34 @@ document.getElementById('btn-run-line-digest-now')?.addEventListener('click', as
         alert('เกิดข้อผิดพลาด: ' + err.message);
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> ส่ง Flex Card ทันที';
+        btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> ส่งแจ้งหมดอายุสาขานี้';
+    }
+});
+
+document.getElementById('btn-send-multi-health-line')?.addEventListener('click', async () => {
+    const token = document.getElementById('line-channel-token')?.value || '';
+    const targetId = document.getElementById('line-target-id')?.value || '';
+    if (!token || !targetId) {
+        alert('กรุณากรอก Channel Access Token และ Target ID ก่อนใช้งาน');
+        return;
+    }
+    if (!confirm('ต้องการส่งรายงานสรุปสถานะสุขภาพทั้ง 4 สาขา (Daily Health) เข้า LINE ทันทีใช่หรือไม่?')) return;
+
+    const btn = document.getElementById('btn-send-multi-health-line');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังตรวจ & ส่ง...';
+    try {
+        const res = await apiFetch('/api/mikrotik/line-health/run-now', {
+            method: 'POST',
+            body: JSON.stringify({ token, targetId })
+        });
+        const onlineCount = (res.sites || []).filter(s => s.online).length;
+        alert(`🎉 ส่งรายงานสรุปสุขภาพเราท์เตอร์เข้า LINE เรียบร้อยแล้ว!\n(สถานะ: ${onlineCount}/${(res.sites || []).length} สาขาออนไลน์)`);
+    } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-chart-pie"></i> ส่งสรุปสุขภาพ 4 สาขา';
     }
 });
 
@@ -3308,6 +3335,193 @@ document.getElementById('btn-system-backup')?.addEventListener('click', async ()
         });
         alert(res.message || 'สำรองคอนฟิกเราท์เตอร์เรียบร้อยแล้ว');
     } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>';
+    }
+});
+
+// ==========================================
+// 6. Network Quality & Ping Jitter Test Handlers
+// ==========================================
+document.getElementById('btn-quality-test')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-quality-test');
+    if (modal) modal.classList.add('active');
+});
+
+document.getElementById('btn-run-quality-test')?.addEventListener('click', async () => {
+    const targetSelect = document.getElementById('select-quality-target');
+    const target = targetSelect ? targetSelect.value : '1.1.1.1';
+    const btn = document.getElementById('btn-run-quality-test');
+    const resultBox = document.getElementById('quality-test-result');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังทดสอบแพ็กเก็ต (6 รอบ)...';
+    if (resultBox) resultBox.style.display = 'none';
+
+    try {
+        const res = await apiFetch('/api/mikrotik/system/quality-test', {
+            method: 'POST',
+            body: JSON.stringify({ target })
+        });
+
+        document.getElementById('quality-score-badge').textContent = `${res.qualityScore} (${res.quality})`;
+        document.getElementById('quality-target-desc').textContent = `เป้าหมาย: ${res.target} (${res.count} แพ็กเก็ต)`;
+        document.getElementById('quality-avg-ping').textContent = `${res.avgMs} ms`;
+        document.getElementById('quality-jitter').textContent = `±${res.jitterMs} ms`;
+        document.getElementById('quality-packet-loss').textContent = `${res.packetLoss}`;
+        document.getElementById('quality-min-max').textContent = `${res.minMs} / ${res.maxMs} ms`;
+
+        const scoreBox = document.getElementById('quality-score-box');
+        if (scoreBox) {
+            if (res.qualityScore.startsWith('A')) {
+                scoreBox.style.background = '#f0fdf4';
+                scoreBox.style.borderColor = '#86efac';
+                document.getElementById('quality-score-badge').style.color = '#15803d';
+            } else if (res.qualityScore === 'B') {
+                scoreBox.style.background = '#fffbeb';
+                scoreBox.style.borderColor = '#fde68a';
+                document.getElementById('quality-score-badge').style.color = '#b45309';
+            } else {
+                scoreBox.style.background = '#fef2f2';
+                scoreBox.style.borderColor = '#fecaca';
+                document.getElementById('quality-score-badge').style.color = '#dc2626';
+            }
+        }
+
+        if (resultBox) resultBox.style.display = 'block';
+    } catch (err) {
+        alert('เกิดข้อผิดพลาดในการทดสอบคุณภาพ: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มทดสอบคุณภาพทันที';
+    }
+});
+
+document.querySelectorAll('#modal-quality-test .modal-cancel, #modal-quality-test .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('modal-quality-test')?.classList.remove('active');
+    });
+});
+
+// ==========================================
+// 7. Global Quick Search (Ctrl + K)
+// ==========================================
+function openGlobalSearch() {
+    const modal = document.getElementById('modal-global-search');
+    const input = document.getElementById('input-global-search');
+    if (modal) {
+        modal.classList.add('active');
+        if (input) {
+            input.value = '';
+            setTimeout(() => input.focus(), 80);
+            renderGlobalSearchResults([]);
+        }
+    }
+}
+
+function closeGlobalSearch() {
+    document.getElementById('modal-global-search')?.classList.remove('active');
+}
+
+document.getElementById('btn-open-global-search')?.addEventListener('click', openGlobalSearch);
+document.querySelectorAll('#modal-global-search .modal-cancel, #modal-global-search .modal-close-btn').forEach(btn => {
+    btn.addEventListener('click', closeGlobalSearch);
+});
+
+// Keyboard shortcut (Ctrl+K or Cmd+K)
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        const modal = document.getElementById('modal-global-search');
+        if (modal?.classList.contains('active')) {
+            closeGlobalSearch();
+        } else {
+            openGlobalSearch();
+        }
+    }
+    if (e.key === 'Escape') {
+        closeGlobalSearch();
+    }
+});
+
+let _searchDebounceTimer = null;
+document.getElementById('input-global-search')?.addEventListener('input', (e) => {
+    const q = e.target.value.trim();
+    clearTimeout(_searchDebounceTimer);
+
+    if (q.length < 2) {
+        renderGlobalSearchResults([], 'พิมพ์คำค้นหาอย่างน้อย 2 ตัวอักษรเพื่อค้นหาครอบคลุมทุกสาขา');
+        return;
+    }
+
+    _searchDebounceTimer = setTimeout(async () => {
+        const container = document.getElementById('global-search-results');
+        if (container) container.innerHTML = '<div style="text-align:center; padding:20px; color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> กำลังค้นหาข้ามทั้ง 4 สาขา...</div>';
+        
+        try {
+            const data = await apiFetch(`/api/search/global?q=${encodeURIComponent(q)}`);
+            renderGlobalSearchResults(data.results || [], 'ไม่พบข้อมูลที่ตรงกับคำค้นหา');
+        } catch (err) {
+            renderGlobalSearchResults([], 'เกิดข้อผิดพลาดในการค้นหา: ' + err.message);
+        }
+    }, 300);
+});
+
+function renderGlobalSearchResults(results, emptyText = 'ไม่พบข้อมูลที่ตรงกับคำค้นหา') {
+    const container = document.getElementById('global-search-results');
+    if (!container) return;
+
+    if (results.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:30px 10px; color:#94a3b8; font-size:0.9rem;">
+                <i class="fa-solid fa-keyboard" style="font-size:1.6rem; margin-bottom:8px; display:block;"></i>
+                ${emptyText}
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = '';
+    results.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.style.cssText = 'background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:all 0.15s ease;';
+        itemEl.onmouseenter = () => { itemEl.style.borderColor = '#93c5fd'; itemEl.style.background = '#f0f9ff'; };
+        itemEl.onmouseleave = () => { itemEl.style.borderColor = '#e2e8f0'; itemEl.style.background = '#fff'; };
+
+        itemEl.innerHTML = `
+            <div style="width:34px; height:34px; border-radius:8px; background:#eff6ff; color:#2563eb; display:flex; align-items:center; justify-content:center; font-size:1rem;">
+                <i class="${item.icon}"></i>
+            </div>
+            <div style="flex:1; min-width:0;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:700; color:#1e293b; font-size:0.9rem;">${item.title}</span>
+                    <span style="font-size:0.7rem; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.category}</span>
+                </div>
+                <div style="font-size:0.78rem; color:#64748b; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.subtitle}</div>
+            </div>
+            <div style="color:#94a3b8; font-size:0.8rem;"><i class="fa-solid fa-arrow-right"></i></div>
+        `;
+
+        itemEl.onclick = async () => {
+            closeGlobalSearch();
+            if (item.siteId) {
+                const siteSelect = document.getElementById('select-active-site');
+                if (siteSelect && siteSelect.value !== item.siteId) {
+                    siteSelect.value = item.siteId;
+                    siteSelect.dispatchEvent(new Event('change'));
+                }
+            }
+            if (item.targetPage) {
+                const navLink = document.querySelector(`.menu-item[data-target="${item.targetPage}"]`);
+                if (navLink) navLink.click();
+            }
+        };
+
+        container.appendChild(itemEl);
+    });
+}
         alert('เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message);
     } finally {
         btn.disabled = false;

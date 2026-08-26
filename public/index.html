@@ -129,6 +129,9 @@
                     </div>
                 </div>
                 <div class="header-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-open-global-search" style="display:flex; align-items:center; gap:6px; background:#f8fafc; color:#334155; border:1px solid #cbd5e1; font-weight:600;" title="ค้นหาด่วนข้ามทุกสาขา (กดปุ่ม Ctrl + K)">
+                        <i class="fa-solid fa-magnifying-glass text-primary"></i> <span>ค้นหาด่วน</span> <kbd style="font-size:0.65rem; background:#fff; padding:1px 5px; border-radius:4px; border:1px solid #cbd5e1; color:#64748b;">Ctrl K</kbd>
+                    </button>
                     <div class="site-selector-wrapper" id="site-selector-container">
                         <i class="fa-solid fa-location-dot text-primary"></i>
                         <select id="select-active-site" class="form-control select-sm site-select" title="เลือกไซต์งาน">
@@ -258,7 +261,11 @@
                                 <button type="button" class="btn btn-secondary" id="btn-ping-test" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; border-radius:8px;">
                                     <i class="fa-solid fa-network-wired text-info"></i> <span>ทดสอบ Ping เน็ต</span>
                                 </button>
-                                <!-- Button 6: Quick Backup -->
+                                <!-- Button 6: Quality & Jitter Test -->
+                                <button type="button" class="btn btn-secondary" id="btn-quality-test" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:8px;">
+                                    <i class="fa-solid fa-chart-line text-primary"></i> <span>ทดสอบคุณภาพ & Jitter</span>
+                                </button>
+                                <!-- Button 7: Quick Backup -->
                                 <button type="button" class="btn btn-secondary" id="btn-system-backup" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:8px;">
                                     <i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>
                                 </button>
@@ -517,7 +524,8 @@
                                         </div>
                                         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                                             <button class="btn btn-sm btn-secondary" id="btn-test-line-notify" style="background:#fff; color:#065f46; border:1px solid #a7f3d0;"><i class="fa-solid fa-paper-plane"></i> ทดสอบส่ง Push</button>
-                                            <button class="btn btn-sm btn-success" id="btn-run-line-digest-now" style="background:#06c755; border:none; color:#fff;"><i class="fa-solid fa-bullhorn"></i> ส่ง Flex Card ทันที</button>
+                                            <button class="btn btn-sm btn-info" id="btn-send-multi-health-line" style="background:#0284c7; color:#fff; border:none;"><i class="fa-solid fa-chart-pie"></i> ส่งสรุปสุขภาพ 4 สาขา</button>
+                                            <button class="btn btn-sm btn-success" id="btn-run-line-digest-now" style="background:#06c755; border:none; color:#fff;"><i class="fa-solid fa-bullhorn"></i> ส่งแจ้งหมดอายุสาขานี้</button>
                                             <button class="btn btn-sm btn-primary" id="btn-save-line-digest"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
                                         </div>
                                     </div>
@@ -3011,8 +3019,89 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- MODAL: GLOBAL SEARCH (CTRL + K) -->
+    <!-- ========================================== -->
+    <div id="modal-global-search" class="modal-wrapper">
+        <div class="modal-card" style="max-width:640px; border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,0.15); padding:0; overflow:hidden;">
+            <div style="padding:16px 20px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:12px; background:#fff;">
+                <i class="fa-solid fa-magnifying-glass text-primary" style="font-size:1.1rem;"></i>
+                <input type="text" id="input-global-search" placeholder="พิมพ์ชื่อสาขา, ชื่อผู้ใช้ Hotspot, หมายเลขห้องพัก PPPoE หรือ IP..." style="border:none; outline:none; font-size:1rem; flex:1; background:transparent; font-family:inherit; color:#1e293b;" autocomplete="off">
+                <button type="button" class="modal-close-btn" style="position:static; margin:0;">&times;</button>
+            </div>
+            <div id="global-search-results" style="max-height:380px; overflow-y:auto; padding:10px 14px; display:flex; flex-direction:column; gap:6px; background:#f8fafc;">
+                <div style="text-align:center; padding:30px 10px; color:#94a3b8; font-size:0.9rem;">
+                    <i class="fa-solid fa-keyboard" style="font-size:1.6rem; margin-bottom:8px; display:block;"></i>
+                    พิมพ์คำค้นหาอย่างน้อย 2 ตัวอักษรเพื่อค้นหาครอบคลุมทุกสาขา
+                </div>
+            </div>
+            <div style="padding:10px 16px; background:#fff; border-top:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:#94a3b8;">
+                <div><kbd style="background:#f1f5f9; padding:2px 6px; border-radius:4px; border:1px solid #cbd5e1; color:#64748b;">Esc</kbd> เพื่อปิด</div>
+                <div>ค้นหาทั้ง 4 ไซต์งานแบบ Real-time</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: NETWORK QUALITY & JITTER TEST -->
+    <!-- ========================================== -->
+    <div id="modal-quality-test" class="modal-wrapper">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-chart-line text-primary"></i> ทดสอบคุณภาพอินเทอร์เน็ต & Ping Jitter</h4>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group mb-12">
+                    <label style="font-weight:600; font-size:0.85rem;">เป้าหมายทดสอบ (Target Host / Gateway):</label>
+                    <select id="select-quality-target" class="form-control">
+                        <option value="1.1.1.1">Cloudflare DNS (1.1.1.1) - แนะนำ</option>
+                        <option value="8.8.8.8">Google DNS (8.8.8.8)</option>
+                        <option value="ais.co.th">AIS Gateway (ais.co.th)</option>
+                        <option value="true.th">True/DTAC Gateway (true.th)</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" id="btn-run-quality-test" style="width:100%; justify-content:center;">
+                    <i class="fa-solid fa-play"></i> เริ่มทดสอบคุณภาพทันที
+                </button>
+
+                <div id="quality-test-result" style="display:none; margin-top:16px;">
+                    <!-- Quality Score Card -->
+                    <div id="quality-score-box" style="background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:16px; text-align:center; margin-bottom:14px;">
+                        <div style="font-size:0.85rem; color:#166534; font-weight:600;">ระดับคุณภาพสัญญาณ (Network Quality)</div>
+                        <div id="quality-score-badge" style="font-size:1.8rem; font-weight:800; color:#15803d; margin:4px 0;">A+ (ดีเยี่ยม)</div>
+                        <div id="quality-target-desc" style="font-size:0.8rem; color:#4b5563;">ทดสอบไปยัง 1.1.1.1</div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;">
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                            <div style="font-size:0.75rem; color:#64748b;">ค่า Latency เฉลี่ย (Avg Ping)</div>
+                            <div id="quality-avg-ping" style="font-size:1.2rem; font-weight:700; color:#1e293b;">- ms</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                            <div style="font-size:0.75rem; color:#64748b;">Ping Jitter (ความแกว่ง)</div>
+                            <div id="quality-jitter" style="font-size:1.2rem; font-weight:700; color:#1e293b;">- ms</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                            <div style="font-size:0.75rem; color:#64748b;">Packet Loss (ข้อมูลสูญหาย)</div>
+                            <div id="quality-packet-loss" style="font-size:1.2rem; font-weight:700; color:#1e293b;">0%</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                            <div style="font-size:0.75rem; color:#64748b;">Min / Max Latency</div>
+                            <div id="quality-min-max" style="font-size:1.2rem; font-weight:700; color:#1e293b;">- / - ms</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer mt-16" style="display:flex; justify-content:flex-end;">
+                    <button type="button" class="btn btn-secondary modal-cancel">ปิด</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Script loading -->
-    <script src="app.js?v=112.0"></script>
+    <script src="app.js?v=113.0"></script>
 </body>
 </html>
 

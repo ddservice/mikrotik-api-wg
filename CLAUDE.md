@@ -372,6 +372,12 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-26 (12)** — 4 Enterprise Enhancements: Auto-Backup Guard, Multi-Site Daily Health LINE Push, Live Jitter/Quality Test, and Global Search (Ctrl+K).
+  - 1. **Auto-Backup Safety Net**: Auto-saves snapshot `.backup` on router before executing RouterOS upgrades.
+  - 2. **Daily Multi-Site Health Report to LINE OA**: Added multi-site health digest generator (`generateMultiSiteHealthDigest`) and Flex Message card with `POST /api/mikrotik/line-health/run-now` and one-click manual send.
+  - 3. **Live Network Quality & Ping Jitter Test**: Added `POST /api/mikrotik/system/quality-test` calculating average ping latency, jitter, packet loss percentage, and quality grade (`A+` to `D`) with UI modal (`#modal-quality-test`).
+  - 4. **Global Quick Search (`Ctrl + K`)**: Spotlight-style real-time search across all 4 sites for Sites, Hotspot user accounts, PPPoE room secrets, and IPs (`public/index.html` + `public/app.js` `v=113.0` and `server.js`).
+
 - **2026-08-26 (11)** — 1-Click Automated Full System Upgrade (ROS + Firmware 2-Stage Workflow).
   - Built seamless automated multi-stage upgrade engine:
     1. Stage 1: Download & install RouterOS package (`/system/package/update/install`).
