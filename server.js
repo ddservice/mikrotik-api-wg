@@ -1518,6 +1518,23 @@ app.get('/api/mikrotik/diagnose-site', requireAuth(['admin', 'co-admin', 'user']
 // Helper to fetch official MikroTik latest versions from upgrade.mikrotik.com
 let _mikrotikLatestVersions = { v7: null, v6: null, lastFetched: 0 };
 
+function compareSemver(v1, v2) {
+    // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if v1 == v2
+    if (!v1 || !v2 || v1 === 'N/A' || v2 === 'N/A') return 0;
+    const clean1 = String(v1).replace(/^v/i, '').split(/[\s-]+/)[0];
+    const clean2 = String(v2).replace(/^v/i, '').split(/[\s-]+/)[0];
+    const p1 = clean1.split('.').map(n => parseInt(n) || 0);
+    const p2 = clean2.split('.').map(n => parseInt(n) || 0);
+    const maxLen = Math.max(p1.length, p2.length);
+    for (let i = 0; i < maxLen; i++) {
+        const num1 = p1[i] || 0;
+        const num2 = p2[i] || 0;
+        if (num1 > num2) return 1;
+        if (num1 < num2) return -1;
+    }
+    return 0;
+}
+
 async function getOfficialMikrotikLatestVersions() {
     const now = Date.now();
     if (_mikrotikLatestVersions.v7 && (now - _mikrotikLatestVersions.lastFetched < 3600000)) {
@@ -1565,7 +1582,7 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
             const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
             const isV6 = (r.version || '').startsWith('6');
             const latestOfficial = isV6 ? officialVersions.v6 : officialVersions.v7;
-            const hasUpdate = !!(latestOfficial && currentVer !== 'N/A' && latestOfficial !== currentVer);
+            const hasUpdate = !!(latestOfficial && currentVer !== 'N/A' && compareSemver(latestOfficial, currentVer) > 0);
 
             return {
                 uptime: r.uptime || 'N/A',
@@ -1605,12 +1622,14 @@ app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req,
             const installed = u['installed-version'] || u['current-version'] || (r.version ? r.version.split(' ')[0] : 'N/A');
             const isV6 = (installed || '').startsWith('6');
             let latest = u['latest-version'] || (isV6 ? officialVersions.v6 : officialVersions.v7) || 'N/A';
+            const isNewAvailable = compareSemver(latest, installed) > 0;
             
             return {
                 channel: u.channel || 'stable',
                 installedVersion: installed,
                 latestVersion: latest,
-                status: u.status || (latest && installed && latest !== installed ? 'New version is available' : 'System is already up to date')
+                isNewAvailable: isNewAvailable,
+                status: isNewAvailable ? (u.status || 'New version is available') : 'System is already up to date'
             };
         });
         res.json(result);
