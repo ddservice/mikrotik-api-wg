@@ -803,19 +803,14 @@ async function fetchSystemStatus() {
 
         if (rosEl) rosEl.textContent = status.version || '-';
         if (rosBadge) {
-            if (status.latestVersion) {
-                rosBadge.style.display = 'block';
-                if (status.hasUpdate) {
-                    rosBadge.innerHTML = `<span style="color:#d97706; font-weight:700;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชันใหม่: v${status.latestVersion}</span>`;
-                    if (btnQuickUpdate && CURRENT_USER && CURRENT_USER.role === 'admin') {
-                        btnQuickUpdate.style.display = 'inline-flex';
-                    }
-                } else {
-                    rosBadge.innerHTML = `<span style="color:#15803d; font-weight:600;"><i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว (v${status.latestVersion})</span>`;
-                    if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
+            rosBadge.style.display = 'block';
+            if (status.hasUpdate && status.latestVersion && status.latestVersion !== status.currentVersion) {
+                rosBadge.innerHTML = `<span style="color:#d97706; font-weight:700;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชันใหม่: v${status.latestVersion}</span>`;
+                if (btnQuickUpdate && CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'co-admin')) {
+                    btnQuickUpdate.style.display = 'inline-flex';
                 }
             } else {
-                rosBadge.style.display = 'none';
+                rosBadge.innerHTML = `<span style="color:#15803d; font-weight:600;"><i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว</span>`;
                 if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
             }
         }

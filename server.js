@@ -1581,15 +1581,15 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
             
             const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
             const isV6 = (r.version || '').startsWith('6');
-            const latestOfficial = isV6 ? officialVersions.v6 : officialVersions.v7;
-            const hasUpdate = !!(latestOfficial && currentVer !== 'N/A' && compareSemver(latestOfficial, currentVer) > 0);
+            let latestOfficial = isV6 ? officialVersions.v6 : officialVersions.v7;
+            const isNew = !!(latestOfficial && currentVer !== 'N/A' && compareSemver(latestOfficial, currentVer) > 0);
 
             return {
                 uptime: r.uptime || 'N/A',
                 version: r.version || 'N/A',
                 currentVersion: currentVer,
-                latestVersion: latestOfficial || null,
-                hasUpdate: hasUpdate,
+                latestVersion: isNew ? latestOfficial : currentVer,
+                hasUpdate: isNew,
                 cpuLoad: r['cpu-load'] ? `${r['cpu-load']}%` : 'N/A',
                 freeMemory: r['free-memory'] ? parseInt(r['free-memory']) : 0,
                 totalMemory: r['total-memory'] ? parseInt(r['total-memory']) : 0,
