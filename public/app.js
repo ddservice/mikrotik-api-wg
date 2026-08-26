@@ -229,20 +229,20 @@ async function fetchSites() {
             genSiteTitleInput.value = activeSiteObj.name;
         }
 
-        // Also populate LINE digest site selector
+        // Also populate LINE digest site selector (sync with current active site)
         const lineSiteSelect = document.getElementById('select-line-digest-site');
         if (lineSiteSelect && data.sites) {
-            const prevVal = lineSiteSelect.value;
             lineSiteSelect.innerHTML = '';
             data.sites.forEach(s => {
                 const opt = document.createElement('option');
                 opt.value = s.id;
                 opt.textContent = `${s.name}`;
-                if (s.id === (prevVal || data.activeSiteId)) {
+                if (s.id === data.activeSiteId) {
                     opt.selected = true;
                 }
                 lineSiteSelect.appendChild(opt);
             });
+            lineSiteSelect.value = data.activeSiteId;
         }
     } catch (err) {
         console.error('Failed to fetch sites:', err);
@@ -254,14 +254,22 @@ if (selectActiveSiteEl) {
     selectActiveSiteEl.addEventListener('change', async (e) => {
         const siteId = e.target.value;
         if (!siteId) return;
+
+        // Show immediate loading indicator in table
+        const hotspotTbody = document.querySelector('#table-hotspot-users tbody');
+        if (hotspotTbody && currentActivePage === 'page-hotspot') {
+            hotspotTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูลเราท์เตอร์สาขาใหม่...</td></tr>';
+        }
+        const activeTbody = document.querySelector('#table-active-users tbody');
+        if (activeTbody && currentActivePage === 'page-hotspot') {
+            activeTbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดเซสชันออนไลน์...</td></tr>';
+        }
+
         try {
             await apiFetch(`/api/sites/switch/${siteId}`, { method: 'POST' });
-            // Must await before loadPageData: log-tab fetches (hotspot/DNS/PPPoE)
-            // read currentSitesData synchronously to filter by the active site's
-            // name, so it needs to be refreshed first or they'd filter by the
-            // stale (pre-switch) site for this one call.
             await fetchSites();
             loadPageData(currentActivePage);
+            fetchLineDigestConfig(siteId);
             startPolling();
         } catch (err) {
             alert('ไม่สามารถสลับไซต์งานได้: ' + err.message);
@@ -1246,6 +1254,13 @@ document.getElementById('stat-card-online')?.addEventListener('click', () => {
 let _allHotspotAccounts = []; // P3: cache
 
 async function fetchHotspotAccounts() {
+    const activeSiteId = document.getElementById('select-active-site')?.value;
+    const activeSiteObj = (currentSitesData?.sites || []).find(s => s.id === activeSiteId);
+    const siteTag = document.getElementById('hotspot-active-site-tag');
+    if (siteTag) {
+        siteTag.textContent = activeSiteObj ? activeSiteObj.name : 'เราท์เตอร์';
+    }
+
     try {
         const users = await apiFetch('/api/mikrotik/hotspot/users');
         _allHotspotAccounts = users;
