@@ -3233,7 +3233,12 @@ function openFullUpgradeModal() {
 }
 window.openFullUpgradeModal = openFullUpgradeModal;
 
-document.getElementById('btn-full-system-upgrade')?.addEventListener('click', openFullUpgradeModal);
+document.querySelectorAll('.btn-full-system-upgrade, #btn-full-system-upgrade, #btn-full-system-upgrade-settings').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openFullUpgradeModal();
+    });
+});
 
 document.getElementById('btn-start-full-upgrade')?.addEventListener('click', async () => {
     const startBtn = document.getElementById('btn-start-full-upgrade');
@@ -3310,40 +3315,55 @@ document.getElementById('btn-upgrade-firmware')?.addEventListener('click', async
     }
 });
 
-// 3. Reboot Router
-document.getElementById('btn-system-reboot')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ คำเตือน: คุณต้องการรีบูตเราท์เตอร์ (Reboot) ทันทีใช่หรือไม่?\n\nการเชื่อมต่ออินเทอร์เน็ตและบริการทั้งหมดจะหยุดชั่วคราวประมาณ 30-60 วินาที')) return;
+// 3. Reboot Router (Bound to both Overview and Settings panels)
+document.querySelectorAll('.btn-system-reboot, #btn-system-reboot, #btn-system-reboot-settings').forEach(btnEl => {
+    btnEl.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const siteName = getCurrentSiteName() || 'เราท์เตอร์ปัจจุบัน';
+        if (!confirm(`⚠️ คำเตือน: คุณต้องการรีบูตเราท์เตอร์ "${siteName}" ทันทีใช่หรือไม่?\n\nการเชื่อมต่ออินเทอร์เน็ตและบริการทั้งหมดในสาขานี้จะหยุดชั่วคราวประมาณ 30-60 วินาที`)) return;
 
-    const btn = document.getElementById('btn-system-reboot');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสั่งรีบูต...';
+        const allRebootBtns = document.querySelectorAll('.btn-system-reboot, #btn-system-reboot, #btn-system-reboot-settings');
+        allRebootBtns.forEach(b => {
+            b.disabled = true;
+            b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสั่งรีบูต...';
+        });
 
-    try {
-        const res = await apiFetch('/api/mikrotik/system/reboot', { method: 'POST' });
-        alert(res.message || 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว');
-    } catch (err) {
-        alert('สั่งรีบูต: ' + (err.message || 'ส่งคำสั่งเรียบร้อยแล้ว'));
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-power-off text-danger"></i> <span>รีบูตเราท์เตอร์ (Reboot)</span>';
-    }
+        try {
+            const res = await apiFetch('/api/mikrotik/system/reboot', { method: 'POST' });
+            alert(res.message || `สั่งรีบูตเราท์เตอร์ "${siteName}" เรียบร้อยแล้ว`);
+        } catch (err) {
+            alert('สั่งรีบูต: ' + (err.message || 'ส่งคำสั่งเรียบร้อยแล้ว'));
+        } finally {
+            allRebootBtns.forEach(b => {
+                b.disabled = false;
+                b.innerHTML = '<i class="fa-solid fa-power-off text-danger"></i> <span>🔄 รีบูตเราท์เตอร์ (Reboot)</span>';
+            });
+        }
+    });
 });
 
-// 4. Flush DNS Cache
-document.getElementById('btn-flush-dns')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-flush-dns');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังล้าง...';
+// 4. Flush DNS Cache (Bound to both Overview and Settings panels)
+document.querySelectorAll('.btn-flush-dns, #btn-flush-dns, #btn-flush-dns-settings').forEach(btnEl => {
+    btnEl.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const allFlushBtns = document.querySelectorAll('.btn-flush-dns, #btn-flush-dns, #btn-flush-dns-settings');
+        allFlushBtns.forEach(b => {
+            b.disabled = true;
+            b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังล้าง...';
+        });
 
-    try {
-        const res = await apiFetch('/api/mikrotik/system/flush-dns', { method: 'POST' });
-        alert(res.message || 'ล้าง DNS Cache บนเราท์เตอร์เรียบร้อยแล้ว');
-    } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-broom text-secondary"></i> <span>ล้าง DNS Cache</span>';
-    }
+        try {
+            const res = await apiFetch('/api/mikrotik/system/flush-dns', { method: 'POST' });
+            alert(res.message || 'ล้าง DNS Cache บนเราท์เตอร์เรียบร้อยแล้ว');
+        } catch (err) {
+            alert('เกิดข้อผิดพลาด: ' + err.message);
+        } finally {
+            allFlushBtns.forEach(b => {
+                b.disabled = false;
+                b.innerHTML = '<i class="fa-solid fa-broom text-secondary"></i> <span>🧹 ล้าง DNS Cache</span>';
+            });
+        }
+    });
 });
 
 // 5. Ping Test
@@ -3389,36 +3409,49 @@ document.getElementById('btn-run-ping-now')?.addEventListener('click', async () 
     }
 });
 
-// 6. Quick Backup (.backup)
-document.getElementById('btn-system-backup')?.addEventListener('click', async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const backupName = prompt('ระบุชื่อไฟล์สำรองคอนฟิก (ไม่ต้องใส่นามสกุล .backup):', `backup-${today}`);
-    if (!backupName) return;
+// 6. Quick Backup (.backup) (Bound to both Overview and Settings panels)
+document.querySelectorAll('.btn-system-backup, #btn-system-backup, #btn-system-backup-settings').forEach(btnEl => {
+    btnEl.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const today = new Date().toISOString().slice(0, 10);
+        const backupName = prompt('ระบุชื่อไฟล์สำรองคอนฟิก (ไม่ต้องใส่นามสกุล .backup):', `backup-${today}`);
+        if (!backupName) return;
 
-    const btn = document.getElementById('btn-system-backup');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสำรอง...';
-
-    try {
-        const res = await apiFetch('/api/mikrotik/system/backup', {
-            method: 'POST',
-            body: JSON.stringify({ name: backupName })
+        const allBackupBtns = document.querySelectorAll('.btn-system-backup, #btn-system-backup, #btn-system-backup-settings');
+        allBackupBtns.forEach(b => {
+            b.disabled = true;
+            b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสำรอง...';
         });
-        alert(res.message || 'สำรองคอนฟิกเราท์เตอร์เรียบร้อยแล้ว');
-    } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>';
-    }
+
+        try {
+            const res = await apiFetch('/api/mikrotik/system/backup', {
+                method: 'POST',
+                body: JSON.stringify({ name: backupName })
+            });
+            alert(res.message || 'สำรองคอนฟิกเราท์เตอร์เรียบร้อยแล้ว');
+        } catch (err) {
+            alert('เกิดข้อผิดพลาด: ' + err.message);
+        } finally {
+            allBackupBtns.forEach(b => {
+                b.disabled = false;
+                b.innerHTML = '<i class="fa-solid fa-floppy-disk text-success"></i> <span>💾 สำรองคอนฟิก (.backup)</span>';
+            });
+        }
+    });
 });
 
 // ==========================================
 // 6. Network Quality & Ping Jitter Test Handlers
 // ==========================================
-document.getElementById('btn-quality-test')?.addEventListener('click', () => {
-    const modal = document.getElementById('modal-quality-test');
-    if (modal) modal.classList.add('active');
+document.querySelectorAll('.btn-quality-test, #btn-quality-test, #btn-quality-test-settings').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const modal = document.getElementById('modal-quality-test');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+        }
+    });
 });
 
 document.getElementById('btn-run-quality-test')?.addEventListener('click', async () => {
