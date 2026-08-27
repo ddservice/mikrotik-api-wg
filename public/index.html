@@ -189,17 +189,12 @@
                             </div>
                         </div>
                         <!-- RouterOS Version Card -->
-                        <div class="stat-card" id="stat-card-ros-version" style="cursor:pointer;" title="คลิกเพื่อเปิดระบบอัปเกรดเต็มรูปแบบอัตโนมัติ 1-Click (RouterOS + Firmware)">
+                        <div class="stat-card" id="stat-card-ros-version" onclick="openFullUpgradeModal()" style="cursor:pointer;" title="คลิกเพื่อเปิดระบบอัปเกรดเต็มรูปแบบอัตโนมัติ 1-Click (RouterOS + Firmware)">
                             <div class="stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-code-branch"></i></div>
                             <div class="stat-info" style="min-width:0; flex:1;">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <h3>RouterOS Version</h3>
-                                    <button type="button" id="btn-quick-ros-update" class="btn btn-sm btn-primary" style="padding:3px 9px; font-size:0.72rem; height:auto; border-radius:12px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.35);" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
-                                        <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click อัปเกรด
-                                    </button>
-                                </div>
+                                <h3>RouterOS Version</h3>
                                 <p id="stat-ros-version" style="font-size:1.15rem; font-weight:700; color:#1e293b; margin:2px 0 0; word-break:break-word;">-</p>
-                                <div id="stat-ros-latest-badge" style="font-size:0.75rem; margin-top:3px; display:none;"></div>
+                                <div id="stat-ros-latest-badge" style="font-size:0.75rem; margin-top:4px; display:none;"></div>
                             </div>
                         </div>
                         <!-- RouterBOARD Firmware Card -->
@@ -3125,7 +3120,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=121.0"></script>
+    <script src="app.js?v=122.0"></script>
 </body>
 </html>
 

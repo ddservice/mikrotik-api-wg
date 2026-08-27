@@ -828,19 +828,21 @@ async function fetchSystemStatus() {
         // RouterOS Version & Update Status
         const rosEl = document.getElementById('stat-ros-version');
         const rosBadge = document.getElementById('stat-ros-latest-badge');
-        const btnQuickUpdate = document.getElementById('btn-quick-ros-update');
 
         if (rosEl) rosEl.textContent = status.version || '-';
         if (rosBadge) {
             rosBadge.style.display = 'block';
             if (status.hasUpdate && status.latestVersion && status.latestVersion !== status.currentVersion) {
-                rosBadge.innerHTML = `<span style="color:#d97706; font-weight:700;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชันใหม่: v${status.latestVersion}</span>`;
-                if (btnQuickUpdate && CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'co-admin')) {
-                    btnQuickUpdate.style.display = 'inline-flex';
-                }
+                rosBadge.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; margin-top:4px;">
+                        <span style="color:#d97706; font-weight:700; font-size:0.75rem;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชัน v${status.latestVersion}</span>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openFullUpgradeModal();" style="padding:2px 8px; font-size:0.7rem; height:auto; border-radius:10px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.3); color:#fff; cursor:pointer;" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click อัปเกรด
+                        </button>
+                    </div>
+                `;
             } else {
-                rosBadge.innerHTML = `<span style="color:#15803d; font-weight:600;"><i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว</span>`;
-                if (btnQuickUpdate) btnQuickUpdate.style.display = 'none';
+                rosBadge.innerHTML = `<span style="color:#15803d; font-weight:600; font-size:0.75rem;"><i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว</span>`;
             }
         }
 
@@ -3225,9 +3227,11 @@ function openFullUpgradeModal() {
             startBtn.style.display = 'inline-flex';
             startBtn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที';
         }
+        modal.style.display = 'flex';
         modal.classList.add('active');
     }
 }
+window.openFullUpgradeModal = openFullUpgradeModal;
 
 document.getElementById('btn-full-system-upgrade')?.addEventListener('click', openFullUpgradeModal);
 
@@ -3275,7 +3279,11 @@ document.getElementById('btn-start-full-upgrade')?.addEventListener('click', asy
 
 document.querySelectorAll('#modal-full-upgrade .modal-cancel, #modal-full-upgrade .modal-close-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.getElementById('modal-full-upgrade')?.classList.remove('active');
+        const modal = document.getElementById('modal-full-upgrade');
+        if (modal) {
+            modal.classList.remove('active');
+            modal.style.display = 'none';
+        }
     });
 });
 
