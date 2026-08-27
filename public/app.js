@@ -433,7 +433,7 @@ function switchPage(targetPageId) {
         'page-multiwan': { title: 'จัดการระบบ Multi-WAN & Load Balance', desc: 'กำหนดสาย WAN ไม่จำกัด (N-WAN), PCC Load Balancing, PBR และ Telegram Netwatch ประจำไซต์งาน' },
         'page-firewall': { title: 'จัดการบล็อกเว็บ (Firewall)', desc: 'เปิด/ปิดบล็อกบริการเครือข่ายสังคมออนไลน์ด้วยคลิกเดียว' },
         'page-admins': { title: 'ผู้ใช้งานระบบ Dashboard', desc: 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงแดชบอร์ด' },
-        'page-settings': { title: 'จัดการไซต์งานเราท์เตอร์', desc: 'เพิ่ม แก้ไข และสลับเปลี่ยนไซต์งาน MikroTik แต่ละสาขา' },
+        'page-settings': { title: 'จัดการระบบเราท์เตอร์ & แจ้งเตือน', desc: 'ศูนย์จัดการไซต์งาน การแจ้งเตือน LINE Official Account และการดูแลรักษาเราท์เตอร์' },
         'page-logs': { title: 'ประวัติการใช้งาน (Log)', desc: 'บันทึกกิจกรรมระบบและข้อมูลจราจรคอมพิวเตอร์ตามพรบ คอมพิวเตอร์ มาตรา 26' }
     };
     
@@ -443,6 +443,35 @@ function switchPage(targetPageId) {
     
     // Fetch page data immediately on switch
     loadPageData(targetPageId);
+}
+
+let activeSettingsTab = 'tab-settings-sites';
+
+function loadSettingsTab(tabId) {
+    activeSettingsTab = tabId;
+    document.querySelectorAll('#settings-tab-nav .tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('data-tab') === tabId) {
+            btn.classList.add('active');
+        }
+    });
+
+    document.querySelectorAll('#page-settings .tab-pane').forEach(pane => {
+        pane.style.display = 'none';
+        pane.classList.remove('active');
+    });
+
+    const targetEl = document.getElementById(tabId);
+    if (targetEl) {
+        targetEl.style.display = 'block';
+        targetEl.classList.add('active');
+    }
+
+    if (tabId === 'tab-settings-sites') {
+        fetchSitesManagement();
+    } else if (tabId === 'tab-settings-line') {
+        fetchLineDigestConfig();
+    }
 }
 
 function loadPageData(pageId) {
@@ -460,7 +489,7 @@ function loadPageData(pageId) {
         fetchDashboardUsers();
         fetchMenuPermissions();
     } else if (pageId === 'page-settings') {
-        fetchSitesManagement();
+        loadSettingsTab(activeSettingsTab);
     } else if (pageId === 'page-logs') {
         loadLogTab(activeLogTab);
     }
@@ -5073,12 +5102,20 @@ document.querySelectorAll('.menu-item').forEach(item => {
     });
 });
 
-// Tab buttons click handler (Hotspot tabs)
-document.querySelectorAll('.tab-btn').forEach(btn => {
+// Tab buttons click handlers (Scoped per section)
+document.querySelectorAll('#page-hotspot .tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
         e.preventDefault();
         const targetTab = btn.getAttribute('data-tab');
         loadHotspotTab(targetTab);
+    });
+});
+
+document.querySelectorAll('#settings-tab-nav .tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetTab = btn.getAttribute('data-tab');
+        loadSettingsTab(targetTab);
     });
 });
 

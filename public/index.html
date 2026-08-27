@@ -93,7 +93,7 @@
                     <i class="fa-solid fa-users-gear"></i> <span>ผู้ใช้งานระบบ Dashboard</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-settings" id="nav-settings" style="display: none;">
-                    <i class="fa-solid fa-gears"></i> <span>ตั้งค่าเชื่อมต่อเราท์เตอร์</span>
+                    <i class="fa-solid fa-gears"></i> <span>จัดการระบบเราท์เตอร์ & แจ้งเตือน</span>
                 </a>
                 <a href="#" class="menu-item" data-target="page-logs" id="nav-logs" style="display: none;">
                     <i class="fa-solid fa-file-lines"></i> <span>ประวัติการใช้งาน (Log)</span>
@@ -466,60 +466,6 @@
                                                 <span class="slider"></span>
                                             </label>
                                         </div>
-                                </div>
-
-                                <!-- LINE Official Account (Messaging API) Configuration Card -->
-                                <div class="card mb-16" id="line-digest-card" style="border: 1px solid #a7f3d0; background: #f0fdf4; border-radius: 12px; padding: 16px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
-                                        <div style="display: flex; align-items: center; gap: 12px;">
-                                            <div style="width: 42px; height: 42px; background: #06c755; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
-                                                <i class="fa-brands fa-line"></i>
-                                            </div>
-                                            <div>
-                                                <h5 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 6px;">
-                                                    แจ้งเตือนด้วย LINE Official Account (Messaging API)
-                                                    <span id="line-digest-site-name" style="background: #0284c7; color: #fff; font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; font-weight: 600;">Main Site</span>
-                                                </h5>
-                                                <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #047857;">ส่ง Push Message / Flex Card สรุปวันหมดอายุประจำวัน และตอบกลับอัตโนมัติเมื่อกด Rich Menu</p>
-                                            </div>
-                                        </div>
-                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                            <div style="display: flex; align-items: center; gap: 6px;">
-                                                <label for="select-line-digest-site" style="font-size: 0.8rem; font-weight: 600; color: #065f46; margin: 0;"><i class="fa-solid fa-location-dot"></i> สาขา:</label>
-                                                <select id="select-line-digest-site" class="form-control form-control-sm" style="min-width: 140px; font-weight: 600; border-color: #a7f3d0; background: #fff;"></select>
-                                            </div>
-                                            <span class="auto-cleanup-status-badge off" id="line-digest-status-badge">ปิดใช้งาน</span>
-                                            <label class="switch switch-sm">
-                                                <input type="checkbox" id="toggle-line-digest">
-                                                <span class="slider"></span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end;" class="mb-12">
-                                        <div>
-                                            <label for="line-channel-access-token" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">Channel Access Token (v2) *</label>
-                                            <input type="password" id="line-channel-access-token" class="form-control form-control-sm" placeholder="คัดลอก Token จาก LINE Developers Console">
-                                        </div>
-                                        <div>
-                                            <label for="line-target-id" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">Target ID (User ID / Group ID) *</label>
-                                            <input type="text" id="line-target-id" class="form-control form-control-sm" placeholder="เช่น U12345... หรือ C12345...">
-                                        </div>
-                                        <div style="max-width: 140px;">
-                                            <label for="line-digest-time" style="font-size: 0.8rem; font-weight: 600; color: #065f46;">เวลาส่งรายงานประจำวัน</label>
-                                            <input type="time" id="line-digest-time" class="form-control form-control-sm" value="09:00">
-                                        </div>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background: #ffffff; padding: 10px; border-radius: 8px; border: 1px solid #d1fae5;">
-                                        <div style="font-size: 0.78rem; color: #047857;">
-                                            <strong>Webhook URL สำหรับใส่ใน LINE Developers:</strong> <code id="line-webhook-url" style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-family:monospace;">https://api.ddserviceth.com/api/line/webhook</code>
-                                        </div>
-                                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                            <button class="btn btn-sm btn-secondary" id="btn-test-line-notify" style="background:#fff; color:#065f46; border:1px solid #a7f3d0;"><i class="fa-solid fa-paper-plane"></i> ทดสอบส่ง Push</button>
-                                            <button class="btn btn-sm btn-info" id="btn-send-multi-health-line" style="background:#0284c7; color:#fff; border:none;"><i class="fa-solid fa-chart-pie"></i> ส่งสรุปสุขภาพ 4 สาขา</button>
-                                            <button class="btn btn-sm btn-success" id="btn-run-line-digest-now" style="background:#06c755; border:none; color:#fff;"><i class="fa-solid fa-bullhorn"></i> ส่งแจ้งหมดอายุสาขานี้</button>
-                                            <button class="btn btn-sm btn-primary" id="btn-save-line-digest"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
-                                        </div>
-                                    </div>
                                 </div>
 
                                 <!-- Warning for missing sensitive permission -->
@@ -1788,41 +1734,154 @@
                     </div>
                 </section>
 
-                <!-- 5. ROUTER SETTINGS PAGE (Admin only) -->
+                <!-- 5. ROUTER SETTINGS & OPERATIONS PAGE (Admin only) -->
                 <section id="page-settings" class="page-section" style="display: none;">
-                    <div class="card">
-                        <div class="card-header card-header-flex">
-                            <div class="card-title">
-                                <i class="fa-solid fa-network-wired text-primary"></i>
-                                <div>
-                                    <h4>จัดการไซต์งานและเราท์เตอร์ (Multi-Site Router Management)</h4>
-                                    <p>รายการเราท์เตอร์และสาขาทั้งหมดที่เชื่อมต่อในระบบ สามารถเพิ่มและเลือกสลับการทำงานได้ทันที</p>
+                    <!-- Settings Sub-Tabs Header -->
+                    <div class="tab-nav mb-20" id="settings-tab-nav">
+                        <button class="tab-btn active" data-tab="tab-settings-sites">
+                            <i class="fa-solid fa-network-wired text-primary"></i> <span>1. จัดการไซต์งาน / สาขา</span>
+                        </button>
+                        <button class="tab-btn" data-tab="tab-settings-line">
+                            <i class="fa-brands fa-line text-success"></i> <span>2. ตั้งค่าแจ้งเตือน LINE Official Account</span>
+                        </button>
+                        <button class="tab-btn" data-tab="tab-settings-ops">
+                            <i class="fa-solid fa-screwdriver-wrench text-warning"></i> <span>3. การจัดการและดูแลรักษาเราท์เตอร์</span>
+                        </button>
+                    </div>
+
+                    <!-- Tab 1: Multi-Site Router Management -->
+                    <div id="tab-settings-sites" class="tab-pane active" style="display: block;">
+                        <div class="card">
+                            <div class="card-header card-header-flex">
+                                <div class="card-title">
+                                    <i class="fa-solid fa-network-wired text-primary"></i>
+                                    <div>
+                                        <h4>จัดการไซต์งานและเราท์เตอร์ (Multi-Site Router Management)</h4>
+                                        <p>รายการเราท์เตอร์และสาขาทั้งหมดที่เชื่อมต่อในระบบ สามารถเพิ่ม แก้ไข และเลือกสลับการทำงานได้ทันที</p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-primary" id="btn-add-site"><i class="fa-solid fa-plus"></i> เพิ่มไซต์งานใหม่</button>
                                 </div>
                             </div>
-                            <div class="card-actions">
-                                <button class="btn btn-primary" id="btn-add-site"><i class="fa-solid fa-plus"></i> เพิ่มไซต์งานใหม่</button>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table" id="table-sites">
+                                        <thead>
+                                            <tr>
+                                                <th>สถานะการเลือก</th>
+                                                <th>ชื่อไซต์งาน / สาขา</th>
+                                                <th>IP Address / Hostname</th>
+                                                <th>API Port</th>
+                                                <th>สถานะการเชื่อมต่อเราท์เตอร์</th>
+                                                <th>IP จริง / WireGuard Endpoint</th>
+                                                <th class="text-center">จัดการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table" id="table-sites">
-                                    <thead>
-                                        <tr>
-                                            <th>สถานะการเลือก</th>
-                                            <th>ชื่อไซต์งาน / สาขา</th>
-                                            <th>IP Address / Hostname</th>
-                                            <th>API Port</th>
-                                            <th>สถานะการเชื่อมต่อเราท์เตอร์</th>
-                                            <th>IP จริง / WireGuard Endpoint</th>
-                                            <th class="text-center">จัดการ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td colspan="7" class="text-center text-muted">กำลังโหลดข้อมูลไซต์งาน...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                    </div>
+
+                    <!-- Tab 2: LINE Official Account (Messaging API) Configuration -->
+                    <div id="tab-settings-line" class="tab-pane" style="display: none;">
+                        <div class="card mb-16" id="line-digest-card" style="border: 1px solid #a7f3d0; background: #f0fdf4; border-radius: 12px; padding: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 44px; height: 44px; background: #06c755; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow:0 2px 8px rgba(6,199,85,0.3);">
+                                        <i class="fa-brands fa-line"></i>
+                                    </div>
+                                    <div>
+                                        <h5 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 8px;">
+                                            การแจ้งเตือน LINE Official Account (Messaging API)
+                                            <span id="line-digest-site-name" style="background: #0284c7; color: #fff; font-size: 0.75rem; padding: 2px 10px; border-radius: 12px; font-weight: 600;">Main Site</span>
+                                        </h5>
+                                        <p style="margin: 3px 0 0 0; font-size: 0.82rem; color: #047857;">ส่ง Push Message / Flex Card สรุปบัญชีคูปองและห้องพักใกล้หมดอายุประจำวัน พร้อมแจ้งเตือน Router หลุด/ติด</p>
+                                    </div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <label for="select-line-digest-site" style="font-size: 0.82rem; font-weight: 600; color: #065f46; margin: 0;"><i class="fa-solid fa-location-dot"></i> สาขา:</label>
+                                        <select id="select-line-digest-site" class="form-control form-control-sm" style="min-width: 150px; font-weight: 600; border-color: #a7f3d0; background: #fff;"></select>
+                                    </div>
+                                    <span class="auto-cleanup-status-badge off" id="line-digest-status-badge">ปิดใช้งาน</span>
+                                    <label class="switch switch-sm">
+                                        <input type="checkbox" id="toggle-line-digest">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: end;" class="mb-16">
+                                <div>
+                                    <label for="line-channel-access-token" style="font-size: 0.82rem; font-weight: 600; color: #065f46;">Channel Access Token (v2) *</label>
+                                    <input type="password" id="line-channel-access-token" class="form-control form-control-sm" placeholder="คัดลอก Token จาก LINE Developers Console">
+                                </div>
+                                <div>
+                                    <label for="line-target-id" style="font-size: 0.82rem; font-weight: 600; color: #065f46;">Target ID (User ID / Group ID) *</label>
+                                    <input type="text" id="line-target-id" class="form-control form-control-sm" placeholder="เช่น U12345... หรือ C12345... (กลุ่ม)">
+                                </div>
+                                <div style="max-width: 160px;">
+                                    <label for="line-digest-time" style="font-size: 0.82rem; font-weight: 600; color: #065f46;">เวลาส่งรายงานประจำวัน</label>
+                                    <input type="time" id="line-digest-time" class="form-control form-control-sm" value="09:00">
+                                </div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: #ffffff; padding: 12px 16px; border-radius: 8px; border: 1px solid #d1fae5;">
+                                <div style="font-size: 0.8rem; color: #047857;">
+                                    <strong>Webhook URL สำหรับใส่ใน LINE Developers:</strong> <code id="line-webhook-url" style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:4px; font-family:monospace; font-weight:600;">https://api.ddserviceth.com/api/line/webhook</code>
+                                </div>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button class="btn btn-sm btn-secondary" id="btn-test-line-notify" style="background:#fff; color:#065f46; border:1px solid #a7f3d0;"><i class="fa-solid fa-paper-plane"></i> ทดสอบส่ง Push</button>
+                                    <button class="btn btn-sm btn-info" id="btn-send-multi-health-line" style="background:#0284c7; color:#fff; border:none;"><i class="fa-solid fa-chart-pie"></i> ส่งสรุปสุขภาพ 4 สาขา</button>
+                                    <button class="btn btn-sm btn-success" id="btn-run-line-digest-now" style="background:#06c755; border:none; color:#fff;"><i class="fa-solid fa-bullhorn"></i> ส่งแจ้งหมดอายุสาขานี้</button>
+                                    <button class="btn btn-sm btn-primary" id="btn-save-line-digest"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Comprehensive Router Operations & Maintenance -->
+                    <div id="tab-settings-ops" class="tab-pane" style="display: none;">
+                        <div class="card" style="background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border: 1px solid #cbd5e1; border-radius: 12px; padding: 22px;">
+                            <div class="card-header" style="padding: 0 0 16px 0; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+                                <div class="card-title" style="display:flex; align-items:center; gap:12px;">
+                                    <div style="width:40px; height:40px; border-radius:8px; background:linear-gradient(135deg, #0284c7, #0369a1); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.1rem;">
+                                        <i class="fa-solid fa-screwdriver-wrench"></i>
+                                    </div>
+                                    <div>
+                                        <h4 style="margin:0; font-size:1.1rem; font-weight:700; color:#1e293b;">ศูนย์ดูแลรักษาและจัดการเราท์เตอร์ (Router Operations Center)</h4>
+                                        <p style="margin:3px 0 0; font-size:0.82rem; color:#64748b;">เครื่องมืออัปเกรดระบบอัตโนมัติ สำรองคอนฟิก ทดสอบคุณภาพสัญญาณ ล้างแคช และรีบูตเราท์เตอร์</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+                                    <!-- Primary Action: 1-Click Automated Full Upgrade -->
+                                    <button type="button" class="btn btn-primary" id="btn-full-system-upgrade-settings" onclick="document.getElementById('modal-full-upgrade') ? document.getElementById('modal-full-upgrade').style.display='flex' : null" style="display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; border:none; border-radius:8px; grid-column: 1 / -1; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>อัปเกรดระบบเต็มรูปแบบ 1-Click (อัปเดต RouterOS ➔ รีบูต ➔ อัปเกรด Firmware ➔ รีบูตจบงาน)</span>
+                                    </button>
+                                    <!-- Button 1: Quick Backup (.backup) -->
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn-system-backup')?.click()" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; font-weight:600; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:8px;">
+                                        <i class="fa-solid fa-floppy-disk text-success"></i> <span>💾 สำรองคอนฟิก (.backup)</span>
+                                    </button>
+                                    <!-- Button 2: Quality & Jitter Test -->
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn-quality-test')?.click()" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; font-weight:600; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:8px;">
+                                        <i class="fa-solid fa-chart-line text-primary"></i> <span>⚡ ทดสอบคุณภาพ & Jitter</span>
+                                    </button>
+                                    <!-- Button 3: Flush DNS Cache -->
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn-flush-dns')?.click()" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; font-weight:600; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; border-radius:8px;">
+                                        <i class="fa-solid fa-broom text-secondary"></i> <span>🧹 ล้าง DNS Cache</span>
+                                    </button>
+                                    <!-- Button 4: Reboot Router -->
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn-system-reboot')?.click()" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; font-weight:600; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px;">
+                                        <i class="fa-solid fa-power-off text-danger"></i> <span>🔄 รีบูตเราท์เตอร์ (Reboot)</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3097,7 +3156,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=119.0"></script>
+    <script src="app.js?v=120.0"></script>
 </body>
 </html>
 
