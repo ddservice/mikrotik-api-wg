@@ -189,7 +189,7 @@
                             </div>
                         </div>
                         <!-- RouterOS Version Card -->
-                        <div class="stat-card" id="stat-card-ros-version" onclick="openFullUpgradeModal()" style="cursor:pointer;" title="คลิกเพื่อเปิดระบบอัปเกรดเต็มรูปแบบอัตโนมัติ 1-Click (RouterOS + Firmware)">
+                        <div class="stat-card" id="stat-card-ros-version" data-action="open-full-upgrade" onclick="openFullUpgradeModal()" style="cursor:pointer;" title="คลิกเพื่อเปิดระบบอัปเกรดเต็มรูปแบบอัตโนมัติ 1-Click (RouterOS + Firmware)">
                             <div class="stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-code-branch"></i></div>
                             <div class="stat-info" style="min-width:0; flex:1;">
                                 <h3>RouterOS Version</h3>
@@ -3028,7 +3028,7 @@
         <div class="modal-card" style="max-width:580px;">
             <div class="modal-header">
                 <h4><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> อัปเกรดระบบเต็มรูปแบบ 1-Click (ROS + Firmware)</h4>
-                <button type="button" class="modal-close-btn">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeFullUpgradeModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="full-upgrade-alert" class="alert alert-info" style="font-size:0.85rem; padding:10px 14px; margin-bottom:16px; border-radius:6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe;">
@@ -3072,7 +3072,7 @@
                 </div>
 
                 <div class="modal-footer mt-16" style="display:flex; justify-content:space-between; align-items:center;">
-                    <button type="button" class="btn btn-secondary modal-cancel" id="btn-cancel-full-upgrade">ปิด</button>
+                    <button type="button" class="btn btn-secondary modal-cancel" id="btn-cancel-full-upgrade" onclick="closeFullUpgradeModal()">ปิด</button>
                     <button type="button" class="btn btn-primary" id="btn-start-full-upgrade"><i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที</button>
                 </div>
             </div>

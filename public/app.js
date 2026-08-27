@@ -836,7 +836,7 @@ async function fetchSystemStatus() {
                 rosBadge.innerHTML = `
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; margin-top:4px;">
                         <span style="color:#d97706; font-weight:700; font-size:0.75rem;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชัน v${status.latestVersion}</span>
-                        <button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openFullUpgradeModal();" style="padding:2px 8px; font-size:0.7rem; height:auto; border-radius:10px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.3); color:#fff; cursor:pointer;" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
+                        <button type="button" class="btn btn-sm btn-primary btn-quick-ros-upgrade" data-action="open-full-upgrade" onclick="event.stopPropagation(); openFullUpgradeModal();" style="padding:2px 8px; font-size:0.7rem; height:auto; border-radius:10px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.3); color:#fff; cursor:pointer;" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click อัปเกรด
                         </button>
                     </div>
@@ -3219,25 +3219,47 @@ async function pollUntilRouterOnline(maxWaitSec = 120, progressCallback) {
 
 function openFullUpgradeModal() {
     const modal = document.getElementById('modal-full-upgrade');
-    if (modal) {
-        [1, 2, 3, 4].forEach(i => setUgStepStatus(i, 'waiting', ['รอเริ่มคำสั่ง...', 'รอการเริ่มต้นใหม่...', 'รอการตรวจสอบ Firmware...', 'รอเสร็จสิ้น...'][i-1]));
-        const startBtn = document.getElementById('btn-start-full-upgrade');
-        if (startBtn) {
-            startBtn.disabled = false;
-            startBtn.style.display = 'inline-flex';
-            startBtn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที';
-        }
-        modal.style.display = 'flex';
-        modal.classList.add('active');
+    if (!modal) {
+        alert('ไม่พบหน้าต่างอัปเกรดระบบ กรุณารีเฟรชหน้าเว็บ');
+        return;
     }
+
+    [1, 2, 3, 4].forEach(i => setUgStepStatus(i, 'waiting', ['รอเริ่มคำสั่ง...', 'รอการเริ่มต้นใหม่...', 'รอการตรวจสอบ Firmware...', 'รอเสร็จสิ้น...'][i-1]));
+    const startBtn = document.getElementById('btn-start-full-upgrade');
+    if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.style.display = 'inline-flex';
+        startBtn.innerHTML = '<i class="fa-solid fa-play"></i> เริ่มอัปเกรดเต็มรูปแบบทันที';
+    }
+    const cancelBtn = document.getElementById('btn-cancel-full-upgrade');
+    if (cancelBtn) cancelBtn.disabled = false;
+
+    modal.classList.add('active');
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('opacity', '1', 'important');
+    modal.style.setProperty('pointer-events', 'auto', 'important');
+    modal.style.setProperty('z-index', '99999', 'important');
 }
 window.openFullUpgradeModal = openFullUpgradeModal;
 
-document.querySelectorAll('.btn-full-system-upgrade, #btn-full-system-upgrade, #btn-full-system-upgrade-settings').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+function closeFullUpgradeModal() {
+    const modal = document.getElementById('modal-full-upgrade');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.setProperty('display', 'none', 'important');
+        modal.style.setProperty('opacity', '0', 'important');
+        modal.style.setProperty('pointer-events', 'none', 'important');
+    }
+}
+window.closeFullUpgradeModal = closeFullUpgradeModal;
+
+document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action="open-full-upgrade"], .btn-quick-ros-update, #btn-full-system-upgrade, #btn-full-system-upgrade-settings');
+    if (target) {
         e.preventDefault();
+        e.stopPropagation();
         openFullUpgradeModal();
-    });
+    }
 });
 
 document.getElementById('btn-start-full-upgrade')?.addEventListener('click', async () => {
@@ -3283,13 +3305,7 @@ document.getElementById('btn-start-full-upgrade')?.addEventListener('click', asy
 });
 
 document.querySelectorAll('#modal-full-upgrade .modal-cancel, #modal-full-upgrade .modal-close-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const modal = document.getElementById('modal-full-upgrade');
-        if (modal) {
-            modal.classList.remove('active');
-            modal.style.display = 'none';
-        }
-    });
+    btn.addEventListener('click', closeFullUpgradeModal);
 });
 
 // 2. Upgrade RouterBOARD Firmware
