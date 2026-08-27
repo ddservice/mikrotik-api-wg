@@ -1041,22 +1041,27 @@
 
                 <!-- 3. FIREWALL BLOCK PAGE -->
                 <section id="page-firewall" class="page-section" style="display: none;">
-                    <div class="card mb-24" style="background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95)); border: 1px solid rgba(59,130,246,0.3); color:#fff; padding:22px; border-radius:12px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
-                            <div>
-                                <h3 style="font-size:1.2rem; font-weight:700; color:#60a5fa; margin-bottom:6px;">
-                                    <i class="fa-solid fa-shield-halved"></i> เกราะป้องกันความปลอดภัย RouterOS v7+ (2026 Hardened Protection Preset)
-                                </h3>
-                                <p style="font-size:0.85rem; color:#cbd5e1; margin:0; max-width:700px;">
-                                    เปิดใช้งานกฎความปลอดภัยมาตรฐานสากล: บล็อก Brute-Force ป้องกันแฮกเกอร์สแกนพอร์ต WinBox/SSH (8291, 22), ป้องกันการดักฟัง DNS Amplification Attack, และบล็อก Invalid Packets โดยอัตโนมัติ
-                                </p>
+                    <!-- Modern Professional Security Shield Card -->
+                    <div class="card mb-20" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 12px; padding: 16px 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                            <div style="display:flex; align-items:center; gap:14px; min-width:280px; flex:1;">
+                                <div style="width:42px; height:42px; border-radius:10px; background:linear-gradient(135deg, #2563eb, #1d4ed8); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.25rem; flex-shrink:0; box-shadow:0 0 12px rgba(37,99,235,0.4);">
+                                    <i class="fa-solid fa-shield-halved"></i>
+                                </div>
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <h3 style="font-size:1.02rem; font-weight:700; color:#f8fafc; margin:0;">เกราะป้องกันเราท์เตอร์ (Security Hardened Preset)</h3>
+                                        <span style="background:rgba(59,130,246,0.2); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); font-size:0.7rem; padding:1px 8px; border-radius:10px; font-weight:600;">รองรับ ROS v6 & v7</span>
+                                    </div>
+                                    <p style="font-size:0.8rem; color:#94a3b8; margin:3px 0 0;">บล็อก Brute-force WinBox/SSH (8291/22), ป้องกัน DNS DDoS Amplification และกรอง Invalid Packets อัตโนมัติ</p>
+                                </div>
                             </div>
-                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                                <button type="button" id="btn-show-security-script" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.2);">
-                                    <i class="fa-solid fa-code"></i> ดูสคริปต์ RouterOS CLI
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <button type="button" id="btn-show-security-script" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.08); color:#e2e8f0; border:1px solid #475569; padding:6px 12px; font-size:0.78rem; font-weight:600; border-radius:6px;">
+                                    <i class="fa-solid fa-code"></i> สคริปต์ CLI
                                 </button>
-                                <button type="button" id="btn-apply-security-hardening" class="btn btn-primary btn-sm" style="background:#2563eb; border:none;">
-                                    <i class="fa-solid fa-bolt"></i> เปิดใช้งานเกราะป้องกันทันที
+                                <button type="button" id="btn-apply-security-hardening" class="btn btn-primary btn-sm" style="background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; padding:6px 14px; font-size:0.78rem; font-weight:700; border-radius:6px; box-shadow:0 2px 8px rgba(37,99,235,0.35);">
+                                    <i class="fa-solid fa-bolt"></i> เปิดใช้งานเกราะป้องกัน
                                 </button>
                             </div>
                         </div>
@@ -3092,7 +3097,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=118.0"></script>
+    <script src="app.js?v=119.0"></script>
 </body>
 </html>
 
