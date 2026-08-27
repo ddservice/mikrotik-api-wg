@@ -1049,48 +1049,41 @@ function getLineDigestConfig(siteId) {
             };
         }
         const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        
+        // Extract global/primary fallback credentials
+        const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        const primaryConfig = data[`line_digest_${firstSiteId}`] || data['line_digest_default'] || {};
+        const globalToken = data.lineChannelAccessToken || data.lineNotifyToken || primaryConfig.channelAccessToken || '';
+        const globalSecret = data.lineChannelSecret || primaryConfig.channelSecret || '';
+        const globalTarget = data.lineTargetId || primaryConfig.targetId || '';
+        const globalTime = data.lineDigestTime || primaryConfig.digestTime || '09:00';
+        const globalEnabled = data.lineDigestEnabled !== undefined ? !!data.lineDigestEnabled : (primaryConfig.enabled !== undefined ? !!primaryConfig.enabled : false);
+
         const siteConfigKey = `line_digest_${targetSiteId}`;
         const siteConfig = data[siteConfigKey];
 
         if (siteConfig) {
             return {
                 siteId: targetSiteId,
-                enabled: !!siteConfig.enabled,
-                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '',
-                channelSecret: siteConfig.channelSecret || '',
-                targetId: siteConfig.targetId || '',
-                digestTime: siteConfig.digestTime || '09:00',
+                enabled: siteConfig.enabled !== undefined ? !!siteConfig.enabled : globalEnabled,
+                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || globalToken,
+                channelSecret: siteConfig.channelSecret || globalSecret,
+                targetId: siteConfig.targetId || globalTarget,
+                digestTime: siteConfig.digestTime || globalTime,
                 includeHotspot: siteConfig.includeHotspot !== false,
                 includePppoe: siteConfig.includePppoe !== false,
                 lastSentDate: siteConfig.lastSentDate || ''
             };
         }
 
-        // Only default/first site can check legacy un-suffixed keys
-        const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
-            if (data.lineDigestEnabled !== undefined || data.lineChannelAccessToken || data.lineNotifyToken) {
-                return {
-                    siteId: targetSiteId,
-                    enabled: !!data.lineDigestEnabled,
-                    channelAccessToken: data.lineChannelAccessToken || data.lineNotifyToken || '',
-                    channelSecret: data.lineChannelSecret || '',
-                    targetId: data.lineTargetId || '',
-                    digestTime: data.lineDigestTime || '09:00',
-                    includeHotspot: data.lineDigestHotspot !== false,
-                    includePppoe: data.lineDigestPppoe !== false,
-                    lastSentDate: data.lineDigestLastSentDate || ''
-                };
-            }
-        }
-
+        // Return with global fallback token so all sites (A4, TingTing, etc.) can notify seamlessly
         return {
             siteId: targetSiteId,
-            enabled: false,
-            channelAccessToken: '',
-            channelSecret: '',
-            targetId: '',
-            digestTime: '09:00',
+            enabled: globalEnabled,
+            channelAccessToken: globalToken,
+            channelSecret: globalSecret,
+            targetId: globalTarget,
+            digestTime: globalTime,
             includeHotspot: true,
             includePppoe: true,
             lastSentDate: ''

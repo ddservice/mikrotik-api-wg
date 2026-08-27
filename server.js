@@ -2962,12 +2962,58 @@ function createDailyDigestFlex(digestData) {
     };
 }
 
+function parseExpiryFromComment(comment) {
+    if (!comment) return null;
+    const str = String(comment).trim();
+    
+    // Pattern 1: ISO date (2026-08-30 or 2026/08/30)
+    const isoMatch = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+    if (isoMatch) {
+        const year = parseInt(isoMatch[1]);
+        const month = parseInt(isoMatch[2]) - 1;
+        const day = parseInt(isoMatch[3]);
+        const hour = isoMatch[4] ? parseInt(isoMatch[4]) : 23;
+        const min = isoMatch[5] ? parseInt(isoMatch[5]) : 59;
+        const d = new Date(year, month, day, hour, min, 59);
+        if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    // Pattern 2: Thai / DD/MM/YYYY (30/08/2026 or 30-08-2026)
+    const dmyMatch = str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+    if (dmyMatch) {
+        const day = parseInt(dmyMatch[1]);
+        const month = parseInt(dmyMatch[2]) - 1;
+        let year = parseInt(dmyMatch[3]);
+        if (year > 2500) year -= 543; // Buddhist Era conversion (e.g. 2569 -> 2026)
+        const hour = dmyMatch[4] ? parseInt(dmyMatch[4]) : 23;
+        const min = dmyMatch[5] ? parseInt(dmyMatch[5]) : 59;
+        const d = new Date(year, month, day, hour, min, 59);
+        if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    // Pattern 3: MikroTik style (aug/28/2026 14:00 or aug/28 14:00)
+    const mtMatch = str.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[/ ](\d{1,2})(?:[/ ](\d{4}))?(?:\s+(\d{1,2}):(\d{1,2}))?/i);
+    if (mtMatch) {
+        const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+        const month = months[mtMatch[1].toLowerCase()];
+        const day = parseInt(mtMatch[2]);
+        const year = mtMatch[3] ? parseInt(mtMatch[3]) : new Date().getFullYear();
+        const hour = mtMatch[4] ? parseInt(mtMatch[4]) : 23;
+        const min = mtMatch[5] ? parseInt(mtMatch[5]) : 59;
+        const d = new Date(year, month, day, hour, min, 59);
+        if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    return null;
+}
+
 async function generateDailyExpiryDigest(reqOrSiteId = null) {
     const resolvedSiteId = typeof reqOrSiteId === 'string' ? reqOrSiteId : (reqOrSiteId?.query?.siteId || reqOrSiteId?.body?.siteId || reqOrSiteId?.headers?.['x-site-id'] || reqOrSiteId?.user?.assignedSiteId || null);
     const config = await db.getLineDigestConfig(resolvedSiteId);
     return await executeOnRouter(reqOrSiteId, async (client) => {
         const siteConfig = await db.getConfig(resolvedSiteId);
         const siteName = siteConfig.name || 'Main Site';
+        const now = Date.now();
 
         const d1Users = [];
         const d3Users = [];
@@ -2980,20 +3026,37 @@ async function generateDailyExpiryDigest(reqOrSiteId = null) {
                 for (const u of users) {
                     const uptimeMs = parseUptimeToMs(u.uptime);
                     const limitUptimeMs = parseUptimeToMs(u['limit-uptime']);
-                    const comment = (u.comment || '').toLowerCase();
+                    const comment = (u.comment || '').trim();
+                    const commentLower = comment.toLowerCase();
+                    let remainingMs = null;
 
                     if (limitUptimeMs > 0) {
-                        const remainingMs = limitUptimeMs - uptimeMs;
-                        const remainingStr = formatMsToHuman(remainingMs);
+                        remainingMs = limitUptimeMs - uptimeMs;
+                    }
+
+                    const expiryTimestamp = parseExpiryFromComment(comment);
+                    if (expiryTimestamp !== null) {
+                        const commentRemainingMs = expiryTimestamp - now;
+                        if (remainingMs === null || commentRemainingMs < remainingMs) {
+                            remainingMs = commentRemainingMs;
+                        }
+                    }
+
+                    const isExpiredFlag = commentLower.includes('expired') || commentLower.includes('หมดอายุ') || u.disabled === 'true';
+
+                    if (remainingMs !== null) {
+                        const remainingStr = remainingMs <= 0 ? 'หมดอายุแล้ว' : formatMsToHuman(remainingMs);
                         const userInfo = `${u.name} (${remainingStr})`;
 
-                        if (remainingMs <= 86400000 || comment.includes('expired') || comment.includes('หมดอายุ')) {
+                        if (remainingMs <= 86400000 || isExpiredFlag) {
                             d1Users.push(userInfo);
                         } else if (remainingMs <= 259200000) {
                             d3Users.push(userInfo);
                         } else if (remainingMs <= 604800000) {
                             d7Users.push(userInfo);
                         }
+                    } else if (isExpiredFlag) {
+                        d1Users.push(`${u.name} (หมดอายุแล้ว)`);
                     }
                 }
             } catch (e) {
@@ -3007,7 +3070,23 @@ async function generateDailyExpiryDigest(reqOrSiteId = null) {
                 const secrets = await client.exec('/ppp/secret/print');
                 for (const s of secrets) {
                     if (s.service === 'pppoe' || !s.service) {
-                        if (s.disabled === 'true') {
+                        const comment = (s.comment || '').trim();
+                        const commentLower = comment.toLowerCase();
+                        const expiryTimestamp = parseExpiryFromComment(comment);
+                        let remainingMs = expiryTimestamp !== null ? (expiryTimestamp - now) : null;
+                        const isExpiredFlag = s.disabled === 'true' || commentLower.includes('expired') || commentLower.includes('หมดอายุ') || commentLower.includes('ค้างชำระ') || commentLower.includes('ตัดสัญญาณ');
+
+                        if (remainingMs !== null) {
+                            const remainingStr = remainingMs <= 0 ? 'หมดอายุแล้ว' : formatMsToHuman(remainingMs);
+                            const roomInfo = `ห้อง ${s.name} (${remainingStr})`;
+                            if (remainingMs <= 86400000 || isExpiredFlag) {
+                                d1Users.push(roomInfo);
+                            } else if (remainingMs <= 259200000) {
+                                d3Users.push(roomInfo);
+                            } else if (remainingMs <= 604800000) {
+                                d7Users.push(roomInfo);
+                            }
+                        } else if (isExpiredFlag) {
                             d1Users.push(`ห้อง ${s.name} (ระงับการใช้งาน)`);
                         }
                     }

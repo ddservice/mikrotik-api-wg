@@ -750,6 +750,17 @@ async function getLineDigestConfig(siteId) {
         var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         var targetSiteId = siteId || activeId;
 
+        // Fetch global/primary credentials fallback
+        var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
+        var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
+        var dataOld = (resOld.data && resOld.data.value) || {};
+
+        var globalToken = dataOld.channelAccessToken || dataOld.lineNotifyToken || '';
+        var globalSecret = dataOld.channelSecret || '';
+        var globalTarget = dataOld.targetId || '';
+        var globalTime = dataOld.digestTime || '09:00';
+        var globalEnabled = !!dataOld.enabled;
+
         var key = 'line_digest_config_' + targetSiteId;
         var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
         var data = res.data && res.data.value;
@@ -757,45 +768,24 @@ async function getLineDigestConfig(siteId) {
         if (data) {
             return {
                 siteId: targetSiteId,
-                enabled: !!data.enabled,
-                channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
-                channelSecret: data.channelSecret || '',
-                targetId: data.targetId || '',
-                digestTime: data.digestTime || '09:00',
+                enabled: data.enabled !== undefined ? !!data.enabled : globalEnabled,
+                channelAccessToken: data.channelAccessToken || data.lineNotifyToken || globalToken,
+                channelSecret: data.channelSecret || globalSecret,
+                targetId: data.targetId || globalTarget,
+                digestTime: data.digestTime || globalTime,
                 includeHotspot: data.includeHotspot !== false,
                 includePppoe: data.includePppoe !== false,
                 lastSentDate: data.lastSentDate || ''
             };
         }
 
-        // Check legacy key ONLY if targetSiteId is first site or default
-        var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-        if (targetSiteId === 'default' || targetSiteId === firstSiteId) {
-            var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
-            var dataOld = resOld.data && resOld.data.value;
-            if (dataOld) {
-                return {
-                    siteId: targetSiteId,
-                    enabled: !!dataOld.enabled,
-                    channelAccessToken: dataOld.channelAccessToken || dataOld.lineNotifyToken || '',
-                    channelSecret: dataOld.channelSecret || '',
-                    targetId: dataOld.targetId || '',
-                    digestTime: dataOld.digestTime || '09:00',
-                    includeHotspot: dataOld.includeHotspot !== false,
-                    includePppoe: dataOld.includePppoe !== false,
-                    lastSentDate: dataOld.lastSentDate || ''
-                };
-            }
-        }
-
-        // Strict default for any secondary site without explicit config: DISABLED
         return {
             siteId: targetSiteId,
-            enabled: false,
-            channelAccessToken: '',
-            channelSecret: '',
-            targetId: '',
-            digestTime: '09:00',
+            enabled: globalEnabled,
+            channelAccessToken: globalToken,
+            channelSecret: globalSecret,
+            targetId: globalTarget,
+            digestTime: globalTime,
             includeHotspot: true,
             includePppoe: true,
             lastSentDate: ''
