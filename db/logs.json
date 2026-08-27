@@ -1,5 +1,113 @@
 [
     {
+        "timestamp": "2026-08-27T07:21:00.545Z",
+        "username": "admin",
+        "action": "เพิ่มบัญชี PPPoE",
+        "details": "เพิ่มห้อง testroom (แพ็กเกจ: default)"
+    },
+    {
+        "timestamp": "2026-08-27T07:02:51.166Z",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-08-27T07:02:51.047Z",
+        "username": "admin",
+        "action": "เข้าสู่ระบบ",
+        "details": "ล็อกอินเข้าสู่หน้าจัดการสำเร็จ"
+    },
+    {
+        "timestamp": "2026-08-27T06:59:01.844Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:59:01.693Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:57:57.837Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:57:57.753Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:56:52.349Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:56:52.225Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:55:45.479Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:55:45.352Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:53:35.037Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:53:34.920Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:53:01.979Z",
+        "username": "System Monitor",
+        "action": "เราท์เตอร์หลุดการเชื่อมต่อ",
+        "details": "🚨 เราท์เตอร์สาขา สาขาที่ 2 (WireGuard VPN) ขาดการเชื่อมต่อ (Offline): Connection timeout to MikroTik Router"
+    },
+    {
+        "timestamp": "2026-08-27T06:52:28.756Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:52:28.651Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:51:39.126Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
+        "timestamp": "2026-08-27T06:51:39.054Z",
+        "username": "System Security",
+        "action": "Login ล้มเหลว",
+        "details": "username: \"admin\" | IP: 127.0.0.1"
+    },
+    {
         "timestamp": "2026-06-27T09:13:09.095Z",
         "username": "admin",
         "action": "เข้าสู่ระบบ",

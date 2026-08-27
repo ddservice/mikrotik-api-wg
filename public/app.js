@@ -834,9 +834,9 @@ async function fetchSystemStatus() {
             rosBadge.style.display = 'block';
             if (status.hasUpdate && status.latestVersion && status.latestVersion !== status.currentVersion) {
                 rosBadge.innerHTML = `
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; margin-top:4px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; margin-top:6px;">
                         <span style="color:#d97706; font-weight:700; font-size:0.75rem;"><i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชัน v${status.latestVersion}</span>
-                        <button type="button" class="btn btn-sm btn-primary btn-quick-ros-upgrade" data-action="open-full-upgrade" onclick="event.stopPropagation(); openFullUpgradeModal();" style="padding:2px 8px; font-size:0.7rem; height:auto; border-radius:10px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.3); color:#fff; cursor:pointer;" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
+                        <button type="button" class="btn btn-sm btn-primary btn-quick-ros-upgrade" data-action="open-full-upgrade" onclick="event.stopPropagation(); openFullUpgradeModal();" style="padding:4px 10px; font-size:0.72rem; white-space:nowrap; height:auto; border-radius:10px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); border:none; box-shadow:0 2px 6px rgba(37,99,235,0.3); color:#fff; cursor:pointer;" title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click อัปเกรด
                         </button>
                     </div>
