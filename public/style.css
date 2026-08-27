@@ -1764,12 +1764,12 @@ input:disabled + .slider {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(15, 23, 42, 0.4);
+    background: rgba(15, 23, 42, 0.55);
     backdrop-filter: blur(8px);
-    display: flex;
+    display: none;
     align-items: flex-start;
     justify-content: center;
-    z-index: 200;
+    z-index: 9999;
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--transition-fast);
@@ -1778,12 +1778,13 @@ input:disabled + .slider {
 }
 
 #modal-wg-script {
-    z-index: 220;
+    z-index: 10000;
 }
 
 .modal-wrapper.active {
-    opacity: 1;
-    pointer-events: auto;
+    display: flex !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 .modal-card {
