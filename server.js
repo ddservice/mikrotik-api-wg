@@ -1584,7 +1584,30 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
             
             const r = resources[0] || {};
             const rb = routerboard[0] || {};
-            const h = health[0] || {};
+            
+            let tempVal = null;
+            let voltVal = null;
+
+            if (Array.isArray(health)) {
+                for (const item of health) {
+                    if (item.name) {
+                        const n = String(item.name).toLowerCase();
+                        if (n.includes('temp') && item.value && !tempVal) {
+                            tempVal = `${item.value}°C`;
+                        }
+                        if (n.includes('voltage') && item.value && !voltVal) {
+                            voltVal = `${item.value}V`;
+                        }
+                    }
+                    if (item.temperature && !tempVal) tempVal = `${item.temperature}°C`;
+                    if (item['cpu-temperature'] && !tempVal) tempVal = `${item['cpu-temperature']}°C`;
+                    if (item.voltage && !voltVal) voltVal = `${(parseFloat(item.voltage) / (parseFloat(item.voltage) > 100 ? 10 : 1)).toFixed(1)}V`;
+                }
+            } else if (typeof health === 'object' && health !== null) {
+                if (health.temperature) tempVal = `${health.temperature}°C`;
+                if (health['cpu-temperature']) tempVal = `${health['cpu-temperature']}°C`;
+                if (health.voltage) voltVal = `${(parseFloat(health.voltage) / (parseFloat(health.voltage) > 100 ? 10 : 1)).toFixed(1)}V`;
+            }
             
             const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
             const isV6 = (r.version || '').startsWith('6');
@@ -1617,8 +1640,8 @@ app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), asyn
                 currentFirmware: rb['current-firmware'] || r.version || 'N/A',
                 upgradeFirmware: rb['upgrade-firmware'] || 'N/A',
                 factoryFirmware: rb['factory-firmware'] || 'N/A',
-                temperature: h.temperature ? `${h.temperature}°C` : (h['cpu-temperature'] ? `${h['cpu-temperature']}°C` : null),
-                voltage: h.voltage ? `${(parseFloat(h.voltage) / (h.voltage > 100 ? 10 : 1)).toFixed(1)}V` : null
+                temperature: tempVal,
+                voltage: voltVal
             };
         });
         res.json(stats);

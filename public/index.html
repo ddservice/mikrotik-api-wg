@@ -148,7 +148,7 @@
                 <!-- 1. OVERVIEW PAGE -->
                 <section id="page-overview" class="page-section">
                     
-                    <!-- Stats Grid -->
+                    <!-- Stats Grid (Modern Enterprise NOC Standards) -->
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-icon cpu"><i class="fa-solid fa-microchip"></i></div>
@@ -162,6 +162,16 @@
                             <div class="stat-info">
                                 <h3>RAM Memory</h3>
                                 <p id="stat-ram">- / - MB</p>
+                            </div>
+                        </div>
+                        <div class="stat-card" id="stat-card-health" title="อุณหภูมิและแรงดันไฟฟ้าอุปกรณ์เราท์เตอร์ (Hardware Temperature & Voltage)">
+                            <div class="stat-icon" style="background:#ccfbf1; color:#0f766e;"><i class="fa-solid fa-temperature-half"></i></div>
+                            <div class="stat-info" style="min-width:0; flex:1;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <h3>อุณหภูมิ & Voltage</h3>
+                                    <span id="stat-temp-status" style="font-size:0.68rem; font-weight:700; background:#dcfce7; color:#15803d; padding:1px 6px; border-radius:10px;">ปกติ</span>
+                                </div>
+                                <p id="stat-temperature" style="font-size:1.15rem; font-weight:700; color:#0f766e; margin:2px 0 0; word-break:break-word;">-</p>
                             </div>
                         </div>
                         <div class="stat-card" id="stat-card-uptime" title="ระยะเวลาเปิดทำงานต่อเนื่องของเราท์เตอร์">
@@ -200,7 +210,7 @@
                                 <p id="stat-firmware">-</p>
                             </div>
                         </div>
-                        <!-- P3: Hotspot Online Card -->
+                        <!-- Hotspot Online Card -->
                         <div class="stat-card stat-card-hotspot" id="stat-card-online" style="cursor:pointer;" title="คลิกเพื่อดูผู้ใช้งาน Hotspot">
                             <div class="stat-icon hotspot-online"><i class="fa-solid fa-users"></i></div>
                             <div class="stat-info">
@@ -209,6 +219,7 @@
                             </div>
                             <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
                         </div>
+                        <!-- PPPoE Online Card -->
                         <div class="stat-card" id="stat-card-pppoe-rooms" style="cursor:pointer;" title="คลิกเพื่อดูห้อง PPPoE ที่ออนไลน์อยู่ในขณะนี้">
                             <div class="stat-icon model"><i class="fa-solid fa-door-closed"></i></div>
                             <div class="stat-info">
@@ -216,48 +227,6 @@
                                 <p id="stat-pppoe-rooms">-</p>
                             </div>
                             <span class="stat-live-dot" title="อัปเดตอัตโนมัติ"></span>
-                        </div>
-                    </div>
-
-                    <!-- Router Operations & System Maintenance Panel (Admin Only) -->
-                    <div class="card mt-24" id="panel-router-operations" style="background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border: 1px solid #cbd5e1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: block;">
-                        <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <div class="card-title" style="display:flex; align-items:center; gap:10px;">
-                                <div style="width:36px; height:36px; border-radius:8px; background:linear-gradient(135deg, #0284c7, #0369a1); display:flex; align-items:center; justify-content:center; color:#fff;">
-                                    <i class="fa-solid fa-sliders"></i>
-                                </div>
-                                <div>
-                                    <h4 style="margin:0; font-size:1.05rem; font-weight:700; color:#1e293b;">การจัดการและดูแลรักษาระบบเราท์เตอร์ (Router Operations)</h4>
-                                    <p style="margin:2px 0 0; font-size:0.8rem; color:#64748b;">อัปเกรดระบบอัตโนมัติ (ROS+Firmware), ตรวจสอบเวอร์ชัน, รีบูต และเครื่องมือจัดการด่วน</p>
-                                </div>
-                            </div>
-                            <div id="router-health-badge" style="font-size:0.8rem; font-weight:600; color:#0f766e; background:#ccfbf1; padding:4px 10px; border-radius:20px; display:none;">
-                                <i class="fa-solid fa-temperature-half"></i> <span id="health-temp">-</span>
-                            </div>
-                        </div>
-                        <div class="card-body" style="padding: 20px;">
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
-                                <!-- Primary Action: 1-Click Automated Full Upgrade -->
-                                <button type="button" class="btn btn-primary" id="btn-full-system-upgrade" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:700; background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; border:none; border-radius:8px; grid-column: 1 / -1; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>อัปเกรดระบบเต็มรูปแบบ 1-Click (อัปเดต ROS ➔ รีบูต ➔ อัปเกรด Firmware ➔ รีบูตจบงาน)</span>
-                                </button>
-                                <!-- Button 1: Quick Backup (.backup) -->
-                                <button type="button" class="btn btn-secondary" id="btn-system-backup" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:8px;">
-                                    <i class="fa-solid fa-floppy-disk text-success"></i> <span>สำรองคอนฟิก (.backup)</span>
-                                </button>
-                                <!-- Button 2: Quality & Jitter Test -->
-                                <button type="button" class="btn btn-secondary" id="btn-quality-test" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:8px;">
-                                    <i class="fa-solid fa-chart-line text-primary"></i> <span>ทดสอบคุณภาพ & Jitter</span>
-                                </button>
-                                <!-- Button 3: Flush DNS Cache -->
-                                <button type="button" class="btn btn-secondary" id="btn-flush-dns" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; border-radius:8px;">
-                                    <i class="fa-solid fa-broom text-secondary"></i> <span>ล้าง DNS Cache</span>
-                                </button>
-                                <!-- Button 4: Reboot Router -->
-                                <button type="button" class="btn btn-secondary" id="btn-system-reboot" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-weight:600; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px;">
-                                    <i class="fa-solid fa-power-off text-danger"></i> <span>รีบูตเราท์เตอร์ (Reboot)</span>
-                                </button>
-                            </div>
                         </div>
                     </div>
 
@@ -3156,7 +3125,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=120.0"></script>
+    <script src="app.js?v=121.0"></script>
 </body>
 </html>
 

@@ -854,15 +854,36 @@ async function fetchSystemStatus() {
             }
         }
 
-        // Health Badge (Temperature & Voltage)
-        const healthBadge = document.getElementById('router-health-badge');
-        const healthTemp = document.getElementById('health-temp');
-        if (healthBadge && healthTemp) {
+        // Device Health & Temperature Card
+        const tempEl = document.getElementById('stat-temperature');
+        const tempStatus = document.getElementById('stat-temp-status');
+        if (tempEl) {
             if (status.temperature || status.voltage) {
-                healthBadge.style.display = 'inline-flex';
-                healthTemp.textContent = `${status.temperature ? status.temperature : ''} ${status.voltage ? '(' + status.voltage + ')' : ''}`.trim();
+                const tText = `${status.temperature || ''} ${status.voltage ? '(' + status.voltage + ')' : ''}`.trim();
+                tempEl.textContent = tText || 'ปกติ';
+                if (tempStatus && status.temperature) {
+                    const tempNum = parseFloat(status.temperature);
+                    if (tempNum >= 75) {
+                        tempStatus.textContent = 'ร้อนสูง ⚠️';
+                        tempStatus.style.background = '#fee2e2';
+                        tempStatus.style.color = '#dc2626';
+                    } else if (tempNum >= 60) {
+                        tempStatus.textContent = 'อุ่น';
+                        tempStatus.style.background = '#fef3c7';
+                        tempStatus.style.color = '#d97706';
+                    } else {
+                        tempStatus.textContent = 'ปกติ';
+                        tempStatus.style.background = '#dcfce7';
+                        tempStatus.style.color = '#15803d';
+                    }
+                }
             } else {
-                healthBadge.style.display = 'none';
+                tempEl.textContent = 'ปกติ (ไม่มี sensor)';
+                if (tempStatus) {
+                    tempStatus.textContent = 'ปกติ';
+                    tempStatus.style.background = '#dcfce7';
+                    tempStatus.style.color = '#15803d';
+                }
             }
         }
         
@@ -875,6 +896,7 @@ async function fetchSystemStatus() {
         document.getElementById('stat-ram').textContent = '-';
         document.getElementById('stat-uptime').textContent = '-';
         document.getElementById('stat-model').textContent = 'Cannot Connect';
+        if (document.getElementById('stat-temperature')) document.getElementById('stat-temperature').textContent = '-';
         const rosEl = document.getElementById('stat-ros-version');
         if (rosEl) rosEl.textContent = '-';
         const rosBadge = document.getElementById('stat-ros-latest-badge');
