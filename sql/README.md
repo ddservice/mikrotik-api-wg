@@ -31,8 +31,8 @@
 
 | ไฟล์ | สถานะ | เรื่อง |
 |---|---|---|
-| `2026-08-28_archived_hotspot_users.sql` | ⬜ รอรัน | สร้างตารางคลังคูปองที่ถูกลบ ซึ่งไม่เคยถูกสร้างเลยตั้งแต่ฟีเจอร์ขึ้น 2026-08-26 |
+| `2026-08-28_archived_hotspot_users.sql` | ✅ รันแล้ว 2026-08-28 | สร้างตารางคลังคูปองที่ถูกลบ ซึ่งไม่เคยถูกสร้างเลยตั้งแต่ฟีเจอร์ขึ้น 2026-08-26 |
 
-หลังรันไฟล์นี้เสร็จ ให้รัน
-`node scripts/migrate-json-to-supabase.js --apply`
-เพื่อย้าย 3 รายการที่ยังค้างอยู่ใน `db/archived_hotspot_users.json` เข้า Supabase
+ย้าย 3 รายการที่ค้างใน `db/archived_hotspot_users.json` เข้า Supabase เรียบร้อยแล้ว
+(`node scripts/migrate-json-to-supabase.js --apply`) — ตรวจผ่าน `db.getArchivedHotspotUsers()`
+ได้ `total = 3` ระบบเริ่มเก็บประวัติคูปองที่ถูกลบเองอัตโนมัติตั้งแต่นี้ไป

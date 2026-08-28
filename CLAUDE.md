@@ -447,6 +447,27 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (13)** — `archived_hotspot_users` table created; archive feature actually works now.
+  - Operator ran `sql/2026-08-28_archived_hotspot_users.sql` in the Supabase SQL Editor — 12 columns
+    confirmed. Added `sql/` as the home for hand-run migrations (this project has no migration
+    framework; until now the statements lived only in conversation or a script comment, with no
+    record of what had been applied). Convention documented in `sql/README.md`: date-prefixed
+    filename, must be safely re-runnable (`IF NOT EXISTS`), RLS on with no policies, and column
+    names matching exactly what `db-supabase.js` builds — a mismatch fails silently because the
+    insert is wrapped in `try/catch`.
+  - Migrated the 3 pending rows from `db/archived_hotspot_users.json`. Verified through the app's own
+    `db.getArchivedHotspotUsers()` rather than a raw query: `total = 3`, so the Hotspot archive page
+    and its Restore button have real data for the first time. **The feature had been silently doing
+    nothing in production since 2026-08-26** — every auto-cleaned coupon was deleted without being
+    archived, and none of those are recoverable.
+  - Also confirmed the migration is genuinely idempotent on a second `--apply`: hotspot/pppoe rows
+    re-upserted by `id` with no duplicates, and `activity_logs` reported "ซ้ำกับที่มีอยู่ 24, ต้องย้าย 0".
+  - **Open item, not changed:** two archive rows carry `site_name: "CCR2004"`, the old name for
+    A4-Residence (see 2026-08-26 (9)). They pre-date the rename so the migration's name-normalisation
+    had nothing to map them from. Filtering the archive by A4-Residence will not show them. It is a
+    one-statement `UPDATE` to fix, but it rewrites historical records, so it needs the operator's
+    call rather than a silent correction.
+
 - **2026-08-28 (12)** — `/v2/` PPPoE page (read + suspend), and the shell it needed.
   - Shell built first because every remaining page depends on it: `AppSidebar.vue`, a tiny
     hash-based router (`src/router.js`), and `src/menu.js` mirroring `ALL_CONFIGURABLE_MENUS` +
