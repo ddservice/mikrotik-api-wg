@@ -447,6 +447,42 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-29 (3)** — DNS logs were being stored roughly twice, with the wrong timestamps.
+  Found by the Storage Monitor added in (2), within an hour of it going live.
+  - **How it surfaced**: the new per-table stats showed `dns_query_logs` growing at
+    ~411 rows/minute (~590k/day). At 261 bytes/row measured, 90 days of that is ~14 GB
+    against a 500 MB Supabase free tier. The rate looked far too high for 5 a.m., which
+    is what prompted looking at the rows themselves rather than trusting the number.
+  - **Cause 1 — the dedupe key used the wrong clock.** The fingerprint was
+    `ip|domain|Math.floor(Date.now()/60000)`, i.e. the minute the poller happened to
+    process the line. Measured on Suksawad-CMU: the router's 3000-line dns buffer spans
+    only **~10.5 minutes** at that site's rate (`04:51:51` → `05:02:16`), while the
+    poller reads it every **5 minutes** — so each line is read 2–3 times, and each
+    re-read produced a *different* fingerprint and was inserted again. Now keyed on the
+    log line's own timestamp, which is stable across re-reads. 15.3% of sampled rows
+    were exact duplicates (same ip, domain and timestamp, up to ×13).
+  - **Cause 2 — a detached dedupe Set.** `recentDnsFingerprintsBySite.get(site.id) || new Set()`
+    created a throwaway Set whenever a site had no entry yet; it was read by the loop but
+    never written to, because `rememberDnsFingerprint` creates and stores its own. So the
+    first batch after **every restart** bypassed dedupe entirely. Both call sites now go
+    through `getDnsFingerprintSet(siteId)`.
+  - **`query_time` was the insertion time, not the query time.** Every row in a batch got
+    `new Date()`, so they shared one timestamp to the millisecond and could be up to 5
+    minutes late. For a มาตรา 26 record that is the field that has to be right. Added
+    `parseRouterOsLogTime()` handling the format the routers actually send
+    (`"2026-08-29 04:51:51"`, confirmed live on ROS 7.24.1) plus the older `aug/29`,
+    `aug/29/2026` and bare `04:51:51` forms, converting router-local (Asia/Bangkok,
+    UTC+7, no DST — override with `ROUTER_TZ_OFFSET_MIN`) to UTC. It **rejects**
+    anything more than 2 hours ahead or 7 days behind and falls back to server time,
+    so a router with a wrong clock cannot write confidently-wrong legal timestamps.
+    10 parser cases verified, including the December→January year rollover.
+  - `MAX_DNS_FINGERPRINTS` 2,000 → 20,000. Now that fingerprints are stable, the set has
+    to outlive the router's buffer window; ~1,500 distinct query lines per 10-minute
+    window at the busiest site left no margin at 2,000.
+  - **Not changed**: the duplicate rows already in the table. They are real observations
+    that were recorded twice, not fabricated data, and de-duplicating historical ม.26
+    records is a decision for the operator, not a cleanup to do silently.
+
 - **2026-08-29 (2)** — Storage Monitor: watch all three storage backends, and verify
   the ม.26 retention purge is actually still running. Found a dead `module.exports`
   in `db.js` on the way.

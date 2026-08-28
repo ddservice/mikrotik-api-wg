@@ -4611,18 +4611,104 @@ let lastPppoeSessionsBySite = new Map(); // siteId -> Map(sessionId -> session),
 
 // Dedupe state for DNS visit-history polling (see parseDnsLogMessage below).
 // RouterOS log '.id's reset on router reboot, so they're not a safe permanent
-// watermark — instead we fingerprint by ip+domain+minute and keep a bounded
-// recent-history set per site (also collapses the repeat queries browsers/OSes
-// send for the same domain every few seconds).
+// watermark — instead we fingerprint each entry and keep a bounded recent-history
+// set per site.
+//
+// The fingerprint MUST be keyed on the log line's own timestamp, not on the time
+// we happened to process it. Measured on Suksawad-CMU 2026-08-29: the router's
+// 3000-line dns buffer only spans ~10.5 minutes at that site's query rate, while
+// the poller reads it every 5 minutes — so every line is read 2-3 times. With a
+// processing-time key each re-read produced a different fingerprint and got
+// inserted again, roughly doubling the stored rows. A log-time key is stable
+// across re-reads, so the same query is stored exactly once.
 let recentDnsFingerprintsBySite = new Map(); // siteId -> Set(fingerprint)
-const MAX_DNS_FINGERPRINTS = 2000;
 
-function rememberDnsFingerprint(siteId, fp) {
+// Must comfortably exceed the number of distinct entries the router's buffer can
+// hold, or entries age out of this set while still present in the buffer and get
+// re-inserted. ~1,500 query lines per 10-minute buffer window at the busiest site,
+// so 2,000 was cutting it far too close.
+const MAX_DNS_FINGERPRINTS = 20000;
+
+// Bangkok is UTC+7 year-round (no DST), and CLAUDE.md records the routers as being
+// set to Asia/Bangkok and NTP-synced.
+const ROUTER_TZ_OFFSET_MIN = Number(process.env.ROUTER_TZ_OFFSET_MIN || 420);
+
+const LOG_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                     jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+/**
+ * Turns a RouterOS `/log/print` `time` field into an ISO timestamp.
+ *
+ * This is what ends up in dns_query_logs.query_time, which is the field that has
+ * to stand up as a มาตรา 26 record — so it must be when the query actually
+ * happened, not when the poller got round to reading it. Previously every row in
+ * a batch was stamped `new Date()`, making them all identical to the millisecond
+ * and up to 5 minutes late.
+ *
+ * Observed format on ROS 7.24.1 is "2026-08-29 04:51:51"; older builds use
+ * "aug/29 04:51:51" or bare "04:51:51" for today, so all three are handled.
+ * Returns null when the value can't be trusted, so the caller can fall back.
+ */
+function parseRouterOsLogTime(raw, now = new Date()) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+
+    let y, mo, d, hh, mm, ss;
+    let m;
+
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s))) {
+        [, y, mo, d, hh, mm, ss] = m.map(Number);
+        mo -= 1;
+    } else if ((m = /^([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/i.exec(s))) {
+        mo = LOG_MONTHS[m[1].toLowerCase()];
+        if (mo === undefined) return null;   // month abbreviation we don't know
+        d = +m[2]; y = +m[3]; hh = +m[4]; mm = +m[5]; ss = +m[6];
+    } else if ((m = /^([a-z]{3})\/(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})$/i.exec(s))) {
+        mo = LOG_MONTHS[m[1].toLowerCase()];
+        if (mo === undefined) return null;
+        d = +m[2]; hh = +m[3]; mm = +m[4]; ss = +m[5];
+        y = null;   // year inferred below
+    } else if ((m = /^(\d{2}):(\d{2}):(\d{2})$/.exec(s))) {
+        hh = +m[1]; mm = +m[2]; ss = +m[3];
+        y = mo = d = null;   // "today" on the router — filled in below
+    } else {
+        return null;
+    }
+
+    // Fill in the parts RouterOS omitted, using the router's own local "today"
+    const nowLocal = new Date(now.getTime() + ROUTER_TZ_OFFSET_MIN * 60000);
+    if (y === null || d === null) {
+        if (d === null) { mo = nowLocal.getUTCMonth(); d = nowLocal.getUTCDate(); }
+        y = nowLocal.getUTCFullYear();
+        // A date that lands in the future means the entry is from last year
+        // (RouterOS drops the year, so late-December logs read in January).
+        if (Date.UTC(y, mo, d, hh, mm, ss) > nowLocal.getTime() + 86400000) y -= 1;
+    }
+
+    const localMs = Date.UTC(y, mo, d, hh, mm, ss);
+    if (isNaN(localMs)) return null;
+    const utcMs = localMs - ROUTER_TZ_OFFSET_MIN * 60000;
+
+    // Sanity gate: a router with a wrong clock or timezone would otherwise write
+    // confidently-wrong timestamps into a legal record. Anything more than 2 hours
+    // ahead or 7 days behind is rejected so the caller falls back to server time.
+    const drift = utcMs - now.getTime();
+    if (drift > 2 * 3600000 || drift < -7 * 86400000) return null;
+
+    return new Date(utcMs).toISOString();
+}
+
+function getDnsFingerprintSet(siteId) {
     let set = recentDnsFingerprintsBySite.get(siteId);
     if (!set) {
         set = new Set();
         recentDnsFingerprintsBySite.set(siteId, set);
     }
+    return set;
+}
+
+function rememberDnsFingerprint(siteId, fp) {
+    const set = getDnsFingerprintSet(siteId);
     set.add(fp);
     if (set.size > MAX_DNS_FINGERPRINTS) {
         const toDrop = Math.floor(MAX_DNS_FINGERPRINTS * 0.1);
@@ -4762,7 +4848,11 @@ async function snapshotSiteSessions(site) {
                 if (s.address) ipToClient.set(s.address, { username: s.user, macAddress: s.macAddress });
             }
 
-            const siteDnsFingerprints = recentDnsFingerprintsBySite.get(site.id) || new Set();
+            // Must be the live set from the map, not `... || new Set()`. When a site
+            // had no entry yet, that fallback created a detached Set that was checked
+            // but never written to (rememberDnsFingerprint stores its own), so the
+            // very first batch after every restart was inserted with no dedupe at all.
+            const siteDnsFingerprints = getDnsFingerprintSet(site.id);
             const newRows = [];
             for (const line of dnsLogLines) {
                 const parsed = parseDnsLogMessage(line.message || '');
@@ -4771,13 +4861,19 @@ async function snapshotSiteSessions(site) {
                     continue;
                 }
 
-                const fp = parsed.sourceIp + '|' + parsed.domain + '|' + Math.floor(Date.now() / 60000);
+                // Keyed on the router's own log timestamp so re-reading the same
+                // buffer entry on the next poll collapses instead of duplicating.
+                // Falling back to the processing minute keeps the old behaviour for
+                // entries whose time can't be trusted, rather than dropping them.
+                const logTime = parseRouterOsLogTime(line.time);
+                const fp = parsed.sourceIp + '|' + parsed.domain + '|' +
+                    (logTime || 'p' + Math.floor(Date.now() / 60000));
                 if (siteDnsFingerprints.has(fp)) continue;
                 rememberDnsFingerprint(site.id, fp);
 
                 const client = ipToClient.get(parsed.sourceIp);
                 newRows.push({
-                    queryTime: new Date().toISOString(),
+                    queryTime: logTime || new Date().toISOString(),
                     username: client ? client.username : '',
                     ipAddress: parsed.sourceIp,
                     macAddress: client ? client.macAddress : '',
