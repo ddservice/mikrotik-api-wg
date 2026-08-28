@@ -38,7 +38,7 @@ const FALLBACK_PERMISSIONS = {
 
 // หน้าที่ยังไม่ได้ย้ายมา Vue — กดแล้วเด้งไปหน้าเดิมแทนที่จะโชว์หน้าว่าง
 // ลบ key ออกจากชุดนี้เมื่อย้ายหน้านั้นเสร็จ
-export const NOT_MIGRATED_YET = new Set(['multiwan', 'firewall', 'admins', 'settings']);
+export const NOT_MIGRATED_YET = new Set(['multiwan', 'firewall', 'admins']);
 
 export const visibleMenus = ref([OVERVIEW_MENU]);
 

@@ -9,6 +9,7 @@ import OverviewPage from './components/OverviewPage.vue';
 import HotspotPage from './components/HotspotPage.vue';
 import PppoePage from './components/PppoePage.vue';
 import LogsPage from './components/LogsPage.vue';
+import SettingsPage from './components/SettingsPage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
 import ToastHost from './components/ToastHost.vue';
 
@@ -128,6 +129,7 @@ const activeSiteName = computed(() => {
                 <HotspotPage v-else-if="resolvedRoute === 'hotspot'" />
                 <PppoePage v-else-if="resolvedRoute === 'pppoe'" />
                 <LogsPage v-else-if="resolvedRoute === 'logs'" />
+                <SettingsPage v-else-if="resolvedRoute === 'settings'" />
             </main>
         </div>
 

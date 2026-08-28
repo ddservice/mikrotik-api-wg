@@ -1,7 +1,7 @@
 # frontend/ — Vue 3 + Vite (นำร่อง)
 
 หน้าเว็บเวอร์ชันใหม่ที่กำลังทยอยย้ายมาจาก `public/index.html` + `public/app.js`
-ตอนนี้ย้ายมาแล้ว **4 หน้า**: Overview, Hotspot, PPPoE, Logs (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
+ตอนนี้ย้ายมาแล้ว **5 หน้า**: Overview, Hotspot, PPPoE, Logs, Settings (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
 
 เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — มีหน้าล็อกอินของตัวเอง
 และใช้ token ร่วมกับหน้าเดิมใน `localStorage` เข้าสลับไปมาได้ระหว่างช่วงย้ายระบบ
@@ -80,6 +80,8 @@ frontend/
         ├── BaseModal.vue         # โมดัลกลาง (Teleport to body เสมอ)
         ├── ToastHost.vue         # แจ้งผลแบบ toast แทน alert()
         ├── HotspotUserModal.vue  # เพิ่ม/แก้ไขบัญชี + ตรรกะต่ออายุ
+        ├── SettingsPage.vue      # สาขา + Telegram + LINE
+        ├── SiteModal.vue         # เพิ่ม/แก้ไขสาขา
         └── FullUpgradeModal.vue  # โมดัล 1-Click (ใช้ Teleport)
 ```
 
@@ -96,7 +98,8 @@ frontend/
    *ยังขาด: เพิ่ม/แก้ไขห้องและแพ็กเกจ, server settings, สคริปต์ติดตั้ง*
 5. ✅ Logs — DNS (ม.26), Hotspot (ม.26), สรุป PPPoE รายเดือน, ประวัติผู้ดูแล (admin)
    พร้อมค้นหา/กรองช่วงวัน/แบ่งหน้า/ส่งออก CSV
-6. Settings — ไซต์, LINE OA, Telegram, Router Operations
+6. ✅ Settings — สาขา/เราท์เตอร์ (CRUD + สถานะสด), Telegram, LINE OA รายสาขา
+   *ยังขาด: สคริปต์ WireGuard, เครื่องมือวินิจฉัย 5 ขั้น, Router Operations*
 7. Firewall / Multi-WAN / ผู้ใช้งาน Dashboard
 8. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
 
