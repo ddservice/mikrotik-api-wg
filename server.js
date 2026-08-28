@@ -245,36 +245,63 @@ async function resolveForcedSiteName(req, requestedSiteName) {
 // ==========================================
 const routerClientPool = new Map(); // key -> { client, config, poolKey, lastUsed }
 
+// การเชื่อมต่อที่ "กำลังต่ออยู่" ณ ตอนนี้ — poolKey -> Promise<entry>
+// จำเป็นเพราะหน้า Overview ยิง /status, /hotspot/active, /pppoe/active พร้อมกัน
+// ถ้าไม่มีตัวนี้ ทั้งสาม request จะเห็นว่า pool ว่าง แล้วต่างคนต่างเปิด TCP + login
+// ของตัวเอง = 3 การเชื่อมต่อไปเราท์เตอร์ตัวเดียวกัน ช้ากว่าเดิม 3 เท่า และ 2 อัน
+// กลายเป็น socket ลอยเพราะ pool เก็บได้แค่อันสุดท้าย
+const routerClientConnecting = new Map();
+
 async function getPooledRouterClient(targetSiteId) {
-    const config = await db.getConfig(targetSiteId);
-    if (!config.host || !config.username) {
-        throw new Error(`Router connection (${config.name || targetSiteId || 'Site'}) is not configured. Please setup Router Settings.`);
-    }
+    // สำคัญ: ต้องเช็ค in-flight ก่อน await ตัวแรกของฟังก์ชัน
+    // ถ้าไปเช็คหลัง `await db.getConfig()` request ที่เข้ามาพร้อมกันจะผ่านจุดเช็ค
+    // ไปพร้อมกันหมดแล้วต่างคนต่างเปิดการเชื่อมต่อ (วัดได้จริง: ยิง 3 request พร้อมกัน
+    // ได้ 2-3 TCP connection) จึง key ด้วย siteId ที่มีอยู่แล้วแบบ synchronous
+    const siteKey = String(targetSiteId || 'default');
 
-    const poolKey = `${config.id || targetSiteId || 'default'}_${config.host}_${config.port}_${config.username}`;
-    let entry = routerClientPool.get(poolKey);
+    const pending = routerClientConnecting.get(siteKey);
+    if (pending) return pending;
 
-    if (entry && entry.client && entry.client.connected) {
-        entry.lastUsed = Date.now();
+    const attempt = (async () => {
+        const config = await db.getConfig(targetSiteId);
+        if (!config.host || !config.username) {
+            throw new Error(`Router connection (${config.name || targetSiteId || 'Site'}) is not configured. Please setup Router Settings.`);
+        }
+
+        const poolKey = `${config.id || targetSiteId || 'default'}_${config.host}_${config.port}_${config.username}`;
+        const existing = routerClientPool.get(poolKey);
+
+        if (existing && existing.client && existing.client.connected) {
+            existing.lastUsed = Date.now();
+            return existing;
+        }
+
+        // Clean up dead client if present
+        if (existing && existing.client) {
+            try { existing.client.close(); } catch (_) {}
+            routerClientPool.delete(poolKey);
+        }
+
+        const client = new RouterOSClient(config.host, config.port, config.username, config.password);
+        await client.connect();
+
+        const entry = {
+            client,
+            config,
+            poolKey,
+            lastUsed: Date.now(),
+            fresh: true // เพิ่งต่อสด ๆ — executeOnRouter จะได้ไม่ retry ซ้ำโดยเปล่าประโยชน์
+        };
+        routerClientPool.set(poolKey, entry);
         return entry;
+    })();
+
+    routerClientConnecting.set(siteKey, attempt);
+    try {
+        return await attempt;
+    } finally {
+        routerClientConnecting.delete(siteKey);
     }
-
-    // Clean up dead client if present
-    if (entry && entry.client) {
-        try { entry.client.close(); } catch (_) {}
-    }
-
-    const client = new RouterOSClient(config.host, config.port, config.username, config.password);
-    await client.connect();
-
-    entry = {
-        client,
-        config,
-        poolKey,
-        lastUsed: Date.now()
-    };
-    routerClientPool.set(poolKey, entry);
-    return entry;
 }
 
 // Auto cleanup idle pooled clients after 60s
@@ -317,16 +344,24 @@ async function executeOnRouter(arg1, arg2, arg3) {
     }
 
     let poolEntry;
+    let usedFreshConnection = false;
     try {
         poolEntry = await getPooledRouterClient(targetSiteId);
+        usedFreshConnection = poolEntry.fresh === true;
+        poolEntry.fresh = false; // ถูกใช้งานแล้ว ครั้งหน้าถือเป็น socket เก่าใน pool
         return await fn(poolEntry.client);
     } catch (err) {
-        // If socket was disconnected mid-flight, evict from pool and retry once with fresh connect
-        if (poolEntry) {
-            try { poolEntry.client.close(); } catch (_) {}
-            routerClientPool.delete(poolEntry.poolKey);
-        }
+        // retry มีไว้แก้กรณี "socket ใน pool ตายไปแล้วแต่เราเพิ่งรู้ตอนใช้"
+        // ถ้าเพิ่งต่อสดแล้วยังพัง แปลว่าเราท์เตอร์มีปัญหาจริง การ retry มีแต่จะทำให้
+        // ผู้ใช้รอนานเป็นสองเท่า (connect timeout 10 วิ x 2) โดยไม่ได้อะไรเพิ่ม
+        if (!poolEntry) throw err;
+
+        try { poolEntry.client.close(); } catch (_) {}
+        routerClientPool.delete(poolEntry.poolKey);
+        if (usedFreshConnection) throw err;
+
         poolEntry = await getPooledRouterClient(targetSiteId);
+        poolEntry.fresh = false;
         return await fn(poolEntry.client);
     }
 }
@@ -2458,7 +2493,7 @@ app.post('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async 
 app.put('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { name, password, profile, comment, disabled } = req.body;
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const params = {
                 '.id': req.params.id,
                 name,
@@ -2479,7 +2514,7 @@ app.put('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), asy
 // Delete PPPoE room account
 app.delete('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ppp/secret/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ลบบัญชี PPPoE', 'ลบห้อง ID: ' + req.params.id);
@@ -2497,7 +2532,7 @@ app.delete('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), 
 // pull rx-byte/tx-byte from there instead.
 app.get('/api/mikrotik/pppoe/active', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const active = await executeOnRouter(async (client) => {
+        const active = await executeOnRouter(req, async (client) => {
             const [list, interfaces] = await Promise.all([
                 client.exec('/ppp/active/print'),
                 client.exec('/interface/print')
@@ -2534,7 +2569,7 @@ app.patch('/api/mikrotik/pppoe/users/by-name/:name/suspend', requireAuth(['admin
         return res.status(400).json({ error: 'ต้องระบุค่า suspend เป็น true หรือ false' });
     }
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const secrets = await client.exec('/ppp/secret/print');
             const secret = secrets.find(item => item.service === 'pppoe' && item.name === req.params.name);
             if (!secret) throw new Error(`ไม่พบบัญชีห้อง "${req.params.name}"`);
@@ -2556,7 +2591,7 @@ app.patch('/api/mikrotik/pppoe/users/by-name/:name/suspend', requireAuth(['admin
 // Disconnect a PPPoE session
 app.delete('/api/mikrotik/pppoe/active/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ppp/active/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ตัดการเชื่อมต่อ PPPoE', 'ตัดเซสชัน ID: ' + req.params.id);
@@ -2569,7 +2604,7 @@ app.delete('/api/mikrotik/pppoe/active/:id', requireAuth(['admin', 'co-admin']),
 // Read PPPoE packages (profiles)
 app.get('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const profiles = await executeOnRouter(async (client) => {
+        const profiles = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/ppp/profile/print');
             return list.map(item => ({
                 id: item['.id'],
@@ -2597,7 +2632,7 @@ app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asy
         return res.status(400).json({ error: 'ต้องระบุชื่อแพ็กเกจ' });
     }
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const params = { name, 'only-one': 'yes' };
             if (rateLimit) params['rate-limit'] = rateLimit;
             if (localAddress) params['local-address'] = localAddress;
@@ -2617,7 +2652,7 @@ app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), asy
 app.put('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout } = req.body;
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const params = { '.id': req.params.id, name };
             if (rateLimit) params['rate-limit'] = rateLimit;
             if (localAddress) params['local-address'] = localAddress;
@@ -2639,7 +2674,7 @@ app.put('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), 
 // Delete PPPoE package
 app.delete('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ppp/profile/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ลบแพ็กเกจ PPPoE', 'ลบแพ็กเกจ ID: ' + req.params.id);
@@ -2655,7 +2690,7 @@ app.delete('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']
 // PPPoE server instance per site, which is what the setup script creates.
 app.get('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const settings = await executeOnRouter(async (client) => {
+        const settings = await executeOnRouter(req, async (client) => {
             const list = await client.exec('/interface/pppoe-server/server/print');
             if (!list.length) return null;
             const server = list[0];
@@ -2681,7 +2716,7 @@ app.put('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']
         return res.status(400).json({ error: 'ต้องระบุค่า Keepalive Timeout' });
     }
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const list = await client.exec('/interface/pppoe-server/server/print');
             if (!list.length) throw new Error('ไม่พบ PPPoE Server บนเราท์เตอร์นี้ (ต้องตั้งค่าเซิร์ฟเวอร์ก่อนผ่านสคริปต์ตั้งค่า)');
             await client.exec('/interface/pppoe-server/server/set', { '.id': list[0]['.id'], 'keepalive-timeout': keepaliveTimeout });
@@ -3462,6 +3497,58 @@ app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), 
     res.json(await db.getLineDigestConfig(siteId));
 });
 
+// วินิจฉัยว่า "ทำไมสาขานี้ไม่ได้รับแจ้งเตือนวันนี้"
+// ตอบทุกสาขาพร้อมเหตุผลของแต่ละอัน โดยไม่เปิดเผย token (บอกแค่ว่ามีหรือไม่มี)
+app.get('/api/mikrotik/line-digest/status', requireAuth(['admin']), async (req, res) => {
+    try {
+        const nowBkk = bangkokNow();
+        const sitesData = await db.getSites();
+        const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0)
+            ? sitesData.sites
+            : [{ id: 'default', name: 'Main Site' }];
+
+        const rows = [];
+        for (const site of sites) {
+            let config = null;
+            let readError = null;
+            try {
+                config = await db.getLineDigestConfig(site.id);
+            } catch (e) {
+                readError = e.message || String(e);
+            }
+            const verdict = readError
+                ? { due: false, reason: `อ่านการตั้งค่าไม่ได้: ${readError}` }
+                : evaluateDigestDue(config, nowBkk);
+
+            rows.push({
+                siteId: site.id,
+                siteName: site.name,
+                enabled: !!(config && config.enabled),
+                hasChannelAccessToken: !!(config && config.channelAccessToken),
+                hasTargetId: !!(config && config.targetId),
+                targetIdPreview: config && config.targetId
+                    ? String(config.targetId).slice(0, 6) + '…' + String(config.targetId).slice(-4)
+                    : null,
+                digestTime: (config && config.digestTime) || null,
+                lastSentDate: (config && config.lastSentDate) || null,
+                sentToday: !!(config && config.lastSentDate === nowBkk.dateStr),
+                dueNow: verdict.due,
+                reason: verdict.reason
+            });
+        }
+
+        res.json({
+            serverTimeUtc: new Date().toISOString(),
+            bangkokTime: nowBkk.hhmm,
+            bangkokDate: nowBkk.dateStr,
+            catchupMinutes: LINE_DIGEST_CATCHUP_MINUTES,
+            sites: rows
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'];
     const updated = await db.saveLineDigestConfig(req.body, siteId);
@@ -3532,31 +3619,83 @@ app.post('/api/mikrotik/line-health/run-now', requireAuth(['admin', 'co-admin'])
 });
 
 // Background Timer for Daily LINE Expiry Digest (checks every 1 minute, multi-site isolated)
+// เวลาที่ยอมให้ส่ง "ย้อนหลัง" ได้ ถ้าพลาดนาทีที่ตั้งไว้พอดี
+// (เช่น server รีสตาร์ต, event loop ติด, หรือเราท์เตอร์ล่มชั่วคราวตอนถึงเวลา)
+// เกินช่วงนี้แล้วข้ามไปเลย ไม่งั้นเปิดเครื่องตอนดึกจะยิงสรุปของเมื่อเช้าออกไป
+const LINE_DIGEST_CATCHUP_MINUTES = 180;
+
+function bangkokNow() {
+    const now = new Date();
+    const bkk = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+    return {
+        date: bkk,
+        hhmm: String(bkk.getHours()).padStart(2, '0') + ':' + String(bkk.getMinutes()).padStart(2, '0'),
+        minutes: bkk.getHours() * 60 + bkk.getMinutes(),
+        dateStr: bkk.toISOString().slice(0, 10)
+    };
+}
+
+function parseHHMMToMinutes(hhmm) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+    if (!m) return null;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+
+// ตัดสินว่าสาขานี้ควรส่งสรุปตอนนี้หรือยัง — แยกออกมาเป็นฟังก์ชันเพื่อให้
+// endpoint วินิจฉัย (/api/mikrotik/line-digest/status) ใช้ตรรกะชุดเดียวกันได้
+function evaluateDigestDue(config, nowBkk) {
+    if (!config) return { due: false, reason: 'ไม่มีการตั้งค่า LINE ของสาขานี้' };
+    if (!config.enabled) return { due: false, reason: 'ปิดการแจ้งเตือนอยู่ (enabled = false)' };
+    if (!config.channelAccessToken) return { due: false, reason: 'ยังไม่ได้ใส่ Channel Access Token' };
+    if (!config.targetId) return { due: false, reason: 'ยังไม่ได้ใส่ Target ID / Group ID' };
+
+    const target = parseHHMMToMinutes(config.digestTime);
+    if (target === null) return { due: false, reason: `รูปแบบเวลาไม่ถูกต้อง: "${config.digestTime}"` };
+
+    if (config.lastSentDate === nowBkk.dateStr) {
+        return { due: false, reason: `ส่งไปแล้ววันนี้ (${config.lastSentDate})` };
+    }
+    if (nowBkk.minutes < target) {
+        return { due: false, reason: `ยังไม่ถึงเวลา ${config.digestTime} (ตอนนี้ ${nowBkk.hhmm})` };
+    }
+    if (nowBkk.minutes - target > LINE_DIGEST_CATCHUP_MINUTES) {
+        return { due: false, reason: `เลยเวลา ${config.digestTime} มาเกิน ${LINE_DIGEST_CATCHUP_MINUTES} นาที ข้ามรอบนี้` };
+    }
+    return { due: true, reason: `ถึงเวลาส่ง (ตั้งไว้ ${config.digestTime}, ตอนนี้ ${nowBkk.hhmm})` };
+}
+
 setInterval(async () => {
+    let sites;
     try {
         const sitesData = await db.getSites();
-        const sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default', name: 'Main Site' }];
-
-        for (const site of sites) {
-            const config = await db.getLineDigestConfig(site.id);
-            if (!config || !config.enabled || !config.channelAccessToken || !config.targetId) continue;
-
-            const now = new Date();
-            const bkkTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-            const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
-            const todayDateStr = bkkTime.toISOString().slice(0, 10);
-
-            if (currentHHMM === config.digestTime && config.lastSentDate !== todayDateStr) {
-                console.log(`[LINE OA Digest] Triggering daily digest for site ${site.name} (${site.id}) at ${currentHHMM}...`);
-                const digest = await generateDailyExpiryDigest(site.id);
-                const flexMsg = createDailyDigestFlex(digest);
-                await sendLinePushMessage(config.channelAccessToken, config.targetId, flexMsg);
-                await db.saveLineDigestConfig({ lastSentDate: todayDateStr }, site.id);
-                db.addLog('System Auto', 'ส่งสรุป LINE OA ประจำวัน', `ส่งรายงาน Flex Card (${site.name}) สำเร็จ (${digest.totalItems} รายการ)`);
-            }
-        }
+        sites = (sitesData && sitesData.sites && sitesData.sites.length > 0) ? sitesData.sites : [{ id: 'default', name: 'Main Site' }];
     } catch (e) {
-        console.error('[LINE OA Digest] Automated digest error:', e.message || e);
+        console.error('[LINE OA Digest] อ่านรายชื่อสาขาไม่ได้:', e.message || e);
+        return;
+    }
+
+    const nowBkk = bangkokNow();
+
+    for (const site of sites) {
+        // แต่ละสาขาต้องมี try/catch ของตัวเอง — เดิมใช้ try เดียวครอบทั้ง loop
+        // สาขาแรกที่ error (เช่นเราท์เตอร์ offline ตอนถึงเวลาพอดี) จะทำให้สาขาที่เหลือ
+        // ไม่ถูกประมวลผลเลยในรอบนั้น
+        try {
+            const config = await db.getLineDigestConfig(site.id);
+            const verdict = evaluateDigestDue(config, nowBkk);
+            if (!verdict.due) continue;
+
+            console.log(`[LINE OA Digest] ส่งสรุปประจำวันของสาขา ${site.name} (${site.id}) — ${verdict.reason}`);
+            const digest = await generateDailyExpiryDigest(site.id);
+            const flexMsg = createDailyDigestFlex(digest);
+            await sendLinePushMessage(config.channelAccessToken, config.targetId, flexMsg);
+            await db.saveLineDigestConfig({ lastSentDate: nowBkk.dateStr }, site.id);
+            db.addLog('System Auto', 'ส่งสรุป LINE OA ประจำวัน', `ส่งรายงาน Flex Card (${site.name}) สำเร็จ (${digest.totalItems} รายการ)`);
+        } catch (e) {
+            // ไม่บันทึก lastSentDate เมื่อพลาด เพื่อให้รอบถัดไปลองใหม่ภายในช่วง catch-up
+            console.error(`[LINE OA Digest] สาขา ${site.name} (${site.id}) ส่งไม่สำเร็จ:`, e.message || e);
+            db.addLog('System Auto', 'ส่งสรุป LINE OA ล้มเหลว', `สาขา ${site.name}: ${e.message || e}`);
+        }
     }
 }, 60000);
 
@@ -3708,7 +3847,7 @@ app.post('/api/mikrotik/hotspot/generate', requireAuth(['admin', 'co-admin', 'us
     const runPrefix = prefix || '';
 
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             for (let i = 0; i < quantity; i++) {
                 // Generate a random username and password (6 chars each)
                 const username = runPrefix + genRandomString(5);
@@ -3810,7 +3949,7 @@ const FIREWALL_SERVICES = {
 // Get block status & schedule for all services
 app.get('/api/mikrotik/firewall/status', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const status = await executeOnRouter(async (client) => {
+        const status = await executeOnRouter(req, async (client) => {
             const filterRules = await client.exec('/ip/firewall/filter/print');
             const result = {};
             
@@ -3847,7 +3986,7 @@ app.get('/api/mikrotik/firewall/status', requireAuth(['admin', 'co-admin', 'user
 // Get custom address list rules
 app.get('/api/mikrotik/firewall/custom-rules', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        const rules = await executeOnRouter(async (client) => {
+        const rules = await executeOnRouter(req, async (client) => {
             const addrLists = await client.exec('/ip/firewall/address-list/print');
             return addrLists.filter(item => item.list === 'blocked_custom').map(item => ({
                 id: item['.id'],
@@ -3870,7 +4009,7 @@ app.post('/api/mikrotik/firewall/custom-rules', requireAuth(['admin', 'co-admin'
     }
     const cleanDomain = domain.trim().toLowerCase();
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const listName = 'blocked_custom';
             const addrLists = await client.exec('/ip/firewall/address-list/print');
             const exists = addrLists.some(item => item.list === listName && item.address === cleanDomain);
@@ -3906,7 +4045,7 @@ app.post('/api/mikrotik/firewall/custom-rules', requireAuth(['admin', 'co-admin'
 // Delete custom domain block rule
 app.delete('/api/mikrotik/firewall/custom-rules/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             await client.exec('/ip/firewall/address-list/remove', { '.id': req.params.id });
         });
         db.addLog(req.user.username, 'ลบกฎบล็อกกำหนดเอง', `ลบกฎ ID: ${req.params.id}`);
@@ -3931,7 +4070,7 @@ app.post('/api/mikrotik/firewall/toggle', requireAuth(['admin', 'co-admin', 'use
     const domains = svcConfig.domains;
 
     try {
-        await executeOnRouter(async (client) => {
+        await executeOnRouter(req, async (client) => {
             const filterRules = await client.exec('/ip/firewall/filter/print');
             const existingRule = filterRules.find(r => r.comment === ruleComment);
             

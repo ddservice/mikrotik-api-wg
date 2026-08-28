@@ -1,15 +1,23 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { apiFetch, currentUser } from '../api.js';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { apiFetch, currentUser, activeSiteId } from '../api.js';
 import { formatUptime, formatMegabytes } from '../format.js';
 import StatCard from './StatCard.vue';
+
+const POLL_MS = 10000;
 
 const status = ref(null);
 const hotspotOnline = ref(null);
 const pppoeOnline = ref(null);
 const error = ref('');
 const lastUpdated = ref('');
+const switching = ref(false);
 let timer = null;
+
+// นับรอบการโหลด เพื่อทิ้งผลลัพธ์ที่มาช้าจากสาขาก่อนหน้า
+// ถ้าไม่มีตัวนี้: กดสลับจากสาขา A ไป B แล้วคำตอบของ A เพิ่งกลับมาทีหลัง
+// ตัวเลขของ A จะทับข้อมูล B โดยที่หน้าจอยังบอกว่าเป็น B อยู่
+let requestId = 0;
 
 // endpoint สองตัวนี้จำกัดสิทธิ์ admin/co-admin — role 'user' จะได้ 403
 // จึงไม่ยิงเลยเพื่อไม่ให้ขึ้น error โดยไม่จำเป็น (พฤติกรรมเดียวกับหน้าเดิม)
@@ -18,37 +26,55 @@ const canSeeLiveCounts = computed(() => {
     return role === 'admin' || role === 'co-admin';
 });
 
-async function loadLiveCounts() {
-    if (!canSeeLiveCounts.value) {
-        hotspotOnline.value = null;
-        pppoeOnline.value = null;
-        return;
-    }
-    const [hs, pp] = await Promise.allSettled([
-        apiFetch('/api/mikrotik/hotspot/active'),
-        apiFetch('/api/mikrotik/pppoe/active')
-    ]);
-    hotspotOnline.value = hs.status === 'fulfilled' ? (hs.value?.length ?? 0) : null;
-    pppoeOnline.value = pp.status === 'fulfilled' ? (pp.value?.length ?? 0) : null;
-}
-
 // เดิมหน้านี้ใช้ getElementById 30+ ครั้งใน fetchSystemStatus() เพื่อยัดค่าเข้า DOM ทีละช่อง
 // ตอนนี้เหลือ ref เดียว แล้ว template ผูกค่าตามเอง — เพิ่มการ์ดใหม่ไม่ต้องแตะ JS เลย
 async function load() {
-    try {
-        status.value = await apiFetch('/api/mikrotik/status');
+    const myId = ++requestId;
+
+    // ยิงทั้ง 3 endpoint พร้อมกัน — เดิมรอ status เสร็จก่อนค่อยยิงอีกสองตัว
+    // ทำให้เวลารวมเป็นผลบวกแทนที่จะเป็นตัวที่ช้าที่สุด
+    const [st, hs, pp] = await Promise.allSettled([
+        apiFetch('/api/mikrotik/status'),
+        canSeeLiveCounts.value ? apiFetch('/api/mikrotik/hotspot/active') : Promise.resolve(null),
+        canSeeLiveCounts.value ? apiFetch('/api/mikrotik/pppoe/active') : Promise.resolve(null)
+    ]);
+
+    if (myId !== requestId) return; // มีการสลับสาขาระหว่างรอ — ทิ้งผลนี้ไป
+
+    if (st.status === 'fulfilled') {
+        status.value = st.value;
         error.value = '';
-        loadLiveCounts();
         lastUpdated.value = new Date().toLocaleTimeString('th-TH');
-    } catch (err) {
-        error.value = err.message;
+    } else {
         status.value = null;
+        error.value = st.reason?.message || 'เชื่อมต่อเราท์เตอร์ไม่ได้';
     }
+
+    hotspotOnline.value = hs.status === 'fulfilled' && hs.value ? hs.value.length : null;
+    pppoeOnline.value = pp.status === 'fulfilled' && pp.value ? pp.value.length : null;
+    switching.value = false;
+}
+
+function restartPolling() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(load, POLL_MS);
 }
 
 onMounted(() => {
     load();
-    timer = setInterval(load, 10000);
+    restartPolling();
+});
+
+// สลับสาขาแล้วต้องโหลดใหม่ "ทันที" ไม่ใช่รอ timer รอบถัดไป
+// เดิมกดเปลี่ยนสาขาแล้วตัวเลขของสาขาเดิมค้างอยู่ได้ถึง 10 วินาทีโดยไม่มีอะไรบอก
+watch(activeSiteId, () => {
+    switching.value = true;
+    status.value = null;
+    hotspotOnline.value = null;
+    pppoeOnline.value = null;
+    error.value = '';
+    load();
+    restartPolling(); // นับ 10 วิ ใหม่จากตอนนี้ ไม่ให้ยิงซ้ำติดกัน
 });
 
 // เดิม interval พวกนี้เป็นตัวแปร global (statsInterval, trafficInterval, ...) ที่ต้องจำเคลียร์เอง
@@ -110,18 +136,24 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
             <h1>ข้อมูลทั่วไป</h1>
             <p>ภาพรวมสถานะเราท์เตอร์ของสาขาที่เลือกอยู่</p>
         </div>
-        <div class="head-status" :class="connected ? 'is-up' : 'is-down'">
+        <div
+            class="head-status"
+            :class="switching ? 'is-busy' : (connected ? 'is-up' : 'is-down')"
+        >
             <span class="dot"></span>
-            {{ connected ? 'เชื่อมต่ออยู่' : 'ขาดการเชื่อมต่อ' }}
-            <span v-if="lastUpdated" class="stamp v2-num">· {{ lastUpdated }}</span>
+            <template v-if="switching">กำลังดึงข้อมูลสาขา...</template>
+            <template v-else>
+                {{ connected ? 'เชื่อมต่ออยู่' : 'ขาดการเชื่อมต่อ' }}
+                <span v-if="lastUpdated" class="stamp v2-num">· {{ lastUpdated }}</span>
+            </template>
         </div>
     </div>
 
-    <div v-if="error" class="alert alert-danger">
+    <div v-if="error && !switching" class="alert alert-danger">
         <i class="fa-solid fa-triangle-exclamation"></i> {{ error }}
     </div>
 
-    <div class="grid">
+    <div class="grid" :class="{ 'is-switching': switching }">
         <StatCard icon="fa-solid fa-microchip" tone="blue" title="CPU Load" :value="cpu" />
 
         <StatCard icon="fa-solid fa-memory" tone="violet" title="RAM (ว่าง / ทั้งหมด)" :value="ram" />
@@ -270,6 +302,17 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
 .head-status.is-up .dot { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .16); }
 .head-status.is-down { color: var(--v2-danger); }
 .head-status.is-down .dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, .16); }
+.head-status.is-busy { color: var(--v2-primary); }
+.head-status.is-busy .dot {
+    background: var(--v2-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .16);
+    animation: v2blink .9s ease-in-out infinite;
+}
+
+@keyframes v2blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .25; }
+}
 
 .stamp {
     color: var(--v2-text-muted);
@@ -293,6 +336,14 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
     gap: 14px;
+    transition: opacity .15s ease;
+}
+
+/* ตอนสลับสาขา หรี่การ์ดลงและกันคลิก เพื่อให้เห็นชัดว่ากำลังโหลดของสาขาใหม่อยู่
+   ไม่ใช่ค้างแสดงตัวเลขของสาขาเดิม */
+.grid.is-switching {
+    opacity: .45;
+    pointer-events: none;
 }
 
 .foot-row {

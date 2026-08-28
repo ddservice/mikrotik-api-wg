@@ -447,6 +447,61 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (7)** — Site switching was querying the **wrong router**; LINE daily digest could silently skip a day.
+  - **17 route handlers called `executeOnRouter(async (client) => …)` without passing `req`.** With no
+    `req`, `targetSiteId` resolves to `null`, so `db.getConfig(null)` returns the *globally active*
+    site and the `X-Site-Id` header is ignored entirely. Picking a site in the dropdown therefore
+    showed **another site's data** for: all PPPoE routes (active, users PUT/DELETE, suspend, kick,
+    profiles CRUD, server-settings), all Firewall routes (status, custom-rules CRUD, toggle), and
+    hotspot voucher generate. It also bypassed the non-admin `assignedSiteId` site lock on those
+    routes. Fixed by passing `req` at all 17 call sites. Left alone: the two Global Search calls and
+    the LINE webhook, which correctly use the `executeOnRouter(fn, siteId)` form.
+    Proven with two fake routers on different ports: asking for site_2's PPPoE profiles connected to
+    **site_1's** router before the fix, and to site_2's after.
+  - **Connection pool had no in-flight dedupe.** The Overview fires `/status`, `/hotspot/active` and
+    `/pppoe/active` together; all three saw an empty pool and each opened its own TCP connection +
+    login, and two of the three sockets were orphaned because the pool map only keeps the last.
+    `getPooledRouterClient` now shares one in-flight connect promise. Note the check must happen
+    **before the first `await`** — keying off `poolKey` (computed after `await db.getConfig`) still
+    raced; it is now keyed off `siteId`, which is available synchronously. Measured: 3 parallel
+    requests went from 2 connections to 1, and a warm second round opens 0.
+  - `executeOnRouter` no longer retries when the connection it used was freshly opened. The retry
+    exists for a stale pooled socket; retrying a fresh connect just doubled the wait (10s connect
+    timeout × 2) for an offline site.
+  - **Frontend: switching site did not reload anything.** `@change` only wrote the ref and
+    localStorage, so the Overview kept showing the previous site's numbers until the next 10-second
+    poll, with no indication anything was happening — this is the "อัพเดทข้อมูลช้ามาก" report. Now a
+    `watch` on `activeSiteId` reloads immediately, restarts the poll timer, dims the grid and shows
+    "กำลังดึงข้อมูลสาขา...". Added a request-generation guard so a slow reply from the previous site
+    cannot overwrite the newly selected one, and the three requests now run in parallel instead of
+    status-then-counts.
+  - **LINE daily digest: `currentHHMM === config.digestTime` is a single-minute window.** A
+    `setInterval(60000)` that drifts, is delayed by event-loop pressure, or restarts across the
+    target minute misses it and the digest never fires that day. Worse, the whole per-site loop was
+    inside one `try`, so a site whose router was offline at that moment aborted the loop and every
+    remaining site was skipped too. Now: each site has its own `try/catch`, and the trigger is
+    `now >= digestTime` with a 180-minute catch-up window (`LINE_DIGEST_CATCHUP_MINUTES`) so a
+    missed tick still delivers, while a machine that was down all day does not fire at midnight.
+    Failures are logged to the activity log and `lastSentDate` is left unset so the next tick retries.
+  - Added **`GET /api/mikrotik/line-digest/status`** (admin) — reports Bangkok time/date and, per
+    site, `enabled` / `hasChannelAccessToken` / `hasTargetId` / masked target / `digestTime` /
+    `lastSentDate` / `sentToday` / `dueNow` and a plain-language reason. Never returns the token.
+    This is the first thing to check when a site reports "ไม่มีการแจ้งเตือน".
+  - **Untracked `db/settings.json`** (`git rm --cached`). It matched the `db/*.json` gitignore rule
+    but was still tracked, exactly like `config.json` / `users.json` on 2026-07-30 — that fix missed
+    this third file. In JSON-fallback mode this file holds LINE Channel Access Tokens. Checked the
+    committed content first: it only ever contained `autoCleanupExpired` / `cleanupIntervalMinutes`,
+    **no secret has been committed**, so no rotation is needed. Same pull caution as 2026-07-30 —
+    back it up on the VPS before pulling this commit.
+  - **Known discrepancy, deliberately not changed:** CLAUDE.md's LINE section claims unconfigured
+    secondary sites "strictly default to disabled without falling back to another site's
+    token/targetId". In the current code **both** `db.js` and `db-supabase.js` still fall back to the
+    legacy global `line_digest_config` record when a site has no key of its own. Tightening this
+    would silence any site that is currently working *because* of that fallback, so it needs the
+    operator to confirm each site has its own config first — `/line-digest/status` now makes that
+    visible. Also worth noting `check-db-parity.js` cannot catch this class of drift: both files have
+    identical signatures and identical (wrong) behaviour.
+
 - **2026-08-28 (6)** — `/v2/`: firmware-only upgrade path + typography/card redesign.
   - **The pilot had no way to upgrade firmware alone.** The 1-Click button only appeared when
     RouterOS itself had an update. On Auioun@WiFi (`RBD52G-5HacD2HnD`) RouterOS was already at
