@@ -447,6 +447,40 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (14)** — v2 migration finished for every daily-use page, then **มาตรา 26 sealed log archives**.
+  - `/v2/` now covers Overview, Hotspot (full CRUD + renewal), PPPoE, Logs, Settings, Firewall and
+    Dashboard Users. Deliberately **not** migrated, with the sidebar linking back to `/`: Multi-WAN,
+    the WireGuard setup-script generator, the 5-step diagnostic, the Hardened Security preset,
+    bulk voucher generation and voucher printing — all one-time install-day script generators, not
+    daily work. `/` remains the primary UI and is untouched.
+  - Shared pieces added along the way: `BaseModal.vue` (always `<Teleport to="body">`), a toast
+    system replacing `alert()` (which blocks the event loop and stacks badly when acting on several
+    rows — `window.confirm` stays for destructive actions, where blocking is correct), and a
+    form/button stylesheet independent of the legacy `style.css`.
+  - **Sealed log archives (the point of phase 2).** The system retained what มาตรา 26 requires but
+    could not *prove* the logs were unaltered — an on-demand CSV is not evidence. Now at 02:00,
+    only after the backup exits 0, the previous day is sealed to gzipped JSONL, hashed SHA-256,
+    recorded in `log_archives` and pushed to R2.
+    - Only **closed** days are archived; today's hash would change continuously and mean nothing.
+    - The hash covers the `.gz` itself, so a recipient runs `sha256sum <file>` with no unpacking.
+    - JSONL not one blob: readable line by line, and partial corruption still leaves the rest.
+    - Pages are fetched until exhausted so a 100k-row day never has to fit one response.
+    - **Verify re-reads the real bytes from VPS and R2 and recomputes** — it never trusts the stored
+      value, which would make the check pointless.
+    - R2 upload is best-effort; the UI shows which of the two locations actually holds a copy.
+  - Added `lib/r2.js` (dependency-free R2 client). `backup.js` keeps its own uploader on purpose —
+    it runs nightly in production and is not worth disturbing just to deduplicate.
+  - Retention now covers `archives/` at the same 90 days, keyed on the **date in the filename**
+    rather than mtime, which a copy or machine move would change.
+  - Verified end to end on a fixture: 12,000 rows collected across pages, `sha256sum` matching the
+    stored value, gunzip returning all 12,000 lines, verify passing untouched, **verify failing after
+    one byte is flipped**, reruns skipping done days, no empty file for a day with no logs, and the
+    current day rejected. UI test covers pass and fail states, storage badges, download, and confirms
+    no token in any URL.
+  - **Requires `sql/2026-08-28_log_archives.sql`** to be run in the Supabase SQL Editor before the
+    feature can store anything.
+  - Two `.gitignore` additions: `archives/` (real per-machine log data, belongs on the VPS and R2).
+
 - **2026-08-28 (13)** — `archived_hotspot_users` table created; archive feature actually works now.
   - Operator ran `sql/2026-08-28_archived_hotspot_users.sql` in the Supabase SQL Editor — 12 columns
     confirmed. Added `sql/` as the home for hand-run migrations (this project has no migration

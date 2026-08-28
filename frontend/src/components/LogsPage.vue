@@ -10,7 +10,8 @@ const TABS = [
     { key: 'dns', label: 'ประวัติเข้าเว็บ (DNS)', icon: 'fa-solid fa-globe', legal: true },
     { key: 'hotspot', label: 'ประวัติใช้งาน Hotspot', icon: 'fa-solid fa-wifi', legal: true },
     { key: 'pppoe', label: 'สรุปการใช้งาน PPPoE', icon: 'fa-solid fa-door-open' },
-    { key: 'activity', label: 'ประวัติการใช้งานระบบ', icon: 'fa-solid fa-user-shield', adminOnly: true }
+    { key: 'activity', label: 'ประวัติการใช้งานระบบ', icon: 'fa-solid fa-user-shield', adminOnly: true },
+    { key: 'archives', label: 'ไฟล์ปิดผนึก (SHA-256)', icon: 'fa-solid fa-file-shield', seal: true }
 ];
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin');
@@ -31,6 +32,11 @@ const from = ref('');
 const to = ref('');
 const month = ref(new Date().toISOString().slice(0, 7));
 const pppoeRooms = ref([]);
+
+// ไฟล์ปิดผนึกรายวัน
+const archives = ref([]);
+const verifyResults = ref({});   // id -> ผลการตรวจ
+const archiveBusy = ref('');
 
 let requestId = 0;
 
@@ -57,7 +63,13 @@ async function load() {
     loading.value = true;
     error.value = '';
     try {
-        if (tab.value === 'pppoe') {
+        if (tab.value === 'archives') {
+            const res = await apiFetch(`/api/mikrotik/log-archives?page=${page.value}&limit=${limit}`);
+            if (myId !== requestId) return;
+            archives.value = res.archives || [];
+            total.value = res.total || 0;
+            pages.value = res.pages || 1;
+        } else if (tab.value === 'pppoe') {
             const res = await apiFetch(`/api/pppoe-usage?month=${encodeURIComponent(month.value)}`);
             if (myId !== requestId) return;
             pppoeRooms.value = (res.rooms || []).sort((a, b) =>
@@ -77,6 +89,7 @@ async function load() {
         error.value = err.message;
         rows.value = [];
         pppoeRooms.value = [];
+        archives.value = [];
     } finally {
         if (myId === requestId) loading.value = false;
     }
@@ -88,6 +101,8 @@ watch(tab, () => {
     page.value = 1;
     rows.value = [];
     pppoeRooms.value = [];
+    archives.value = [];
+    verifyResults.value = {};
     load();
 });
 
@@ -173,6 +188,86 @@ async function exportCsv() {
     }
 }
 
+async function verifyArchive(a) {
+    archiveBusy.value = a.id;
+    try {
+        const res = await apiFetch(`/api/mikrotik/log-archives/${encodeURIComponent(a.id)}/verify`, { method: 'POST' });
+        verifyResults.value = { ...verifyResults.value, [a.id]: res };
+        if (res.ok) toast.success(`${a.fileName} — ค่า SHA-256 ตรงกับตอนสร้าง ไฟล์ไม่ถูกแก้`);
+        else toast.error(`${a.fileName} — ค่า SHA-256 ไม่ตรง! ไฟล์ถูกแก้หรือเสียหาย`);
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        archiveBusy.value = '';
+    }
+}
+
+// ดาวน์โหลดผ่าน fetch + Blob เหมือน CSV — ไม่ส่ง token ทาง URL
+async function downloadArchive(a) {
+    archiveBusy.value = a.id;
+    try {
+        const res = await fetch(`/api/mikrotik/log-archives/${encodeURIComponent(a.id)}/download`, {
+            headers: { Authorization: `Bearer ${token.value}` }
+        });
+        if (!res.ok) throw new Error(`ดาวน์โหลดไม่สำเร็จ (HTTP ${res.status})`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const el = document.createElement('a');
+        el.href = url;
+        el.download = a.fileName;
+        document.body.appendChild(el);
+        el.click();
+        el.remove();
+        URL.revokeObjectURL(url);
+        toast.success('ดาวน์โหลดแล้ว — ตรวจสอบด้วย sha256sum ' + a.fileName);
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        archiveBusy.value = '';
+    }
+}
+
+async function copyHash(a) {
+    try {
+        await navigator.clipboard.writeText(a.sha256);
+        toast.success('คัดลอกค่า SHA-256 แล้ว');
+    } catch (_) {
+        toast.error('คัดลอกไม่สำเร็จ — เบราว์เซอร์ไม่อนุญาต');
+    }
+}
+
+const runningArchive = ref(false);
+async function runArchiveNow() {
+    if (!window.confirm([
+        'สร้างไฟล์ปิดผนึกย้อนหลัง 30 วัน?',
+        '',
+        'ระบบจะปิดวันที่ยังไม่ได้ทำ และข้ามวันที่ทำไปแล้ว',
+        'ปกติงานนี้รันเองทุกคืนตอน 02:00 — ใช้ปุ่มนี้ตอนเปิดใช้ครั้งแรกหรือเมื่อคืนรันไม่สำเร็จ'
+    ].join('\n'))) return;
+
+    runningArchive.value = true;
+    try {
+        await apiFetch('/api/mikrotik/log-archives/run', { method: 'POST', body: JSON.stringify({ days: 30 }) });
+        toast.success('สร้างไฟล์ปิดผนึกเรียบร้อย');
+        await load();
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        runningArchive.value = false;
+    }
+}
+
+function fmtSize(n) {
+    if (!n) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return v.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+const TYPE_LABEL = { dns: 'ประวัติเข้าเว็บ (DNS)', hotspot: 'ประวัติใช้งาน Hotspot' };
+
 function fmtTime(v) {
     if (!v) return '—';
     const d = new Date(v);
@@ -195,7 +290,14 @@ const pageWindow = computed(() => {
             <h1>ประวัติการใช้งาน</h1>
             <p>บันทึกการเข้าเว็บ การใช้งาน Hotspot/PPPoE และการกระทำของผู้ดูแลระบบ</p>
         </div>
-        <button type="button" class="v2-btn ghost" :disabled="loading || exporting" @click="exportCsv">
+        <button
+            v-if="tab === 'archives'" type="button" class="v2-btn ghost"
+            :disabled="runningArchive" @click="runArchiveNow"
+        >
+            <i class="fa-solid" :class="runningArchive ? 'fa-spinner fa-spin' : 'fa-file-shield'"></i>
+            {{ runningArchive ? 'กำลังสร้าง...' : 'สร้างย้อนหลัง 30 วัน' }}
+        </button>
+        <button v-else type="button" class="v2-btn ghost" :disabled="loading || exporting" @click="exportCsv">
             <i class="fa-solid" :class="exporting ? 'fa-spinner fa-spin' : 'fa-file-csv'"></i>
             {{ exporting ? 'กำลังเตรียมไฟล์...' : 'ส่งออก CSV' }}
         </button>
@@ -222,11 +324,12 @@ const pageWindow = computed(() => {
         >
             <i :class="t.icon"></i> {{ t.label }}
             <span v-if="t.legal" class="legal" title="เก็บตามกฎหมาย 90 วัน">ม.26</span>
+            <span v-if="t.seal" class="seal" title="ไฟล์ปิดผนึกพร้อมค่าตรวจสอบ">SHA-256</span>
         </button>
     </div>
 
     <!-- ตัวกรอง -->
-    <div class="filters">
+    <div v-if="tab !== 'archives'" class="filters">
         <template v-if="tab === 'pppoe'">
             <div class="fld">
                 <label>เดือน</label>
@@ -331,6 +434,54 @@ const pageWindow = computed(() => {
                 </tbody>
             </table>
 
+            <!-- ไฟล์ปิดผนึกรายวัน -->
+            <table v-else-if="tab === 'archives'">
+                <thead>
+                    <tr>
+                        <th>วันที่</th><th>ชนิด</th><th class="num">จำนวน</th><th class="num">ขนาด</th>
+                        <th>SHA-256</th><th>ที่เก็บ</th><th class="right">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-if="!archives.length">
+                        <td colspan="7" class="empty">
+                            {{ loading ? 'กำลังโหลด...' : 'ยังไม่มีไฟล์ปิดผนึก — กดปุ่มสร้างย้อนหลังเพื่อเริ่มต้น' }}
+                        </td>
+                    </tr>
+                    <tr v-for="a in archives" :key="a.id">
+                        <td class="v2-num nowrap strong">{{ a.archiveDate }}</td>
+                        <td>{{ TYPE_LABEL[a.logType] || a.logType }}</td>
+                        <td class="num v2-num">{{ (a.recordCount || 0).toLocaleString('th-TH') }}</td>
+                        <td class="num v2-num">{{ fmtSize(a.fileSize) }}</td>
+                        <td>
+                            <button type="button" class="hash" :title="a.sha256" @click="copyHash(a)">
+                                {{ a.sha256.slice(0, 10) }}…{{ a.sha256.slice(-6) }}
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                            <div v-if="verifyResults[a.id]" class="vres" :class="verifyResults[a.id].ok ? 'ok' : 'bad'">
+                                <i class="fa-solid" :class="verifyResults[a.id].ok ? 'fa-circle-check' : 'fa-circle-xmark'"></i>
+                                {{ verifyResults[a.id].ok ? 'ตรวจแล้ว ไฟล์ไม่ถูกแก้' : 'ไฟล์ถูกแก้หรือเสียหาย!' }}
+                                <span class="sub">({{ verifyResults[a.id].checks.map(c => c.source).join(', ') }})</span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="loc" :class="{ dim: !a.storageLocal }">VPS</span>
+                            <span class="loc" :class="{ dim: !a.storageR2Key }">R2</span>
+                        </td>
+                        <td class="right">
+                            <div class="rowbtns">
+                                <button type="button" class="v2-btn ghost sm" :disabled="archiveBusy === a.id" @click="verifyArchive(a)">
+                                    <i class="fa-solid" :class="archiveBusy === a.id ? 'fa-spinner fa-spin' : 'fa-shield-halved'"></i> ตรวจสอบ
+                                </button>
+                                <button type="button" class="v2-btn ghost sm" :disabled="archiveBusy === a.id" @click="downloadArchive(a)">
+                                    <i class="fa-solid fa-download"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
             <!-- Activity (admin เท่านั้น) -->
             <table v-else>
                 <thead>
@@ -346,6 +497,17 @@ const pageWindow = computed(() => {
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <div v-if="tab === 'archives'" class="howto">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>
+                <strong>วิธีพิสูจน์ว่าไฟล์ไม่ถูกแก้:</strong> ดาวน์โหลดไฟล์ แล้วรัน
+                <code>sha256sum &lt;ชื่อไฟล์&gt;</code> บนเครื่องตัวเอง เทียบกับค่าในตารางนี้ —
+                ตรงกันแปลว่าเป็นชุดเดียวกับที่ระบบปิดผนึกไว้ตอนสิ้นวัน ·
+                ปุ่ม "ตรวจสอบ" ให้ระบบอ่านไฟล์จริงแล้วคำนวณค่าใหม่ทั้งบน VPS และ R2 ·
+                ระบบปิดวันอัตโนมัติทุกคืน 02:00 และปิดเฉพาะวันที่ผ่านไปแล้ว
+            </span>
         </div>
 
         <div v-if="tab !== 'pppoe' && pages > 1" class="pager">
@@ -428,4 +590,32 @@ tbody tr:hover td { background: #fbfcfe; }
     border-top: 1px solid var(--v2-border); flex-wrap: wrap; background: #fbfcfe;
 }
 .pageinfo { margin-left: auto; font-size: .78rem; color: var(--v2-text-muted); font-weight: 600; }
+
+.seal {
+    font-size: .6rem; font-weight: 700; background: #ecfdf3; color: #15803d;
+    padding: 1px 6px; border-radius: 999px; letter-spacing: .02em;
+}
+.rowbtns { display: inline-flex; gap: 5px; justify-content: flex-end; }
+.hash {
+    font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem;
+    background: var(--v2-bg); border: 1px solid var(--v2-border); border-radius: 6px;
+    padding: 3px 8px; cursor: pointer; color: var(--v2-text-soft);
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.hash:hover { border-color: var(--v2-primary); color: var(--v2-primary); }
+.hash i { font-size: .68rem; opacity: .6; }
+.vres { font-size: .74rem; margin-top: 4px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.vres.ok { color: var(--v2-success); }
+.vres.bad { color: var(--v2-danger); font-weight: 600; }
+.loc {
+    display: inline-block; font-size: .66rem; font-weight: 700; padding: 2px 7px;
+    border-radius: 999px; background: #dcfce7; color: #15803d; margin-right: 4px;
+}
+.loc.dim { background: #f1f5f9; color: #cbd5e1; }
+.howto {
+    display: flex; gap: 9px; padding: 12px 16px; background: var(--v2-primary-soft);
+    color: #1d4ed8; font-size: .79rem; line-height: 1.6; border-top: 1px solid var(--v2-border);
+}
+.howto i { margin-top: 3px; flex-shrink: 0; }
+.howto code { background: rgba(255,255,255,.7); padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; }
 </style>

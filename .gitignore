@@ -26,3 +26,6 @@ backups/
 # เพราะ VPS รัน `npm install --omit=dev` และไม่มี toolchain สำหรับ build
 frontend/node_modules/
 frontend/.vite/
+# ไฟล์ log ปิดผนึกรายวัน (พรบ. ม.26) — เป็นข้อมูลจริงของแต่ละเครื่อง
+# ต้นฉบับอยู่บน VPS + Cloudflare R2 ไม่ใช่ของที่ควรอยู่ใน git
+archives/

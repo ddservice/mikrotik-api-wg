@@ -5,7 +5,8 @@
  * ครอบคลุม 3 ที่ (ก่อนหน้านี้ไม่มีการลบเลยสักที่ ของสะสมไปเรื่อย ๆ):
  *   1. logs/           — log ที่ PM2 หมุนไว้ (error__YYYY-MM-DD.log / out__...)
  *   2. backups/        — โฟลเดอร์ backup ในโปรเจกต์
- *   3. Cloudflare R2   — object ใต้ <R2_SITE_NAME>/YYYY-MM-DD/
+ *   3. archives/       — ไฟล์ log ปิดผนึกรายวัน (พรบ. ม.26 เก็บ 90 วันเท่ากับในฐานข้อมูล)
+ *   4. Cloudflare R2   — object ใต้ <R2_SITE_NAME>/YYYY-MM-DD/
  *
  * ปลอดภัยโดยออกแบบ:
  *   - ค่าเริ่มต้นเป็น dry-run ต้องใส่ --apply ถึงจะลบจริง
@@ -129,6 +130,46 @@ function cleanLocalBackups() {
     if (!victims.length) {
         console.log(`   ไม่มี backup เก่าเกินกำหนด (เก็บชุดล่าสุดไว้ ${MIN_KEEP} ชุดเสมอ)`);
     }
+    return { removed, bytes };
+}
+
+// ------------------------------------------------------------- local archives
+// ไฟล์ปิดผนึกตั้งชื่อเป็น YYYY-MM-DD-<type>.jsonl.gz — ใช้วันที่ในชื่อไฟล์เป็นเกณฑ์
+// ไม่ใช้ mtime เพราะการคัดลอกไฟล์หรือย้ายเครื่องจะทำให้ mtime เปลี่ยน
+//
+// เก็บ 90 วันเท่ากับที่ฐานข้อมูล purge log ดิบ — ถ้าเก็บ archive นานกว่านั้น
+// จะมีไฟล์ที่อ้างถึงข้อมูลที่ไม่มีในระบบแล้ว ซึ่งสับสนเวลาตรวจสอบ
+const ARCHIVE_NAME = /^(\d{4}-\d{2}-\d{2})-(dns|hotspot)\.jsonl\.gz$/;
+
+function cleanLogArchives() {
+    const dir = path.join(ROOT, 'archives');
+    if (!fs.existsSync(dir)) {
+        console.log('   ยังไม่มีโฟลเดอร์ archives/');
+        return { removed: 0, bytes: 0 };
+    }
+
+    const files = fs.readdirSync(dir)
+        .map((name) => {
+            const m = ARCHIVE_NAME.exec(name);
+            return m ? { name, date: m[1], full: path.join(dir, name) } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => (a.date < b.date ? 1 : -1));   // ใหม่สุดก่อน
+
+    let removed = 0;
+    let bytes = 0;
+    const victims = files.filter((f, idx) =>
+        idx >= MIN_KEEP && new Date(f.date + 'T00:00:00Z').getTime() < CUTOFF
+    );
+
+    for (const v of victims) {
+        const size = fs.statSync(v.full).size;
+        console.log(`   ${APPLY ? 'ลบ' : 'จะลบ'} archives/${v.name}  (${human(size)}, ${v.date})`);
+        if (APPLY) fs.unlinkSync(v.full);
+        removed++;
+        bytes += size;
+    }
+    if (!victims.length) console.log(`   ไม่มีไฟล์ปิดผนึกเก่าเกินกำหนด (พบ ${files.length} ไฟล์)`);
     return { removed, bytes };
 }
 
@@ -304,11 +345,16 @@ async function cleanR2() {
         console.log('=== 2) backups/ ในโปรเจกต์ ===');
         const b = cleanLocalBackups();
         totalFiles += b.removed; totalBytes += b.bytes;
+
+        console.log('');
+        console.log('=== 3) archives/ ไฟล์ log ปิดผนึก (พรบ. ม.26) ===');
+        const c = cleanLogArchives();
+        totalFiles += c.removed; totalBytes += c.bytes;
     }
 
     if (!LOCAL_ONLY) {
         console.log('');
-        console.log('=== 3) Cloudflare R2 ===');
+        console.log('=== 4) Cloudflare R2 ===');
         try {
             const c = await cleanR2();
             totalFiles += c.removed; totalBytes += c.bytes;

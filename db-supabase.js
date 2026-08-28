@@ -957,6 +957,84 @@ async function unbindLineUser(lineUserId) {
     } catch(e) { return false; }
 }
 
+
+// ==========================================
+// LOG ARCHIVES (พรบ. ม.26 — ไฟล์ปิดผนึกรายวัน + SHA-256)
+// ==========================================
+function _mapArchiveRow(r) {
+    return {
+        id: r.id,
+        archiveDate: r.archive_date,
+        logType: r.log_type,
+        siteName: r.site_name,
+        recordCount: r.record_count || 0,
+        fileName: r.file_name,
+        fileSize: r.file_size || 0,
+        sha256: r.sha256,
+        storageR2Key: r.storage_r2_key || null,
+        storageLocal: r.storage_local || null,
+        createdAt: r.created_at,
+        createdBy: r.created_by
+    };
+}
+
+async function getLogArchives(options) {
+    options = options || {};
+    try {
+        var query = supabase.from('log_archives')
+            .select('*', { count: 'exact' })
+            .order('archive_date', { ascending: false })
+            .order('log_type', { ascending: true });
+
+        if (options.logType) query = query.eq('log_type', options.logType);
+        if (options.from) query = query.gte('archive_date', options.from);
+        if (options.to) query = query.lte('archive_date', options.to);
+
+        var page = parseInt(options.page) || 1;
+        var limit = parseInt(options.limit) || 100;
+        var res = await query.range((page - 1) * limit, page * limit - 1);
+        if (res.error) throw res.error;
+        return {
+            archives: (res.data || []).map(_mapArchiveRow),
+            total: res.count || 0,
+            page: page,
+            limit: limit,
+            pages: Math.ceil((res.count || 0) / limit) || 1
+        };
+    } catch (e) {
+        return { archives: [], total: 0, page: 1, limit: 100, pages: 0, error: e.message };
+    }
+}
+
+async function getLogArchive(id) {
+    try {
+        var res = await supabase.from('log_archives').select('*').eq('id', id).maybeSingle();
+        if (res.error) throw res.error;
+        return res.data ? _mapArchiveRow(res.data) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function saveLogArchive(rec) {
+    var row = {
+        id: rec.id,
+        archive_date: rec.archiveDate,
+        log_type: rec.logType,
+        site_name: rec.siteName || 'ALL',
+        record_count: rec.recordCount || 0,
+        file_name: rec.fileName,
+        file_size: rec.fileSize || 0,
+        sha256: rec.sha256,
+        storage_r2_key: rec.storageR2Key || null,
+        storage_local: rec.storageLocal || null,
+        created_by: rec.createdBy || 'System Auto'
+    };
+    var res = await supabase.from('log_archives').upsert(row, { onConflict: 'id' }).select().single();
+    if (res.error) throw res.error;
+    return _mapArchiveRow(res.data);
+}
+
 module.exports = {
     getMultiWanConfig: getMultiWanConfig, saveMultiWanConfig: saveMultiWanConfig,
     getConfig: getConfig, saveConfig: saveConfig,
@@ -980,5 +1058,6 @@ module.exports = {
     deleteArchivedHotspotUser: deleteArchivedHotspotUser, clearArchivedHotspotUsers: clearArchivedHotspotUsers,
     getLineDigestConfig: getLineDigestConfig, saveLineDigestConfig: saveLineDigestConfig,
     getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser,
-    getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig
+    getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
+    getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive
 };

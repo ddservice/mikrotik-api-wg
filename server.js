@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
+const logArchive = require('./lib/log-archive');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -3662,6 +3663,65 @@ app.post('/api/mikrotik/telegram-alert/discover-chats', requireAuth(['admin']), 
     }
 });
 
+// ==========================================
+// Log Archive — ปิดวันของ log ตาม พรบ. ม.26 แล้วผนึกด้วย SHA-256
+//
+// ระบบเก็บ log ครบตามกฎหมายอยู่แล้ว แต่เดิม "พิสูจน์ไม่ได้ว่าไม่ถูกแก้"
+// การ export CSV เมื่อไรก็ได้ไม่ใช่หลักฐาน ส่วนไฟล์ที่ปิดผนึกพร้อม hash
+// ที่ผู้รับตรวจซ้ำเองได้ด้วย sha256sum คือสิ่งที่ใช้ยืนยันได้จริง
+// ==========================================
+
+app.get('/api/mikrotik/log-archives', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const { logType, from, to, page, limit } = req.query;
+        res.json(await db.getLogArchives({ logType, from, to, page, limit }));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ดาวน์โหลดไฟล์ปิดผนึก — ส่ง hash มาใน header ด้วย ผู้รับจะได้เทียบได้ทันที
+app.get('/api/mikrotik/log-archives/:id/download', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const { buffer, record } = await logArchive.readArchiveFile(db, req.params.id);
+        db.addLog(req.user.username, 'ดาวน์โหลดไฟล์ log ปิดผนึก', `${record.fileName} (${record.recordCount} รายการ)`);
+        res.setHeader('Content-Type', 'application/gzip');
+        res.setHeader('Content-Disposition', `attachment; filename="${record.fileName}"`);
+        res.setHeader('X-Archive-SHA256', record.sha256);
+        res.send(buffer);
+    } catch (err) {
+        res.status(404).json({ error: err.message });
+    }
+});
+
+// ตรวจสอบว่าไฟล์ยังตรงกับ hash ที่บันทึกไว้ตอนสร้าง
+// อ่านไฟล์จริงทั้งบน VPS และ R2 แล้วคำนวณใหม่ ไม่ได้เชื่อค่าที่เก็บไว้
+app.post('/api/mikrotik/log-archives/:id/verify', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const result = await logArchive.verifyArchive(db, req.params.id);
+        db.addLog(req.user.username, 'ตรวจสอบความถูกต้องของไฟล์ log',
+            `${result.fileName}: ${result.ok ? 'ผ่าน' : 'ไม่ผ่าน'} (${result.checks.map(c => c.source + '=' + (c.ok ? 'ok' : 'fail')).join(', ')})`);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// สั่งปิดวันด้วยตัวเอง — ใช้ตอนเปิดใช้ฟีเจอร์ครั้งแรก หรือเมื่อคืนที่แล้วรันไม่สำเร็จ
+app.post('/api/mikrotik/log-archives/run', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { date, days, force } = req.body || {};
+        const opts = { force: !!force, createdBy: req.user.username };
+        const result = days
+            ? await logArchive.backfill(db, Math.min(parseInt(days) || 7, 90), opts)
+            : await logArchive.archiveDay(db, date, opts);
+        db.addLog(req.user.username, 'สร้างไฟล์ log ปิดผนึก', days ? `ย้อนหลัง ${days} วัน` : `วันที่ ${date || 'เมื่อวาน'}`);
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.headers['x-site-id'];
     res.json(await db.getLineDigestConfig(siteId));
@@ -4013,6 +4073,17 @@ setInterval(async () => {
                         if (c === 0) console.log('[Backup] ลบ backup/log ที่เก่าเกิน 90 วันเรียบร้อย');
                         else console.error(`[Backup] cleanup-old-backups exited with code ${c}`);
                     });
+
+                    // ปิดวันของเมื่อวานแล้วผนึกด้วย SHA-256 (พรบ. ม.26)
+                    // ทำหลังสำรองข้อมูลสำเร็จเท่านั้น และทำก่อนที่ retention จะลบอะไร
+                    // ไม่ได้ await เพราะอยู่ใน callback — ให้มันทำงานเบื้องหลังไป
+                    logArchive.archiveDay(db).then((r) => {
+                        const made = (r.results || []).filter((x) => x.sha256).length;
+                        if (made) {
+                            console.log(`[LogArchive] ปิดวัน ${r.date} เรียบร้อย (${made} ไฟล์)`);
+                            db.addLog('System Auto', 'สร้างไฟล์ log ปิดผนึก', `ปิดวัน ${r.date} จำนวน ${made} ไฟล์`);
+                        }
+                    }).catch((e) => console.error('[LogArchive] ปิดวันไม่สำเร็จ:', e.message));
                 } else {
                     console.error(`[Backup] Nightly backup exited with code ${code}`);
                 }

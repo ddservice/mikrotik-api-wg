@@ -32,6 +32,7 @@
 | ไฟล์ | สถานะ | เรื่อง |
 |---|---|---|
 | `2026-08-28_archived_hotspot_users.sql` | ✅ รันแล้ว 2026-08-28 | สร้างตารางคลังคูปองที่ถูกลบ ซึ่งไม่เคยถูกสร้างเลยตั้งแต่ฟีเจอร์ขึ้น 2026-08-26 |
+| `2026-08-28_log_archives.sql` | ⬜ รอรัน | ตาราง manifest ของไฟล์ log ปิดผนึกรายวัน + SHA-256 (พรบ. ม.26) |
 
 ย้าย 3 รายการที่ค้างใน `db/archived_hotspot_users.json` เข้า Supabase เรียบร้อยแล้ว
 (`node scripts/migrate-json-to-supabase.js --apply`) — ตรวจผ่าน `db.getArchivedHotspotUsers()`

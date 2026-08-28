@@ -1049,6 +1049,75 @@ function clearArchivedHotspotUsers(siteName) {
     } catch (e) { return 0; }
 }
 
+
+// ==========================================
+// LOG ARCHIVES (พรบ. ม.26 — ไฟล์ปิดผนึกรายวัน + SHA-256)
+// ต้องมี signature และ return shape ตรงกับ db-supabase.js เป๊ะ ๆ
+// ==========================================
+const LOG_ARCHIVES_FILE = path.join(DB_DIR, 'log_archives.json');
+
+function _readArchives() {
+    try {
+        if (!fs.existsSync(LOG_ARCHIVES_FILE)) return [];
+        const d = JSON.parse(fs.readFileSync(LOG_ARCHIVES_FILE, 'utf8'));
+        return Array.isArray(d) ? d : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function getLogArchives(options) {
+    options = options || {};
+    try {
+        let list = _readArchives();
+        if (options.logType) list = list.filter(a => a.logType === options.logType);
+        if (options.from) list = list.filter(a => a.archiveDate >= options.from);
+        if (options.to) list = list.filter(a => a.archiveDate <= options.to);
+        list.sort((a, b) => (a.archiveDate === b.archiveDate
+            ? String(a.logType).localeCompare(String(b.logType))
+            : String(b.archiveDate).localeCompare(String(a.archiveDate))));
+
+        const page = parseInt(options.page) || 1;
+        const limit = parseInt(options.limit) || 100;
+        const total = list.length;
+        return {
+            archives: list.slice((page - 1) * limit, page * limit),
+            total,
+            page,
+            limit,
+            pages: Math.ceil(total / limit) || 1
+        };
+    } catch (e) {
+        return { archives: [], total: 0, page: 1, limit: 100, pages: 0, error: e.message };
+    }
+}
+
+function getLogArchive(id) {
+    return _readArchives().find(a => a.id === id) || null;
+}
+
+function saveLogArchive(rec) {
+    const list = _readArchives();
+    const row = {
+        id: rec.id,
+        archiveDate: rec.archiveDate,
+        logType: rec.logType,
+        siteName: rec.siteName || 'ALL',
+        recordCount: rec.recordCount || 0,
+        fileName: rec.fileName,
+        fileSize: rec.fileSize || 0,
+        sha256: rec.sha256,
+        storageR2Key: rec.storageR2Key || null,
+        storageLocal: rec.storageLocal || null,
+        createdAt: new Date().toISOString(),
+        createdBy: rec.createdBy || 'System Auto'
+    };
+    const i = list.findIndex(a => a.id === row.id);
+    if (i >= 0) list[i] = row; else list.push(row);
+    fs.writeFileSync(LOG_ARCHIVES_FILE, JSON.stringify(list, null, 2), 'utf8');
+    return row;
+}
+
 module.exports = {
     getConfig,
     saveConfig,
@@ -1095,7 +1164,10 @@ module.exports = {
     bindLineUser,
     unbindLineUser,
     getTelegramAlertConfig,
-    saveTelegramAlertConfig
+    saveTelegramAlertConfig,
+    getLogArchives,
+    getLogArchive,
+    saveLogArchive
 };
 
 function getLineDigestConfig(siteId) {
@@ -1310,7 +1382,10 @@ module.exports = {
     bindLineUser,
     unbindLineUser,
     getTelegramAlertConfig,
-    saveTelegramAlertConfig
+    saveTelegramAlertConfig,
+    getLogArchives,
+    getLogArchive,
+    saveLogArchive
 };
 
 
