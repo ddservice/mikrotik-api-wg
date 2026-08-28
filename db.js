@@ -814,6 +814,73 @@ function _getDefaultMultiWanConfig() {
     };
 }
 
+
+// ==========================================
+// TELEGRAM OPS ALERTS
+// แยกจาก LINE โดยเจตนา: LINE คือช่องทางหาลูกค้า/ผู้เช่าห้อง (สรุปวันหมดอายุ)
+// ส่วน Telegram คือช่องทางของทีมแอดมิน (เราท์เตอร์ล่ม, auth fail, ปัญหาระบบ)
+// เอามารวมช่องเดียวกันแล้วมีปัญหามาแล้วจริง ๆ เมื่อ 2026-08-28
+// (แจ้งเตือน Suksawad-CMU ล่ม ไปโผล่ในกลุ่มลูกค้าของ A4)
+//
+// เป็น config เดียวทั้งระบบ ไม่แยกรายสาขา เพราะทีมแอดมินดูทุกสาขาอยู่แล้ว
+// ในข้อความจะระบุชื่อสาขากำกับเสมอ
+// ==========================================
+
+function _defaultTelegramAlertConfig() {
+    return {
+        enabled: false,
+        botToken: '',
+        chatId: '',
+        alertOffline: true,
+        alertOnline: true
+    };
+}
+
+function getTelegramAlertConfig() {
+    try {
+        if (!fs.existsSync(SETTINGS_FILE)) return _defaultTelegramAlertConfig();
+        const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        const cfg = data.telegram_alert_config;
+        if (cfg) {
+            return {
+                enabled: !!cfg.enabled,
+                botToken: cfg.botToken || '',
+                chatId: cfg.chatId || '',
+                alertOffline: cfg.alertOffline !== false,
+                alertOnline: cfg.alertOnline !== false
+            };
+        }
+        // ยังไม่เคยตั้งค่า — ยืมค่าจากหน้า Multi-WAN มาเป็นค่าเริ่มต้น แต่ยังไม่เปิดใช้งาน
+        const mw = getMultiWanConfig();
+        const d = _defaultTelegramAlertConfig();
+        d.botToken = (mw && mw.telegramToken) || '';
+        d.chatId = (mw && mw.telegramChatId) || '';
+        return d;
+    } catch (e) {
+        return _defaultTelegramAlertConfig();
+    }
+}
+
+function saveTelegramAlertConfig(config) {
+    try {
+        const current = getTelegramAlertConfig();
+        let data = {};
+        if (fs.existsSync(SETTINGS_FILE)) data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        const updated = {
+            enabled: config.enabled !== undefined ? !!config.enabled : current.enabled,
+            botToken: config.botToken !== undefined ? String(config.botToken).trim() : current.botToken,
+            chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
+            alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
+            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline
+        };
+        data.telegram_alert_config = updated;
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
+        return updated;
+    } catch (e) {
+        throw e;
+    }
+}
+
 function getMultiWanConfig(siteId) {
     try {
         if (!fs.existsSync(MULTIWAN_FILE)) fs.writeFileSync(MULTIWAN_FILE, '{}', 'utf8');
@@ -1026,7 +1093,9 @@ module.exports = {
     saveLineDigestConfig,
     getLineUserBinding,
     bindLineUser,
-    unbindLineUser
+    unbindLineUser,
+    getTelegramAlertConfig,
+    saveTelegramAlertConfig
 };
 
 function getLineDigestConfig(siteId) {
@@ -1239,7 +1308,9 @@ module.exports = {
     saveLineDigestConfig,
     getLineUserBinding,
     bindLineUser,
-    unbindLineUser
+    unbindLineUser,
+    getTelegramAlertConfig,
+    saveTelegramAlertConfig
 };
 
 

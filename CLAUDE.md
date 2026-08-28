@@ -447,6 +447,41 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (10)** — Router health alerts moved to **Telegram**, separated from LINE by audience.
+  - Operator's call after the Suksawad-CMU alert landed in A4's customer group: **LINE OA is the
+    customer channel** (expiry digests for tenants) and **Telegram is the ops channel** (a router is
+    down, API auth failed). They now share no configuration and no code path. The connectivity
+    monitor no longer touches LINE at all.
+  - New `telegram_alert_config` in `app_settings` (single config for the whole system, not per-site —
+    the ops team watches every branch and each message names its site). Fields: `enabled`,
+    `botToken`, `chatId`, `alertOffline`, `alertOnline`. Implemented in **both** `db.js` and
+    `db-supabase.js` (46/46 exports still in parity). On first read it seeds `botToken`/`chatId` from
+    the existing Multi-WAN Telegram fields — those already hold the same bot for the RouterOS
+    netwatch script — but leaves `enabled: false` so nothing sends until it is switched on
+    deliberately.
+  - `sendTelegramMessage()` in `server.js` uses plain `https` (no new dependency) and **destroys the
+    request on `timeout`** — Node's `timeout` option only arms a socket idle timer, it does not abort
+    the request. `sendOpsAlert(text, kind)` wraps it and stays silent when unconfigured so the
+    monitor never throws.
+  - **Found and fixed the same `timeout` bug in `getOfficialMikrotikLatestVersions()`.** It used
+    `https.get(url, { timeout: 3500 })` with no `'timeout'` handler, so if `upgrade.mikrotik.com` was
+    slow or blocked the promise never settled and **`GET /api/mikrotik/status` hung for the whole
+    request** — a real contributor to the "ช้ามาก" reports. Also moved `lastFetched` into a `finally`
+    so a failed fetch still starts the 1-hour cooldown instead of retrying on every single request.
+  - API (all `requireAuth(['admin'])`): `GET/POST /api/mikrotik/telegram-alert/config`,
+    `POST .../test`, and `POST .../discover-chats` which reads `getUpdates` and lists the chats the
+    bot can see, so the operator never has to hunt for a numeric group id by hand.
+    **`botToken` is never returned to the browser** — the GET exposes only `hasBotToken` and an
+    8-character preview, matching the `sanitizeSitePublic` rule for router passwords. Posting an
+    empty `botToken` keeps the stored one, so saving the form without retyping the secret cannot
+    erase it.
+  - UI: its own tab in the admin-only Settings page — **3. แจ้งเตือนทีมแอดมิน (Telegram)** — rather
+    than sharing the LINE tab, so the separation is visible in the interface too. Router Operations
+    moved to tab 4. `app.js` bumped to `v=127.0`.
+  - Verified locally against the real Telegram API: config round-trips, the token never comes back,
+    an empty token preserves the stored value, and a deliberately fake token fails with Telegram's
+    own `Unauthorized` — proving the request actually reaches `api.telegram.org`.
+
 - **2026-08-28 (9)** — Offline alert for **Suksawad-CMU landed in A4-Residence's LINE group**; and A4's LINE finally works.
   - Reported live: `🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline] สาขา: Suksawad-CMU … invalid user name or
     password (6)` arrived in **A4's** group. Two independent bugs plus one regression.

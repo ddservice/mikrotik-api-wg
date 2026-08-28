@@ -11,7 +11,7 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- CSS stylesheet -->
-    <link rel="stylesheet" href="style.css?v=126.0">
+    <link rel="stylesheet" href="style.css?v=127.0">
 </head>
 <body>
 
@@ -1712,8 +1712,11 @@
                         <button class="tab-btn" data-tab="tab-settings-line">
                             <i class="fa-brands fa-line text-success"></i> <span>2. ตั้งค่าแจ้งเตือน LINE Official Account</span>
                         </button>
+                        <button class="tab-btn" data-tab="tab-settings-telegram">
+                            <i class="fa-brands fa-telegram" style="color:#229ED9;"></i> <span>3. แจ้งเตือนทีมแอดมิน (Telegram)</span>
+                        </button>
                         <button class="tab-btn" data-tab="tab-settings-ops">
-                            <i class="fa-solid fa-screwdriver-wrench text-warning"></i> <span>3. การจัดการและดูแลรักษาเราท์เตอร์</span>
+                            <i class="fa-solid fa-screwdriver-wrench text-warning"></i> <span>4. การจัดการและดูแลรักษาเราท์เตอร์</span>
                         </button>
                     </div>
 
@@ -1811,6 +1814,72 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Tab 3: Telegram Ops Alerts (Super Admin เท่านั้น) -->
+                    <div id="tab-settings-telegram" class="tab-pane" style="display: none;">
+                        <div class="alert alert-info mb-16" style="font-size:0.85rem; padding:11px 15px; border-radius:8px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe;">
+                            <i class="fa-solid fa-circle-info"></i>
+                            <strong>แยกช่องทางตามผู้รับ:</strong> Telegram = ทีมแอดมิน (เราท์เตอร์ล่ม, เชื่อมต่อไม่ได้) ·
+                            LINE OA = ลูกค้า/ผู้เช่าห้อง (สรุปวันหมดอายุ) — ตั้งค่าแยกกัน ไม่ปะปน
+                        </div>
+                        <!-- Telegram Ops Alerts — แยกจาก LINE โดยเจตนา
+                             LINE = ช่องทางลูกค้า/ผู้เช่าห้อง | Telegram = ช่องทางทีมแอดมิน -->
+                        <div class="card mb-16" id="telegram-alert-card" style="border: 1px solid #bae6fd; background: #f0f9ff; border-radius: 12px; padding: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 44px; height: 44px; background: #229ED9; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow:0 2px 8px rgba(34,158,217,0.3);">
+                                        <i class="fa-brands fa-telegram"></i>
+                                    </div>
+                                    <div>
+                                        <h5 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #075985;">แจ้งเตือนทีมแอดมินผ่าน Telegram</h5>
+                                        <p style="margin: 3px 0 0; font-size: 0.82rem; color: #0369a1;">เราท์เตอร์ล่ม / เชื่อมต่อไม่ได้ / รหัส API ผิด — แยกจาก LINE ที่ใช้แจ้งลูกค้า</p>
+                                    </div>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <span class="auto-cleanup-status-badge off" id="telegram-alert-status-badge">ปิดใช้งาน</span>
+                                    <label class="switch switch-sm">
+                                        <input type="checkbox" id="toggle-telegram-alert">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="telegram-bot-token">Bot Token</label>
+                                    <input type="password" id="telegram-bot-token" class="form-control" placeholder="เว้นว่างไว้ = ใช้ค่าเดิมที่บันทึกไว้" autocomplete="off">
+                                    <span class="help-text" id="telegram-token-hint">สร้างบอทที่ @BotFather แล้วนำ token มาวาง</span>
+                                </div>
+                                <div class="form-group">
+                                    <label for="telegram-chat-id">Chat ID (กลุ่มหรือผู้ใช้)</label>
+                                    <div style="display:flex; gap:8px;">
+                                        <input type="text" id="telegram-chat-id" class="form-control" placeholder="เช่น -1001234567890">
+                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-telegram-discover" style="white-space:nowrap;">
+                                            <i class="fa-solid fa-magnifying-glass"></i> ค้นหา
+                                        </button>
+                                    </div>
+                                    <span class="help-text">เพิ่มบอทเข้ากลุ่ม พิมพ์อะไรก็ได้ในกลุ่ม แล้วกด "ค้นหา"</span>
+                                </div>
+                            </div>
+
+                            <div id="telegram-chat-results" style="display:none; margin: 4px 0 12px; padding: 10px 12px; background:#fff; border:1px solid #bae6fd; border-radius:8px; font-size:0.85rem;"></div>
+
+                            <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px;">
+                                <label style="display:flex; align-items:center; gap:7px; font-size:0.85rem; cursor:pointer;">
+                                    <input type="checkbox" id="telegram-alert-offline" checked> แจ้งเมื่อเราท์เตอร์ Offline
+                                </label>
+                                <label style="display:flex; align-items:center; gap:7px; font-size:0.85rem; cursor:pointer;">
+                                    <input type="checkbox" id="telegram-alert-online" checked> แจ้งเมื่อกลับมาออนไลน์
+                                </label>
+                            </div>
+
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <button type="button" class="btn btn-primary" id="btn-save-telegram-alert"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
+                                <button type="button" class="btn btn-secondary" id="btn-test-telegram-alert"><i class="fa-brands fa-telegram"></i> ส่งข้อความทดสอบ</button>
+                            </div>
+                        </div>
+
                     </div>
 
                     <!-- Tab 3: Comprehensive Router Operations & Maintenance -->
@@ -3128,7 +3197,7 @@
     </div>
 
     <!-- Script loading -->
-    <script src="app.js?v=126.0"></script>
+    <script src="app.js?v=127.0"></script>
 </body>
 </html>
 

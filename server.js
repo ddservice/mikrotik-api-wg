@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
+const https = require('https');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -1582,14 +1583,19 @@ async function getOfficialMikrotikLatestVersions() {
     if (now - _mikrotikLatestVersions.lastFetched < 3600000) {
         return _mikrotikLatestVersions;
     }
-    const https = require('https');
     function fetchUrl(url) {
         return new Promise((resolve) => {
-            https.get(url, { timeout: 3500 }, (res) => {
+            // option `timeout` ของ https.get ตั้งแค่ idle timeout ของ socket
+            // มัน "ไม่" ยกเลิก request ให้เอง ต้อง destroy เองใน event 'timeout'
+            // ไม่งั้นถ้า upgrade.mikrotik.com ช้าหรือถูกบล็อก promise นี้จะไม่ resolve
+            // แล้ว /api/mikrotik/status จะค้างทั้ง endpoint (บั๊กแบบเดียวกับ routeros.js)
+            const req = https.get(url, { timeout: 3500 }, (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => resolve(data.trim().split(/\s+/)[0] || null));
-            }).on('error', () => resolve(null));
+            });
+            req.on('timeout', () => { req.destroy(); resolve(null); });
+            req.on('error', () => resolve(null));
         });
     }
 
@@ -1600,8 +1606,12 @@ async function getOfficialMikrotikLatestVersions() {
         ]);
         if (v7 && compareSemver(v7, _mikrotikLatestVersions.v7) > 0) _mikrotikLatestVersions.v7 = v7;
         if (v6 && compareSemver(v6, _mikrotikLatestVersions.v6) > 0) _mikrotikLatestVersions.v6 = v6;
+    } catch (_) {
+    } finally {
+        // ตั้งเวลาไว้เสมอแม้ดึงไม่สำเร็จ ไม่งั้นทุก request จะไปลองใหม่
+        // แล้วรอ 3.5 วินาทีต่อครั้ง ทำให้หน้า Overview ช้าโดยไม่จำเป็น
         _mikrotikLatestVersions.lastFetched = now;
-    } catch (_) {}
+    }
     return _mikrotikLatestVersions;
 }
 
@@ -2868,6 +2878,62 @@ app.post('/api/mikrotik/hotspot/cleanup-expired', requireAuth(['admin', 'co-admi
 // ==========================================
 // LINE Official Account / Messaging API (Option 1)
 // ==========================================
+// ==========================================
+// Telegram — ช่องทางแจ้งเตือนของทีมแอดมิน (แยกจาก LINE ที่เป็นช่องทางลูกค้า)
+// ใช้ https ของ Node ตรง ๆ ไม่เพิ่ม dependency
+// ==========================================
+function sendTelegramMessage(botToken, chatId, text) {
+    return new Promise((resolve, reject) => {
+        if (!botToken || !chatId) return reject(new Error('ยังไม่ได้ตั้งค่า Telegram Bot Token หรือ Chat ID'));
+        const payload = JSON.stringify({
+            chat_id: String(chatId),
+            text: String(text),
+            parse_mode: 'HTML',
+            disable_web_page_preview: true
+        });
+        const req = https.request({
+            hostname: 'api.telegram.org',
+            path: `/bot${botToken}/sendMessage`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            },
+            timeout: 10000
+        }, (res) => {
+            let body = '';
+            res.on('data', (c) => { body += c; });
+            res.on('end', () => {
+                let parsed = {};
+                try { parsed = JSON.parse(body); } catch (_) {}
+                if (res.statusCode >= 200 && res.statusCode < 300 && parsed.ok) return resolve(parsed);
+                reject(new Error(parsed.description || `Telegram ตอบกลับ HTTP ${res.statusCode}`));
+            });
+        });
+        // timeout ของ https.request ไม่ได้ยกเลิก request ให้เอง ต้อง destroy เอง
+        // ไม่งั้นจะค้างจนกว่า OS จะ timeout (บทเรียนเดียวกับ routeros.js เมื่อ 2026-08-28)
+        req.on('timeout', () => { req.destroy(new Error('Telegram ไม่ตอบกลับภายใน 10 วินาที')); });
+        req.on('error', reject);
+        req.write(payload);
+        req.end();
+    });
+}
+
+// ส่งแจ้งเตือนฝั่งปฏิบัติการ — เงียบไปเฉย ๆ ถ้ายังไม่ได้ตั้งค่า ไม่ทำให้ caller พัง
+async function sendOpsAlert(text, kind) {
+    try {
+        const cfg = await db.getTelegramAlertConfig();
+        if (!cfg || !cfg.enabled || !cfg.botToken || !cfg.chatId) return false;
+        if (kind === 'offline' && cfg.alertOffline === false) return false;
+        if (kind === 'online' && cfg.alertOnline === false) return false;
+        await sendTelegramMessage(cfg.botToken, cfg.chatId, text);
+        return true;
+    } catch (e) {
+        console.warn('[Ops Alert] ส่ง Telegram ไม่สำเร็จ:', e.message);
+        return false;
+    }
+}
+
 async function sendLinePushMessage(token, targetId, messages) {
     if (!token || !targetId) throw new Error('LINE Channel Access Token and Target ID are required');
     const payload = {
@@ -3492,6 +3558,110 @@ app.post('/api/line/webhook', express.json(), async (req, res) => {
 });
 
 // LINE Digest Configuration APIs (Multi-Site Aware)
+// ==========================================
+// Telegram Ops Alerts — ตั้งค่า / ทดสอบ / หา Chat ID
+// เฉพาะ admin เพราะเป็นช่องทางของทีมแอดมิน ไม่ใช่ของลูกค้า
+// ==========================================
+
+// ไม่คืน botToken กลับไปให้เบราว์เซอร์เด็ดขาด บอกแค่ว่ามีหรือยัง
+// (หลักการเดียวกับ sanitizeSitePublic ที่ไม่คืนรหัสเราท์เตอร์)
+function sanitizeTelegramConfig(cfg) {
+    return {
+        enabled: !!cfg.enabled,
+        hasBotToken: !!cfg.botToken,
+        botTokenPreview: cfg.botToken ? String(cfg.botToken).slice(0, 8) + '…' : '',
+        chatId: cfg.chatId || '',
+        alertOffline: cfg.alertOffline !== false,
+        alertOnline: cfg.alertOnline !== false
+    };
+}
+
+app.get('/api/mikrotik/telegram-alert/config', requireAuth(['admin']), async (req, res) => {
+    try {
+        res.json(sanitizeTelegramConfig(await db.getTelegramAlertConfig()));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/mikrotik/telegram-alert/config', requireAuth(['admin']), async (req, res) => {
+    try {
+        const patch = {};
+        if (req.body.enabled !== undefined) patch.enabled = !!req.body.enabled;
+        // ส่ง botToken ว่างมา = ไม่แก้ (กันเผลอลบ token ตอนกดบันทึกจากฟอร์มที่ไม่ได้กรอกใหม่)
+        if (req.body.botToken) patch.botToken = String(req.body.botToken).trim();
+        if (req.body.chatId !== undefined) patch.chatId = String(req.body.chatId).trim();
+        if (req.body.alertOffline !== undefined) patch.alertOffline = !!req.body.alertOffline;
+        if (req.body.alertOnline !== undefined) patch.alertOnline = !!req.body.alertOnline;
+
+        const updated = await db.saveTelegramAlertConfig(patch);
+        db.addLog(req.user.username, 'ตั้งค่าแจ้งเตือน Telegram', `enabled=${updated.enabled} chatId=${updated.chatId || '-'}`);
+        res.json(sanitizeTelegramConfig(updated));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/mikrotik/telegram-alert/test', requireAuth(['admin']), async (req, res) => {
+    try {
+        const cfg = await db.getTelegramAlertConfig();
+        const botToken = (req.body && req.body.botToken) || cfg.botToken;
+        const chatId = (req.body && req.body.chatId) || cfg.chatId;
+        if (!botToken || !chatId) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า Bot Token หรือ Chat ID' });
+
+        const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        await sendTelegramMessage(botToken, chatId,
+            `🔔 <b>ทดสอบการแจ้งเตือน</b>
+
+ระบบ MikroTik Dashboard เชื่อมต่อ Telegram สำเร็จแล้ว
+⏱️ ${nowStr}
+
+ช่องทางนี้ใช้แจ้งเตือนฝั่งแอดมิน (เราท์เตอร์ล่ม / เชื่อมต่อไม่ได้) แยกจาก LINE ที่ใช้แจ้งลูกค้า`);
+        res.json({ success: true, message: 'ส่งข้อความทดสอบไป Telegram เรียบร้อยแล้ว' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ช่วยหา Chat ID: เพิ่มบอทเข้ากลุ่มแล้วพิมพ์อะไรก็ได้ในกลุ่ม จากนั้นกดปุ่มนี้
+// ระบบจะอ่าน getUpdates แล้วคืนรายชื่อแชตที่บอทเห็นล่าสุด
+app.post('/api/mikrotik/telegram-alert/discover-chats', requireAuth(['admin']), async (req, res) => {
+    try {
+        const cfg = await db.getTelegramAlertConfig();
+        const botToken = (req.body && req.body.botToken) || cfg.botToken;
+        if (!botToken) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า Bot Token' });
+
+        const updates = await new Promise((resolve, reject) => {
+            const r = https.get(`https://api.telegram.org/bot${botToken}/getUpdates?limit=100`, { timeout: 10000 }, (resp) => {
+                let body = '';
+                resp.on('data', (c) => { body += c; });
+                resp.on('end', () => {
+                    try { resolve(JSON.parse(body)); } catch (e) { reject(new Error('Telegram ตอบกลับไม่ใช่ JSON')); }
+                });
+            });
+            r.on('timeout', () => { r.destroy(new Error('Telegram ไม่ตอบกลับภายใน 10 วินาที')); });
+            r.on('error', reject);
+        });
+
+        if (!updates.ok) return res.status(400).json({ error: updates.description || 'Bot Token ไม่ถูกต้อง' });
+
+        const seen = new Map();
+        for (const u of (updates.result || [])) {
+            const msg = u.message || u.channel_post || u.my_chat_member || {};
+            const chat = msg.chat;
+            if (!chat || seen.has(chat.id)) continue;
+            seen.set(chat.id, {
+                chatId: String(chat.id),
+                type: chat.type,
+                title: chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || '(ไม่มีชื่อ)'
+            });
+        }
+        res.json({ chats: [...seen.values()] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.headers['x-site-id'];
     res.json(await db.getLineDigestConfig(siteId));
@@ -3733,17 +3903,23 @@ setInterval(async () => {
                     console.log(`[Site Monitor] ✅ Site ${site.name} (${site.id}) is BACK ONLINE after ${downDurationMin} min.`);
                     db.addLog('System Monitor', 'เราท์เตอร์กลับมาออนไลน์', `เราท์เตอร์สาขา ${site.name} กลับมาเชื่อมต่อได้ตามปกติ (หยุดทำงานไป ${downDurationMin} นาที)`);
 
-                    // ต้องเช็ค enabled ด้วย ไม่ใช่แค่ว่ามี token/target
-                    // เดิมเช็คแค่สองอย่างหลัง ทำให้สาขาที่ปิดแจ้งเตือนไว้ยังยิงข้อความออกไป
-                    // (พบจริง 2026-08-28: Suksawad-CMU ปิดอยู่ แต่แจ้งเตือนเด้งเข้ากลุ่มของ A4)
-                    const lineConfig = await db.getLineDigestConfig(site.id);
-                    if (lineConfig && lineConfig.enabled && lineConfig.channelAccessToken && lineConfig.targetId) {
-                        const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-                        await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
-                            type: 'text',
-                            text: `✅ [ระบบกลับมาออนไลน์]\n\n📍 สาขา: ${site.name}\n⏱️ เวลา: ${nowStr}\n🔄 ออฟไลน์ไปประมาณ: ${downDurationMin} นาที\n(ระบบกลับมาเชื่อมต่อและทำงานตามปกติแล้วครับ)`
-                        }).catch(e => console.warn('[LINE Site Monitor Error]', e.message));
-                    }
+                    // แจ้งเตือนสถานะเราท์เตอร์ไปที่ Telegram เท่านั้น ไม่ส่งเข้า LINE
+                    // LINE เป็นช่องทางของลูกค้า/ผู้เช่าห้อง ไม่ควรเห็นเรื่องเทคนิคของระบบ
+                    // (2026-08-28: แจ้งเตือน Suksawad-CMU ล่ม เคยไปโผล่ในกลุ่มลูกค้าของ A4)
+                    const nowStrUp = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                    await sendOpsAlert(
+                        `✅ <b>เราท์เตอร์กลับมาออนไลน์</b>
+
+` +
+                        `📍 สาขา: <b>${site.name}</b>
+` +
+                        `🌐 ${site.host || '-'}
+` +
+                        `⏱️ เวลา: ${nowStrUp}
+` +
+                        `🔄 ออฟไลน์ไปประมาณ: ${downDurationMin} นาที`,
+                        'online'
+                    );
                 } else {
                     state.consecutiveFailures = 0;
                 }
@@ -3756,15 +3932,24 @@ setInterval(async () => {
                     console.error(`[Site Monitor] 🚨 Site ${site.name} is DOWN!`);
                     db.addLog('System Monitor', 'เราท์เตอร์หลุดการเชื่อมต่อ', `🚨 เราท์เตอร์สาขา ${site.name} ขาดการเชื่อมต่อ (Offline): ${connErr.message}`);
 
-                    // เช็ค enabled ด้วยเช่นกัน (ดูคำอธิบายด้านบน)
-                    const lineConfig = await db.getLineDigestConfig(site.id);
-                    if (lineConfig && lineConfig.enabled && lineConfig.channelAccessToken && lineConfig.targetId) {
-                        const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-                        await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
-                            type: 'text',
-                            text: `🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline]\n\n📍 สาขา: ${site.name}\n⏱️ ขาดการเชื่อมต่อเมื่อ: ${nowStr}\n⚠️ สาเหตุ: ${connErr.message || 'ไม่สามารถติดต่อเราท์เตอร์ได้'}\n\nกรุณาตรวจสอบระบบไฟฟ้าหรือการเชื่อมต่ออินเทอร์เน็ตที่หน้างาน`
-                        }).catch(e => console.warn('[LINE Site Monitor Error]', e.message));
-                    }
+                    // ไปที่ Telegram เท่านั้น (ดูคำอธิบายด้านบน)
+                    const nowStrDown = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                    await sendOpsAlert(
+                        `🚨 <b>เราท์เตอร์ Offline</b>
+
+` +
+                        `📍 สาขา: <b>${site.name}</b>
+` +
+                        `🌐 ${site.host || '-'}:${site.port || 8728}
+` +
+                        `⏱️ ขาดการเชื่อมต่อเมื่อ: ${nowStrDown}
+` +
+                        `⚠️ สาเหตุ: ${connErr.message || 'ไม่สามารถติดต่อเราท์เตอร์ได้'}
+
+` +
+                        `ตรวจสอบไฟฟ้า/อินเทอร์เน็ตที่หน้างาน หรือรหัส API ในหน้าตั้งค่า`,
+                        'offline'
+                    );
                 }
             }
         }

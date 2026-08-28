@@ -593,6 +593,71 @@ function _getDefaultMultiWanConfig() {
     };
 }
 
+
+// ==========================================
+// TELEGRAM OPS ALERTS
+// แยกจาก LINE โดยเจตนา: LINE คือช่องทางหาลูกค้า/ผู้เช่าห้อง (สรุปวันหมดอายุ)
+// ส่วน Telegram คือช่องทางของทีมแอดมิน (เราท์เตอร์ล่ม, auth fail, ปัญหาระบบ)
+// เอามารวมช่องเดียวกันแล้วมีปัญหามาแล้วจริง ๆ เมื่อ 2026-08-28
+// (แจ้งเตือน Suksawad-CMU ล่ม ไปโผล่ในกลุ่มลูกค้าของ A4)
+//
+// เป็น config เดียวทั้งระบบ ไม่แยกรายสาขา เพราะทีมแอดมินดูทุกสาขาอยู่แล้ว
+// ในข้อความจะระบุชื่อสาขากำกับเสมอ
+// ==========================================
+
+function _defaultTelegramAlertConfig() {
+    return {
+        enabled: false,
+        botToken: '',
+        chatId: '',
+        alertOffline: true,
+        alertOnline: true
+    };
+}
+
+async function getTelegramAlertConfig() {
+    try {
+        var res = await supabase.from('app_settings').select('value').eq('key', 'telegram_alert_config').maybeSingle();
+        var data = (res.data && res.data.value) || null;
+        if (data) {
+            return {
+                enabled: !!data.enabled,
+                botToken: data.botToken || '',
+                chatId: data.chatId || '',
+                alertOffline: data.alertOffline !== false,
+                alertOnline: data.alertOnline !== false
+            };
+        }
+        // ยังไม่เคยตั้งค่า — ยืมค่าที่กรอกไว้ในหน้า Multi-WAN มาเป็นค่าเริ่มต้น
+        // (ที่นั่นใช้ token/chat เดียวกันสำหรับ netwatch บนเราท์เตอร์อยู่แล้ว)
+        // แต่ยังไม่เปิดใช้งานให้เอง ต้องมากดเปิดเองเพื่อไม่ให้มีข้อความโผล่โดยไม่ตั้งใจ
+        var mw = await getMultiWanConfig();
+        var d = _defaultTelegramAlertConfig();
+        d.botToken = (mw && mw.telegramToken) || '';
+        d.chatId = (mw && mw.telegramChatId) || '';
+        return d;
+    } catch (e) {
+        return _defaultTelegramAlertConfig();
+    }
+}
+
+async function saveTelegramAlertConfig(config) {
+    try {
+        var current = await getTelegramAlertConfig();
+        var updated = {
+            enabled: config.enabled !== undefined ? !!config.enabled : current.enabled,
+            botToken: config.botToken !== undefined ? String(config.botToken).trim() : current.botToken,
+            chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
+            alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
+            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline
+        };
+        await supabase.from('app_settings').upsert({ key: 'telegram_alert_config', value: updated, updated_at: new Date().toISOString() });
+        return updated;
+    } catch (e) {
+        throw e;
+    }
+}
+
 async function getMultiWanConfig(siteId) {
     try {
         var key = 'multiwan_' + (siteId || 'default');
@@ -914,5 +979,6 @@ module.exports = {
     archiveDeletedHotspotUsersBulk: archiveDeletedHotspotUsersBulk,
     deleteArchivedHotspotUser: deleteArchivedHotspotUser, clearArchivedHotspotUsers: clearArchivedHotspotUsers,
     getLineDigestConfig: getLineDigestConfig, saveLineDigestConfig: saveLineDigestConfig,
-    getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser
+    getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser,
+    getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig
 };

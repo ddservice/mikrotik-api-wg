@@ -469,6 +469,8 @@ function loadSettingsTab(tabId) {
         fetchSitesManagement();
     } else if (tabId === 'tab-settings-line') {
         fetchLineDigestConfig();
+    } else if (tabId === 'tab-settings-telegram') {
+        loadTelegramAlertConfig();
     }
 }
 
@@ -5783,4 +5785,131 @@ document.getElementById('btn-export-hotspot-csv')?.addEventListener('click', () 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
     initApp();
+});
+
+// ==========================================
+// TELEGRAM OPS ALERTS (ช่องทางทีมแอดมิน — แยกจาก LINE ที่ใช้แจ้งลูกค้า)
+// ==========================================
+function renderTelegramAlertState(cfg) {
+    const badge = document.getElementById('telegram-alert-status-badge');
+    const toggle = document.getElementById('toggle-telegram-alert');
+    const hint = document.getElementById('telegram-token-hint');
+    if (toggle) toggle.checked = !!cfg.enabled;
+    if (badge) {
+        badge.textContent = cfg.enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
+        badge.classList.toggle('off', !cfg.enabled);
+    }
+    const chat = document.getElementById('telegram-chat-id');
+    if (chat) chat.value = cfg.chatId || '';
+    const off = document.getElementById('telegram-alert-offline');
+    if (off) off.checked = cfg.alertOffline !== false;
+    const on = document.getElementById('telegram-alert-online');
+    if (on) on.checked = cfg.alertOnline !== false;
+    // ไม่เคยรับ token กลับมาจาก server — บอกแค่ว่ามีบันทึกไว้แล้วหรือยัง
+    if (hint) {
+        hint.textContent = cfg.hasBotToken
+            ? `บันทึก token ไว้แล้ว (${cfg.botTokenPreview}) — เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน`
+            : 'สร้างบอทที่ @BotFather แล้วนำ token มาวาง';
+    }
+}
+
+async function loadTelegramAlertConfig() {
+    if (!document.getElementById('telegram-alert-card')) return;
+    try {
+        renderTelegramAlertState(await apiFetch('/api/mikrotik/telegram-alert/config'));
+    } catch (err) {
+        console.warn('โหลดการตั้งค่า Telegram ไม่ได้:', err.message);
+    }
+}
+
+function collectTelegramPayload() {
+    const tokenEl = document.getElementById('telegram-bot-token');
+    const payload = {
+        enabled: !!document.getElementById('toggle-telegram-alert')?.checked,
+        chatId: (document.getElementById('telegram-chat-id')?.value || '').trim(),
+        alertOffline: !!document.getElementById('telegram-alert-offline')?.checked,
+        alertOnline: !!document.getElementById('telegram-alert-online')?.checked
+    };
+    // ส่ง botToken ไปเฉพาะตอนที่กรอกใหม่ ช่องว่าง = ใช้ค่าเดิม
+    const t = (tokenEl?.value || '').trim();
+    if (t) payload.botToken = t;
+    return payload;
+}
+
+document.getElementById('btn-save-telegram-alert')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-save-telegram-alert');
+    btn.disabled = true;
+    try {
+        const cfg = await apiFetch('/api/mikrotik/telegram-alert/config', {
+            method: 'POST',
+            body: JSON.stringify(collectTelegramPayload())
+        });
+        const tokenEl = document.getElementById('telegram-bot-token');
+        if (tokenEl) tokenEl.value = '';
+        renderTelegramAlertState(cfg);
+        alert('บันทึกการตั้งค่า Telegram เรียบร้อยแล้ว');
+    } catch (err) {
+        alert('บันทึกไม่สำเร็จ: ' + err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+document.getElementById('btn-test-telegram-alert')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-test-telegram-alert');
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังส่ง...';
+    try {
+        const tokenEl = document.getElementById('telegram-bot-token');
+        const body = { chatId: (document.getElementById('telegram-chat-id')?.value || '').trim() };
+        const t = (tokenEl?.value || '').trim();
+        if (t) body.botToken = t;
+        const res = await apiFetch('/api/mikrotik/telegram-alert/test', { method: 'POST', body: JSON.stringify(body) });
+        alert(res.message || 'ส่งข้อความทดสอบเรียบร้อยแล้ว');
+    } catch (err) {
+        alert('ส่งไม่สำเร็จ: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+
+document.getElementById('btn-telegram-discover')?.addEventListener('click', async () => {
+    const box = document.getElementById('telegram-chat-results');
+    const btn = document.getElementById('btn-telegram-discover');
+    btn.disabled = true;
+    try {
+        const tokenEl = document.getElementById('telegram-bot-token');
+        const body = {};
+        const t = (tokenEl?.value || '').trim();
+        if (t) body.botToken = t;
+        const res = await apiFetch('/api/mikrotik/telegram-alert/discover-chats', { method: 'POST', body: JSON.stringify(body) });
+        if (box) {
+            box.style.display = 'block';
+            if (!res.chats || !res.chats.length) {
+                box.innerHTML = '<span style="color:#b45309;">ยังไม่เห็นแชตใด — เพิ่มบอทเข้ากลุ่ม แล้วพิมพ์ข้อความอะไรก็ได้ในกลุ่ม จากนั้นกดค้นหาอีกครั้ง</span>';
+            } else {
+                box.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">แชตที่บอทเห็น (กดเพื่อเลือก):</div>' +
+                    res.chats.map(c =>
+                        `<button type="button" class="btn btn-secondary btn-sm tg-pick" data-chat="${c.chatId}" style="margin:3px 4px 3px 0;">
+                            ${c.type === 'private' ? '👤' : '👥'} ${c.title} <code>${c.chatId}</code>
+                        </button>`
+                    ).join('');
+                box.querySelectorAll('.tg-pick').forEach(b => {
+                    b.addEventListener('click', () => {
+                        const el = document.getElementById('telegram-chat-id');
+                        if (el) el.value = b.getAttribute('data-chat');
+                    });
+                });
+            }
+        }
+    } catch (err) {
+        if (box) {
+            box.style.display = 'block';
+            box.innerHTML = `<span style="color:#b91c1c;">ค้นหาไม่สำเร็จ: ${err.message}</span>`;
+        }
+    } finally {
+        btn.disabled = false;
+    }
 });
