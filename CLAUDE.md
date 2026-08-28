@@ -17,20 +17,84 @@ cannot write to `/root/` or `/var/log/`.
 
 ## Product direction (stable long-term)
 
-**Keep Express (`server.js`) + vanilla UI (`public/`).** Add features
-incrementally. Do **not** cut over production to Next.js App Router.
-
-Rationale: this is a multi-site admin dashboard with many external operators;
-stability, API-level auth, and clear handoff matter more than a framework
-rewrite. The 2026-08-12/13 Next experiment caused outages and must not be
-redeployed (`src/DO_NOT_DEPLOY.md`).
+**Backend stays Express (`server.js`) forever. Frontend is migrating to
+Vue 3 + Vite, page by page.** Do **not** cut over production to Next.js
+App Router — that stays dead (`src/DO_NOT_DEPLOY.md`).
 
 Handoff model for future developers:
-- Backend entry: `server.js` (Express)
-- Frontend entry: `public/index.html` + `public/app.js` (bump `?v=` on JS changes)
+- Backend entry: `server.js` (Express) — 97 JSON REST routes, Bearer-token auth
+- Frontend (legacy, still the live `/`): `public/index.html` + `public/app.js`
+  (bump `?v=` on every JS change)
+- Frontend (new, at `/v2/`): `frontend/` → builds to `public/v2/` (see `frontend/README.md`)
 - DB: `db-supabase.js` (prod) / `db.js` (local JSON) — keep signatures in sync
 - Process: PM2 `ecosystem.config.js` → `script: 'server.js'`, `PORT: 3001`, `exec_mode: 'fork'`
 - Backup before risky work: `scripts/backup-pre-rewrite.sh`
+
+### Why a frontend framework now, when the last attempt caused an outage
+
+The two are not the same change, and the difference is the whole point:
+
+| | Next.js (2026-08-12/13, caused 502s) | Vue + Vite (2026-08-28, current path) |
+|---|---|---|
+| What it replaced | **the server** — own process, own port | **only the JS/HTML the browser downloads** |
+| `server.js` | replaced by `next start` | untouched |
+| PM2 / port 3001 / nginx | all had to change | untouched |
+| DB layer | rewritten as `src/lib/db.ts`, read the wrong file | untouched |
+| Deploy | new runtime on VPS | `git pull` + `pm2 reload`, unchanged |
+| Blast radius if wrong | whole site 502 | restore `public/v2/`, `/` never affected |
+
+The backend audit that justified this: **the frontend is already a pure API
+client.** 97 routes, all returning JSON, auth via an `Authorization: Bearer`
+header, zero server-rendered HTML, and no client-side routing at all (the
+whole app is one page toggling `display:none`). Nothing about the browser
+layer is entangled with the server layer.
+
+**Everything machine-facing is server-side only and cannot be affected by
+frontend work at all:**
+- `POST /api/wireguard/callback-register` — the *router* calls this via
+  `/tool/fetch` with a single-use token, to self-register its WG public key
+- `POST /api/line/webhook` — LINE's servers call this
+- `GET /health` — UptimeRobot
+- `routeros.js` client, `executeOnRouter`, the 5-minute session poller,
+  the LINE digest scheduler, the 60s offline monitor, the nightly backup
+
+So the answer to "is Vue safe given the API / WireGuard / VPN setup" is that
+**none of them are reachable from the frontend** — they are router-to-server
+and server-to-router paths that never involve a browser.
+
+### The bug that decided it
+
+2026-08-28: three unclosed `<div>`s in `index.html` silently nested 8 modals
+inside parents with `opacity: 0`. No console error, no failed request — the
+only symptom was "the button does nothing". It killed the 1-Click upgrade,
+coupon renewal, Ctrl+K search and 5 other features, and cost three commits
+of fixing the wrong layer (`v123`/`v124`/`v125` patched JS and CSS).
+
+A Vue/Vite build **refuses to compile** unbalanced markup, and
+`<Teleport to="body">` makes "modal ends up inside a hidden parent"
+structurally impossible rather than something to remember. `scripts/validate-html.js`
+now covers the legacy page for as long as it exists.
+
+### Migration rules (non-negotiable)
+
+1. **Build on the dev machine, commit `public/v2/`.** The VPS runs
+   `npm install --omit=dev` and has no vite/vue. Deploy stays `git pull` +
+   `pm2 reload` with zero new server dependencies and zero new ports.
+2. **`frontend/` has its own `package.json`.** The root `package.json` — the
+   one the VPS installs from — must never gain a build dependency.
+3. **One page at a time.** `/` keeps serving the old UI until every page has a
+   working replacement. Both share the same `localStorage` token, so an
+   operator can be logged into both simultaneously during the transition.
+4. **Never delete `public/app.js` / `public/index.html`** until all pages are
+   migrated *and* clicked through by hand. There is no test suite.
+5. If `frontend/src` changed, run `npm run build:frontend` **before** commit —
+   otherwise the deployed `/v2/` is stale.
+
+Known issues a framework does *not* fix (server-side, still open):
+- `activeSessions` is an in-memory `Map` → every `pm2 reload` logs out all users
+- `wgRegistrationTokens` is in-memory → a WireGuard registration in flight dies
+  on restart
+- no test suite
 
 ## VPS port ownership (do not steal ports from other apps)
 
@@ -382,6 +446,33 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-28 (3)** — Frontend migration starts: Vue 3 + Vite pilot at `/v2/`, backend untouched.
+  - Audited the backend before deciding: **97 REST routes, all JSON, Bearer-token auth, zero
+    server-rendered HTML, no client-side routing.** The frontend is already a pure API client, so
+    it can be replaced in complete isolation. All machine-facing paths
+    (`/api/wireguard/callback-register` called by the router via `/tool/fetch`, `/api/line/webhook`
+    called by LINE, `/health` for UptimeRobot, `routeros.js`, `executeOnRouter`, the 5-min poller,
+    LINE digest scheduler, 60s offline monitor, nightly backup) are server-side only and cannot be
+    touched by frontend work. See the expanded "Product direction" section for the full rationale
+    and the Next-vs-Vite blast-radius table.
+  - Added `frontend/` — Vue 3 + Vite 6, **its own `package.json`** so the root one (which the VPS
+    installs from with `--omit=dev`) never gains a build dependency. Builds to `public/v2/`, which
+    Express already serves as static. **No change to `server.js`, PM2, nginx, ports, or the deploy
+    command.** `public/v2/` is committed on purpose — the VPS has no build toolchain.
+  - Pilot scope: the Overview page, at full parity (all 9 stat cards, same `style.css`, same Thai
+    strings, `formatUptime` ported verbatim) plus the 1-Click upgrade modal. Uses the same
+    `localStorage` token as the old UI, so both can be open at once during the transition.
+  - Verified in real Chrome: 9/9 cards render, uptime formats to `14 สัปดาห์ 1 วัน` identically,
+    the modal's `<Teleport to="body">` puts it as a **direct child of `<body>`** at `top: 0` —
+    the 28 ส.ค. nesting bug is now structurally impossible, not just guarded against.
+    Bundle: 85 kB raw / 33 kB gzip.
+  - Vite emits content-hashed filenames, so **`?v=` bumping and Cloudflare cache-purging stop being
+    a manual step** for anything under `/v2/`.
+  - Isolated the build from the repo-root `postcss.config.js` / `tailwind.config.js` left over from
+    the dead Next experiment (`css: { postcss: {} }`) — Vite was walking up and picking them up.
+  - `npm run build:frontend` / `npm run dev:frontend` added at the root. Migration order and the
+    non-negotiable rules are in `frontend/README.md` and the Product direction section.
 
 - **2026-08-28 (2)** — Follow-ups on the modal fix: de-duplicate Router Operations, add two guard scripts, fix Global Search.
   - **Router Operations panel removed from Overview.** It was duplicated verbatim: `#panel-router-operations` on Overview *and* `#tab-settings-ops` on the Settings page ("จัดการระบบเราท์เตอร์ & แจ้งเตือน" → tab 3). Kept the Settings copy only — reboot/backup/upgrade are maintenance actions, they belong on the router-management page, not on a monitoring dashboard. Every handler already used class selectors (`.btn-system-reboot, #btn-system-reboot, #btn-system-reboot-settings`) so nothing needed rewiring. Dropped the now-dead `panel-router-operations` role gate in `app.js`; the Settings page is already admin-only via `#nav-settings` + `requireAuth(['admin'])`. The RouterOS Version stat card keeps its small "1-Click อัปเกรด" shortcut — that one is contextual, not a duplicate panel.

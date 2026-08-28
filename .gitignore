@@ -18,3 +18,9 @@ logs/*.log
 # Local/offline pre-rewrite snapshots (may contain secrets)
 backups/
 .claude/
+
+# Vue/Vite pilot — เฉพาะ node_modules เท่านั้นที่ไม่ track
+# ตัว source ใน frontend/src และ build output ใน public/v2 ต้อง commit
+# เพราะ VPS รัน `npm install --omit=dev` และไม่มี toolchain สำหรับ build
+frontend/node_modules/
+frontend/.vite/
