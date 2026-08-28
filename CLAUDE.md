@@ -447,6 +447,63 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (8)** — **Production had silently fallen back to Local JSON. Recovered to Supabase after migrating the stranded data.**
+  - `ecosystem.config.js` on the VPS had `SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co'` — the
+    placeholder. Express correctly ignored it (2026-08-13 (7) behaviour) and ran on **Local JSON**,
+    logging `[DB] Using: Local JSON files` on every restart. `/health` reported `"db":"local-json"`.
+    This is incident-prevention rule #4 recurring.
+  - Divergence at the time of discovery — Supabase vs the JSON store the app was actually using:
+    | table | Supabase | Local JSON |
+    |---|---|---|
+    | sites | 3 | 4 |
+    | hotspot_logs | 40,532 | 5,487 |
+    | **dns_query_logs** | 109,514 | **0** |
+    | pppoe_usage_logs | 323 | 74 |
+    | activity_logs | 583 | 24 |
+    **No DNS query logging happened at all while in JSON mode** — a มาตรา 26 retention gap for that
+    window, and it cannot be reconstructed.
+  - **Two reasons A4-Residence stopped notifying**, both needed fixing:
+    1. The app was reading `db/settings.json`, not the Supabase `line_digest_config_*` records where
+       A4's real token and group live.
+    2. Even in Supabase, **`enabled` was `false` for every site**, and A4's `lastSentDate` was
+       `2026-08-23` — the date the "restrict LINE to A4 only" cleanup (2026-08-23 entry) forced
+       `enabled: false`. The 2026-08-26 change removed that restriction but never turned the flag
+       back on.
+  - The site records did **not** line up by name, so migration matched by `id`, then `wireguard_ip`,
+    then `host`: `TingTing@WiFi`↔`TingTing` (10.10.88.2) and `SuksawatWiFi`↔`Suksawad-CMU`
+    (10.10.88.4) are the same routers under different names; `A4-Residence` matched by id; and
+    **`Auioun@WiFi` (the main site) did not exist in Supabase at all**.
+  - Added `scripts/migrate-json-to-supabase.js` (`npm run migrate-json-to-supabase`) — dry-run by
+    default, `--apply` to write, `upsert` on `id` so reruns cannot duplicate, never deletes, never
+    touches `dashboard_users` or `app_settings`. Log `site_name` values are normalised to the
+    Supabase names so existing filters keep matching.
+  - **Applied on the VPS**: added the missing `Auioun@WiFi` site (with credentials), moved 5,499
+    hotspot logs, 74 PPPoE usage logs and 24 activity logs. Result: sites 3→4, hotspot_logs
+    40,532→46,031, pppoe_usage_logs 323→397, activity_logs 583→607.
+  - **`archived_hotspot_users` does not exist in Postgres.** The archive feature shipped
+    (2026-08-26) but its `CREATE TABLE` was never run — the code silently swallowed the error, so
+    nothing has ever been archived in production. The migration prints the exact SQL and skips the
+    table; 3 rows are still pending in `db/archived_hotspot_users.json` until the table is created
+    and the script is rerun. SQL lives in `ARCHIVE_TABLE_SQL` in that script (RLS on, no policies,
+    per the Database-migrations convention).
+  - Restored the real Supabase credentials into the VPS `ecosystem.config.js` by patching **only the
+    two `SUPABASE_*` lines**. `ecosystem.config.js.REAL.bak` must **not** be copied wholesale — it
+    carries `PORT: 3000` and no `exec_mode`, which would collide with nginx (which proxies 3001) and
+    drop the fork-mode requirement. Verified after patching: `script: server.js`, `exec_mode: fork`,
+    `cwd` absolute, `PORT: 3001`, preflight OK. Then `pm2 reload` →
+    `[DB] Using: Supabase (PostgreSQL)`, `/health` → `"db":"supabase"`, `/` and `/v2/` both 200,
+    4 sites and 3 dashboard users visible.
+  - Enabled the LINE digest for **A4-Residence only**. The other three sites all read the same
+    token/targetId through the legacy global-record fallback, so enabling them would fire duplicate
+    digests into the same LINE group — they need their own config first. Enabling A4 sent nothing
+    immediately: it is 14:34, the schedule is 09:00, and 334 minutes is outside the 180-minute
+    catch-up window, so the first delivery is tomorrow 09:00.
+  - Also fixed `.gitignore`: `db/backups-pre-restore/` on the VPS holds `config.json` (real router
+    credentials), `users.json` (password hashes) and `sites.json`, and **none of it was ignored** —
+    `db/*.json` does not match subdirectories. Now `db/**`. The 2026-07-30 fix covered only the two
+    top-level files. And recorded `deploy.sh` as mode 100755 so the VPS copy stops showing as
+    modified and blocking `git pull` (it already blocked one pull this session).
+
 - **2026-08-28 (7)** — Site switching was querying the **wrong router**; LINE daily digest could silently skip a day.
   - **17 route handlers called `executeOnRouter(async (client) => …)` without passing `req`.** With no
     `req`, `targetSiteId` resolves to `null`, so `db.getConfig(null)` returns the *globally active*
