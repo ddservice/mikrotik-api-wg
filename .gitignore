@@ -1,8 +1,10 @@
 node_modules/
 .env
-db/*.json
-db/*.db
-!db/.gitkeep
+# ครอบทั้งโฟลเดอร์ db/ รวมโฟลเดอร์ย่อย — เดิมใช้ db/*.json ซึ่งไม่ครอบ
+# db/backups-pre-restore/ ที่มี config.json (รหัสเราท์เตอร์) และ users.json
+# (hash รหัสผ่าน dashboard) วางอยู่จริงบน VPS โดยไม่ถูก ignore เลย
+# db.js สร้างโฟลเดอร์เองด้วย mkdirSync จึงไม่ต้องมีไฟล์ค้างไว้ให้ git
+db/**
 nas-backup.conf
 
 # Next experiment build artifacts (Express is production — do not deploy .next)
