@@ -522,6 +522,9 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .sw input:checked + span { background: var(--v2-primary); }
 .sw input:checked + span::before { transform: translateX(20px); }
+/* input ถูกซ่อนด้วย opacity:0 ขนาด 0x0 ผู้ใช้คีย์บอร์ดจึงไม่เห็นว่าโฟกัสอยู่ที่ไหน
+   ย้ายวงโฟกัสไปไว้ที่ track ที่มองเห็นจริงแทน */
+.sw input:focus-visible + span { outline: 2px solid var(--v2-primary); outline-offset: 2px; }
 
 .inline { display: flex; gap: 8px; }
 .inline .v2-input { flex: 1; }

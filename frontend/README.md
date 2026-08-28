@@ -1,7 +1,8 @@
 # frontend/ — Vue 3 + Vite (นำร่อง)
 
 หน้าเว็บเวอร์ชันใหม่ที่กำลังทยอยย้ายมาจาก `public/index.html` + `public/app.js`
-ตอนนี้ย้ายมาแล้ว **5 หน้า**: Overview, Hotspot, PPPoE, Logs, Settings (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
+ตอนนี้ย้ายมาแล้ว **7 หน้า** — ครบทุกหน้าที่ใช้งานประจำวัน
+(Overview, Hotspot, PPPoE, Logs, Settings, Firewall, ผู้ใช้งาน Dashboard) (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
 
 เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — มีหน้าล็อกอินของตัวเอง
 และใช้ token ร่วมกับหน้าเดิมใน `localStorage` เข้าสลับไปมาได้ระหว่างช่วงย้ายระบบ
@@ -82,6 +83,8 @@ frontend/
         ├── HotspotUserModal.vue  # เพิ่ม/แก้ไขบัญชี + ตรรกะต่ออายุ
         ├── SettingsPage.vue      # สาขา + Telegram + LINE
         ├── SiteModal.vue         # เพิ่ม/แก้ไขสาขา
+        ├── FirewallPage.vue      # บล็อกบริการ + ตั้งเวลา + โดเมนเอง
+        ├── AdminsPage.vue        # สแตฟฟ์ + ตารางสิทธิ์เมนู
         └── FullUpgradeModal.vue  # โมดัล 1-Click (ใช้ Teleport)
 ```
 
@@ -100,7 +103,13 @@ frontend/
    พร้อมค้นหา/กรองช่วงวัน/แบ่งหน้า/ส่งออก CSV
 6. ✅ Settings — สาขา/เราท์เตอร์ (CRUD + สถานะสด), Telegram, LINE OA รายสาขา
    *ยังขาด: สคริปต์ WireGuard, เครื่องมือวินิจฉัย 5 ขั้น, Router Operations*
-7. Firewall / Multi-WAN / ผู้ใช้งาน Dashboard
-8. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
+7. ✅ Firewall — บล็อก 11 บริการ + ตั้งเวลา/เลือกวัน + โดเมนที่บล็อกเอง
+   *ยังขาด: Hardened Security Preset (สคริปต์ตั้งค่าครั้งเดียว)*
+8. ✅ ผู้ใช้งาน Dashboard — เพิ่ม/แก้ไข/ลบสแตฟฟ์, ล็อกสาขา, ตารางสิทธิ์เมนู
+9. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
+
+**ตั้งใจไม่ย้าย** (เป็นตัวสร้างสคริปต์ที่ใช้ครั้งเดียวตอนติดตั้ง ไม่ใช่งานประจำวัน —
+เมนูชี้กลับไปหน้าเดิม): Multi-WAN, สคริปต์ WireGuard, เครื่องมือวินิจฉัย 5 ขั้น,
+Hardened Security Preset, สร้างคูปองแบบกลุ่ม, พิมพ์คูปอง
 
 ข้อ 7 ทำเป็นข้อสุดท้ายเท่านั้น และทำหลังจากคลิกทดสอบครบทุกหน้าแล้ว

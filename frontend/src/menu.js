@@ -38,7 +38,9 @@ const FALLBACK_PERMISSIONS = {
 
 // หน้าที่ยังไม่ได้ย้ายมา Vue — กดแล้วเด้งไปหน้าเดิมแทนที่จะโชว์หน้าว่าง
 // ลบ key ออกจากชุดนี้เมื่อย้ายหน้านั้นเสร็จ
-export const NOT_MIGRATED_YET = new Set(['multiwan', 'firewall', 'admins']);
+// Multi-WAN ตั้งใจไม่ย้ายมา v2 — หน้านั้นเป็นตัว "สร้างสคริปต์" ให้เอาไปวางใน WinBox
+// ตั้งค่าครั้งเดียวตอนติดตั้ง ไม่ใช่งานประจำวัน จึงชี้กลับไปหน้าเดิมถาวร
+export const NOT_MIGRATED_YET = new Set(['multiwan']);
 
 export const visibleMenus = ref([OVERVIEW_MENU]);
 
