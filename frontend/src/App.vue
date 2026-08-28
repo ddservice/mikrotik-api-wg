@@ -1,8 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { apiFetch, token, currentUser, activeSiteId, setActiveSiteId, logout } from './api.js';
+import { loadMenusForRole, canOpen, NOT_MIGRATED_YET } from './menu.js';
+import { currentRoute, navigate, DEFAULT_ROUTE } from './router.js';
 import LoginPage from './components/LoginPage.vue';
+import AppSidebar from './components/AppSidebar.vue';
 import OverviewPage from './components/OverviewPage.vue';
+import HotspotPage from './components/HotspotPage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
 
 const sites = ref([]);
@@ -10,8 +14,17 @@ const upgradeOpen = ref(false);
 const upgradeMode = ref('full');
 const overviewRef = ref(null);
 const loadError = ref('');
+const sidebarOpen = ref(false);
 
 const loggedIn = computed(() => !!token.value && !!currentUser.value);
+
+// กันเปิดหน้าที่ role นี้ไม่มีสิทธิ์ หรือหน้าที่ยังไม่ได้ย้ายมา
+// (การซ่อนเมนูเป็นแค่คำใบ้ทาง UI — API ยังบังคับสิทธิ์ของมันเองอยู่แล้ว)
+const resolvedRoute = computed(() => {
+    const r = currentRoute.value;
+    if (NOT_MIGRATED_YET.has(r) || !canOpen(r)) return DEFAULT_ROUTE;
+    return r;
+});
 
 async function loadSites() {
     try {
@@ -23,13 +36,23 @@ async function loadSites() {
     }
 }
 
+async function bootstrap() {
+    loadError.value = '';
+    await Promise.all([
+        loadSites(),
+        loadMenusForRole(currentUser.value?.role || 'user')
+    ]);
+}
+
 onMounted(() => {
-    if (loggedIn.value) loadSites();
+    if (loggedIn.value) bootstrap();
 });
 
+watch(resolvedRoute, () => { sidebarOpen.value = false; });
+
 async function onLoggedIn() {
-    loadError.value = '';
-    await loadSites();
+    await bootstrap();
+    navigate(DEFAULT_ROUTE);
 }
 
 function openUpgrade(mode) {
@@ -46,47 +69,60 @@ async function doLogout() {
     logout();
     sites.value = [];
 }
+
+const activeSiteName = computed(() => {
+    const s = sites.value.find((x) => x.id === activeSiteId.value);
+    return s ? s.name : '';
+});
 </script>
 
 <template>
     <LoginPage v-if="!loggedIn" @logged-in="onLoggedIn" />
 
-    <div v-else class="v2-shell">
-        <header class="v2-topbar">
-            <div class="v2-brand">
-                <i class="fa-solid fa-diagram-project"></i>
-                <div>
-                    <strong>MT Management</strong>
-                    <span class="v2-pilot-tag">Vue pilot</span>
+    <div v-else class="shell">
+        <AppSidebar :open="sidebarOpen" @close="sidebarOpen = false" />
+
+        <div class="main">
+            <header class="topbar">
+                <button type="button" class="burger" title="เมนู" @click="sidebarOpen = !sidebarOpen">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+
+                <div class="site-picker">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <select
+                        :value="activeSiteId"
+                        :title="activeSiteName"
+                        @change="setActiveSiteId($event.target.value)"
+                    >
+                        <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>
+                    </select>
                 </div>
-            </div>
-            <div class="v2-topbar-right">
-                <select
-                    class="v2-site-select"
-                    :value="activeSiteId"
-                    @change="setActiveSiteId($event.target.value)"
-                >
-                    <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
-                <span class="v2-user">
+
+                <div class="spacer"></div>
+
+                <span class="user">
                     {{ currentUser?.displayName || currentUser?.username }}
                     <em>{{ currentUser?.role }}</em>
                 </span>
-                <a class="v2-ghost-btn" href="/">หน้าเดิม</a>
-                <button type="button" class="v2-ghost-btn is-icon" title="ออกจากระบบ" @click="doLogout">
+                <a class="ghost" href="/" title="เปิดหน้าเดิมที่มีครบทุกฟีเจอร์">หน้าเดิม</a>
+                <button type="button" class="ghost icon" title="ออกจากระบบ" @click="doLogout">
                     <i class="fa-solid fa-power-off"></i>
                 </button>
-            </div>
-        </header>
+            </header>
 
-        <main class="v2-main">
-            <div v-if="loadError" class="v2-load-error">{{ loadError }}</div>
-            <OverviewPage
-                ref="overviewRef"
-                @open-upgrade="openUpgrade('full')"
-                @open-firmware-upgrade="openUpgrade('firmware')"
-            />
-        </main>
+            <main class="content">
+                <div v-if="loadError" class="load-error">{{ loadError }}</div>
+
+                <OverviewPage
+                    v-if="resolvedRoute === 'overview'"
+                    ref="overviewRef"
+                    @open-upgrade="openUpgrade('full')"
+                    @open-firmware-upgrade="openUpgrade('firmware')"
+                />
+                <HotspotPage v-else-if="resolvedRoute === 'hotspot'" />
+            </main>
+        </div>
 
         <FullUpgradeModal
             :open="upgradeOpen"
@@ -98,48 +134,97 @@ async function doLogout() {
 </template>
 
 <style scoped>
-.v2-shell {
+.shell {
     min-height: 100vh;
     background: var(--v2-bg);
+    display: flex;
+    align-items: flex-start;
 }
 
-.v2-topbar {
+.main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
     background: var(--v2-surface);
     border-bottom: 1px solid var(--v2-border);
-    padding: 11px 24px;
+    padding: 11px 22px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    flex-wrap: wrap;
+    gap: 12px;
     position: sticky;
     top: 0;
     z-index: 20;
 }
 
-.v2-site-select {
+.burger {
+    display: none;
+    font: inherit;
+    font-size: 1rem;
+    background: var(--v2-bg);
+    border: 1px solid var(--v2-border);
+    color: var(--v2-text-soft);
+    border-radius: 9px;
+    padding: 7px 11px;
+    cursor: pointer;
+}
+
+.site-picker {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--v2-bg);
+    border: 1px solid var(--v2-border);
+    border-radius: 9px;
+    padding: 0 11px;
+    max-width: 260px;
+}
+
+.site-picker i {
+    color: var(--v2-text-muted);
+    font-size: .78rem;
+    flex-shrink: 0;
+}
+
+.site-picker select {
     font: inherit;
     font-size: .84rem;
     font-weight: 500;
     color: var(--v2-text);
-    background: var(--v2-bg);
-    border: 1px solid var(--v2-border);
-    border-radius: 9px;
-    padding: 7px 30px 7px 12px;
-    max-width: 230px;
+    background: transparent;
+    border: none;
+    padding: 8px 4px 8px 0;
     cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c8ba1' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
+    max-width: 210px;
 }
 
-.v2-site-select:focus-visible {
-    outline: 2px solid var(--v2-primary);
-    outline-offset: 1px;
+.site-picker select:focus-visible { outline: none; }
+.site-picker:focus-within { border-color: var(--v2-primary); }
+
+.spacer { flex: 1; }
+
+.user {
+    font-size: .82rem;
+    color: var(--v2-text-soft);
+    font-weight: 600;
+    white-space: nowrap;
 }
 
-.v2-ghost-btn {
+.user em {
+    font-style: normal;
+    font-size: .68rem;
+    background: #ede9fe;
+    color: #6d28d9;
+    padding: 2px 7px;
+    border-radius: 8px;
+    margin-left: 6px;
+    font-weight: 700;
+}
+
+.ghost {
     font: inherit;
     font-size: .8rem;
     font-weight: 600;
@@ -151,82 +236,33 @@ async function doLogout() {
     cursor: pointer;
     text-decoration: none;
     line-height: 1.4;
-    transition: background .15s ease, color .15s ease;
-}
-
-.v2-ghost-btn:hover {
-    background: #eef2f7;
-    color: var(--v2-text);
-}
-
-.v2-ghost-btn.is-icon {
-    padding: 7px 11px;
-}
-
-.v2-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--v2-text);
-    font-weight: 600;
-    letter-spacing: -0.01em;
-}
-
-.v2-brand i {
-    color: #2563eb;
-    font-size: 1.2rem;
-}
-
-.v2-pilot-tag {
-    display: inline-block;
-    margin-left: 8px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    background: #e0f2fe;
-    color: #0369a1;
-    padding: 2px 8px;
-    border-radius: 10px;
-    vertical-align: middle;
-}
-
-.v2-topbar-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.v2-user {
-    font-size: 0.82rem;
-    color: var(--v2-text-soft);
-    font-weight: 600;
     white-space: nowrap;
 }
 
-.v2-user em {
-    font-style: normal;
-    font-size: 0.7rem;
-    background: #ede9fe;
-    color: #6d28d9;
-    padding: 2px 7px;
-    border-radius: 8px;
-    margin-left: 6px;
-    font-weight: 700;
-}
+.ghost:hover { background: #eef2f7; color: var(--v2-text); }
+.ghost.icon { padding: 7px 11px; }
 
-.v2-main {
+.content {
     padding: 24px;
-    max-width: 1440px;
+    max-width: 1360px;
+    width: 100%;
     margin: 0 auto;
 }
 
-.v2-load-error {
-    background: #fef2f2;
+.load-error {
+    background: var(--v2-danger-soft);
     border: 1px solid #fecaca;
-    color: #b91c1c;
+    color: var(--v2-danger);
     padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 0.85rem;
+    border-radius: 9px;
+    font-size: .85rem;
     margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+    .burger { display: inline-flex; }
+    .content { padding: 18px 14px; }
+    .topbar { padding: 10px 14px; }
+    .user { display: none; }
 }
 </style>

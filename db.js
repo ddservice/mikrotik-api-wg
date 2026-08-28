@@ -1034,60 +1034,59 @@ function getLineDigestConfig(siteId) {
         const sitesData = getSitesData();
         const activeId = sitesData.activeSiteId || (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         const targetSiteId = siteId || activeId;
+        const siteCount = (sitesData.sites && sitesData.sites.length) || 0;
 
-        if (!fs.existsSync(SETTINGS_FILE)) {
-            return {
-                siteId: targetSiteId,
-                enabled: false,
-                channelAccessToken: '',
-                channelSecret: '',
-                targetId: '',
-                digestTime: '09:00',
-                includeHotspot: true,
-                includePppoe: true,
-                lastSentDate: ''
-            };
-        }
+        const EMPTY = {
+            siteId: targetSiteId,
+            enabled: false,
+            channelAccessToken: '',
+            channelSecret: '',
+            targetId: '',
+            digestTime: '09:00',
+            includeHotspot: true,
+            includePppoe: true,
+            lastSentDate: ''
+        };
+
+        if (!fs.existsSync(SETTINGS_FILE)) return EMPTY;
         const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-        
-        // Extract global/primary fallback credentials
-        const firstSiteId = (sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-        const primaryConfig = data[`line_digest_${firstSiteId}`] || data['line_digest_default'] || {};
-        const globalToken = data.lineChannelAccessToken || data.lineNotifyToken || primaryConfig.channelAccessToken || '';
-        const globalSecret = data.lineChannelSecret || primaryConfig.channelSecret || '';
-        const globalTarget = data.lineTargetId || primaryConfig.targetId || '';
-        const globalTime = data.lineDigestTime || primaryConfig.digestTime || '09:00';
-        const globalEnabled = data.lineDigestEnabled !== undefined ? !!data.lineDigestEnabled : (primaryConfig.enabled !== undefined ? !!primaryConfig.enabled : false);
+        const siteConfig = data[`line_digest_${targetSiteId}`];
 
-        const siteConfigKey = `line_digest_${targetSiteId}`;
-        const siteConfig = data[siteConfigKey];
-
+        // สาขาที่มี config ของตัวเอง ใช้ค่าของตัวเองล้วน ๆ ห้ามยืมจาก config กลาง
+        // (ต้องตรงกับ db-supabase.js — ดูคำอธิบายบั๊ก 2026-08-28 ที่นั่น)
         if (siteConfig) {
             return {
                 siteId: targetSiteId,
-                enabled: siteConfig.enabled !== undefined ? !!siteConfig.enabled : globalEnabled,
-                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || globalToken,
-                channelSecret: siteConfig.channelSecret || globalSecret,
-                targetId: siteConfig.targetId || globalTarget,
-                digestTime: siteConfig.digestTime || globalTime,
+                enabled: !!siteConfig.enabled,
+                channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '',
+                channelSecret: siteConfig.channelSecret || '',
+                targetId: siteConfig.targetId || '',
+                digestTime: siteConfig.digestTime || '09:00',
                 includeHotspot: siteConfig.includeHotspot !== false,
                 includePppoe: siteConfig.includePppoe !== false,
                 lastSentDate: siteConfig.lastSentDate || ''
             };
         }
 
-        // Return with global fallback token so all sites (A4, TingTing, etc.) can notify seamlessly
-        return {
-            siteId: targetSiteId,
-            enabled: globalEnabled,
-            channelAccessToken: globalToken,
-            channelSecret: globalSecret,
-            targetId: globalTarget,
-            digestTime: globalTime,
-            includeHotspot: true,
-            includePppoe: true,
-            lastSentDate: ''
-        };
+        // ไม่มี config ของตัวเอง — อ่านค่ากลางได้เฉพาะตอนที่ยังเป็นระบบสาขาเดียว
+        const isSingleSiteLegacy = targetSiteId === 'default' || siteCount <= 1;
+        if (isSingleSiteLegacy) {
+            const primary = data['line_digest_default'] || {};
+            return {
+                siteId: targetSiteId,
+                enabled: data.lineDigestEnabled !== undefined ? !!data.lineDigestEnabled : !!primary.enabled,
+                channelAccessToken: data.lineChannelAccessToken || data.lineNotifyToken || primary.channelAccessToken || '',
+                channelSecret: data.lineChannelSecret || primary.channelSecret || '',
+                targetId: data.lineTargetId || primary.targetId || '',
+                digestTime: data.lineDigestTime || primary.digestTime || '09:00',
+                includeHotspot: primary.includeHotspot !== false,
+                includePppoe: primary.includePppoe !== false,
+                lastSentDate: primary.lastSentDate || ''
+            };
+        }
+
+        // ระบบหลายสาขา + สาขานี้ยังไม่ได้ตั้งค่า = ปิดสนิท
+        return EMPTY;
     } catch (e) {
         return {
             siteId: siteId || 'default',

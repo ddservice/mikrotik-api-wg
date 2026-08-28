@@ -3733,9 +3733,11 @@ setInterval(async () => {
                     console.log(`[Site Monitor] ✅ Site ${site.name} (${site.id}) is BACK ONLINE after ${downDurationMin} min.`);
                     db.addLog('System Monitor', 'เราท์เตอร์กลับมาออนไลน์', `เราท์เตอร์สาขา ${site.name} กลับมาเชื่อมต่อได้ตามปกติ (หยุดทำงานไป ${downDurationMin} นาที)`);
 
-                    // Send LINE Alert if configured
+                    // ต้องเช็ค enabled ด้วย ไม่ใช่แค่ว่ามี token/target
+                    // เดิมเช็คแค่สองอย่างหลัง ทำให้สาขาที่ปิดแจ้งเตือนไว้ยังยิงข้อความออกไป
+                    // (พบจริง 2026-08-28: Suksawad-CMU ปิดอยู่ แต่แจ้งเตือนเด้งเข้ากลุ่มของ A4)
                     const lineConfig = await db.getLineDigestConfig(site.id);
-                    if (lineConfig && lineConfig.channelAccessToken && lineConfig.targetId) {
+                    if (lineConfig && lineConfig.enabled && lineConfig.channelAccessToken && lineConfig.targetId) {
                         const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
                         await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
                             type: 'text',
@@ -3754,9 +3756,9 @@ setInterval(async () => {
                     console.error(`[Site Monitor] 🚨 Site ${site.name} is DOWN!`);
                     db.addLog('System Monitor', 'เราท์เตอร์หลุดการเชื่อมต่อ', `🚨 เราท์เตอร์สาขา ${site.name} ขาดการเชื่อมต่อ (Offline): ${connErr.message}`);
 
-                    // Send Urgent LINE Alert if configured
+                    // เช็ค enabled ด้วยเช่นกัน (ดูคำอธิบายด้านบน)
                     const lineConfig = await db.getLineDigestConfig(site.id);
-                    if (lineConfig && lineConfig.channelAccessToken && lineConfig.targetId) {
+                    if (lineConfig && lineConfig.enabled && lineConfig.channelAccessToken && lineConfig.targetId) {
                         const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
                         await sendLinePushMessage(lineConfig.channelAccessToken, lineConfig.targetId, {
                             type: 'text',

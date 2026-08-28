@@ -447,6 +447,40 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (9)** — Offline alert for **Suksawad-CMU landed in A4-Residence's LINE group**; and A4's LINE finally works.
+  - Reported live: `🚨 [แจ้งเตือนด่วน: เราท์เตอร์ Offline] สาขา: Suksawad-CMU … invalid user name or
+    password (6)` arrived in **A4's** group. Two independent bugs plus one regression.
+  - **Bug 1 — the offline/online monitor never checked `enabled`.** It gated only on
+    `channelAccessToken && targetId`, so a site with notifications switched off still pushed alerts.
+    Now requires `lineConfig.enabled` too, matching the daily digest.
+  - **Bug 2 — `getLineDigestConfig` let every unconfigured site borrow another site's credentials.**
+    Both DB layers merged `data.targetId || globalTarget` and fell back to the legacy
+    `line_digest_config` record when a site had no key of its own. Actual state in production:
+    | record | enabled | token | target |
+    |---|---|---|---|
+    | global legacy | true | present | present |
+    | A4-Residence (own) | true | present | present |
+    | TingTing (own) | false | **empty** | **empty** |
+    | Suksawad-CMU | *no record* | — | — |
+    | Auioun@WiFi | *no record* | — | — |
+    So three sites were silently inheriting A4's token and group. Now strict in **both** `db.js` and
+    `db-supabase.js`: a site with its own record uses only its own values, and a site without one in
+    a multi-site install gets `enabled: false` with empty token/target. The legacy global record is
+    still read when `siteId` is `'default'` or there is at most one site, so single-site installs
+    keep working. This is the discrepancy flagged in the 2026-08-28 (7) entry — checking the raw
+    records first is what made it safe to close: A4's own record is fully populated, so tightening
+    the fallback cannot silence it.
+  - **Regression from the Supabase switch — `Suksawad-CMU` had a stale router password.** The
+    migration matched it to the JSON `SuksawatWiFi` entry by `wireguard_ip` and deliberately did not
+    overwrite existing site rows, but Supabase's copy of the password was old. Probed both against
+    the live router before touching anything: Supabase's failed with `invalid user name or password
+    (6)`, the JSON one returned `identity=SuksawatWiFi ver=7.24.1`. Copied the working credential
+    into Supabase. **Lesson: "don't modify existing rows" is right for logs and wrong for
+    credentials** — when the same router exists in both stores, verify which secret actually
+    authenticates instead of assuming the destination is current.
+  - LINE for A4 is now genuinely armed: its own record has `enabled: true`, a real token and group,
+    schedule 09:00, and `lastSentDate` 2026-08-23 — so the next digest is tomorrow 09:00.
+
 - **2026-08-28 (8)** — **Production had silently fallen back to Local JSON. Recovered to Supabase after migrating the stranded data.**
   - `ecosystem.config.js` on the VPS had `SUPABASE_URL: 'https://YOUR_PROJECT_ID.supabase.co'` — the
     placeholder. Express correctly ignored it (2026-08-13 (7) behaviour) and ran on **Local JSON**,

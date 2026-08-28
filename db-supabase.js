@@ -749,43 +749,57 @@ async function getLineDigestConfig(siteId) {
         var sitesData = await getSites();
         var activeId = (sitesData && sitesData.activeSiteId) || (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
         var targetSiteId = siteId || activeId;
-
-        // Fetch global/primary credentials fallback
-        var firstSiteId = (sitesData && sitesData.sites && sitesData.sites[0] && sitesData.sites[0].id) || 'default';
-        var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
-        var dataOld = (resOld.data && resOld.data.value) || {};
-
-        var globalToken = dataOld.channelAccessToken || dataOld.lineNotifyToken || '';
-        var globalSecret = dataOld.channelSecret || '';
-        var globalTarget = dataOld.targetId || '';
-        var globalTime = dataOld.digestTime || '09:00';
-        var globalEnabled = !!dataOld.enabled;
+        var siteCount = (sitesData && sitesData.sites && sitesData.sites.length) || 0;
 
         var key = 'line_digest_config_' + targetSiteId;
         var res = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
         var data = res.data && res.data.value;
 
+        // สาขาที่มี record ของตัวเอง ใช้ค่าของตัวเองล้วน ๆ ห้ามยืมจาก record กลาง
+        // เดิมเขียนเป็น (data.targetId || globalTarget) ทำให้สาขาที่ยังไม่ได้ตั้งค่า
+        // ไปหยิบ token/group ของอีกสาขามาใช้ ผลคือแจ้งเตือนของ Suksawad-CMU
+        // เด้งเข้ากลุ่ม LINE ของ A4-Residence (พบจริง 2026-08-28)
         if (data) {
             return {
                 siteId: targetSiteId,
-                enabled: data.enabled !== undefined ? !!data.enabled : globalEnabled,
-                channelAccessToken: data.channelAccessToken || data.lineNotifyToken || globalToken,
-                channelSecret: data.channelSecret || globalSecret,
-                targetId: data.targetId || globalTarget,
-                digestTime: data.digestTime || globalTime,
+                enabled: !!data.enabled,
+                channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
+                channelSecret: data.channelSecret || '',
+                targetId: data.targetId || '',
+                digestTime: data.digestTime || '09:00',
                 includeHotspot: data.includeHotspot !== false,
                 includePppoe: data.includePppoe !== false,
                 lastSentDate: data.lastSentDate || ''
             };
         }
 
+        // ไม่มี record ของตัวเอง — อ่าน record กลางได้เฉพาะตอนที่ระบบยังเป็นสาขาเดียว
+        // (ติดตั้งเก่าที่ยังไม่มีตาราง sites หรือมีสาขาเดียว) เพื่อไม่ให้ของเดิมพัง
+        var isSingleSiteLegacy = targetSiteId === 'default' || siteCount <= 1;
+        if (isSingleSiteLegacy) {
+            var resOld = await supabase.from('app_settings').select('value').eq('key', 'line_digest_config').maybeSingle();
+            var dataOld = (resOld.data && resOld.data.value) || {};
+            return {
+                siteId: targetSiteId,
+                enabled: !!dataOld.enabled,
+                channelAccessToken: dataOld.channelAccessToken || dataOld.lineNotifyToken || '',
+                channelSecret: dataOld.channelSecret || '',
+                targetId: dataOld.targetId || '',
+                digestTime: dataOld.digestTime || '09:00',
+                includeHotspot: dataOld.includeHotspot !== false,
+                includePppoe: dataOld.includePppoe !== false,
+                lastSentDate: dataOld.lastSentDate || ''
+            };
+        }
+
+        // ระบบหลายสาขา + สาขานี้ยังไม่ได้ตั้งค่า = ปิดสนิท ไม่มี token ไม่มีปลายทาง
         return {
             siteId: targetSiteId,
-            enabled: globalEnabled,
-            channelAccessToken: globalToken,
-            channelSecret: globalSecret,
-            targetId: globalTarget,
-            digestTime: globalTime,
+            enabled: false,
+            channelAccessToken: '',
+            channelSecret: '',
+            targetId: '',
+            digestTime: '09:00',
             includeHotspot: true,
             includePppoe: true,
             lastSentDate: ''
