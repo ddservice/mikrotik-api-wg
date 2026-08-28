@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { apiFetch, token, currentUser, activeSiteId, setActiveSiteId } from './api.js';
+import { apiFetch, token, currentUser, activeSiteId, setActiveSiteId, logout } from './api.js';
+import LoginPage from './components/LoginPage.vue';
 import OverviewPage from './components/OverviewPage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
 
@@ -23,19 +24,25 @@ async function loadSites() {
 onMounted(() => {
     if (loggedIn.value) loadSites();
 });
+
+async function onLoggedIn() {
+    loadError.value = '';
+    await loadSites();
+}
+
+async function doLogout() {
+    try {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch (_) {
+        // token หมดอายุฝั่ง server อยู่แล้วก็ไม่เป็นไร — เคลียร์ฝั่ง client ต่อได้เลย
+    }
+    logout();
+    sites.value = [];
+}
 </script>
 
 <template>
-    <div v-if="!loggedIn" class="v2-gate">
-        <div class="v2-gate-card">
-            <h2>ยังไม่ได้เข้าสู่ระบบ</h2>
-            <p>
-                หน้านี้เป็นเวอร์ชันนำร่อง (Vue) ใช้ session เดียวกับหน้าเดิม
-                กรุณาเข้าสู่ระบบที่หน้าหลักก่อน แล้วกลับมาที่ <code>/v2/</code> อีกครั้ง
-            </p>
-            <a class="btn btn-primary" href="/">ไปหน้าเข้าสู่ระบบ</a>
-        </div>
-    </div>
+    <LoginPage v-if="!loggedIn" @logged-in="onLoggedIn" />
 
     <div v-else class="v2-shell">
         <header class="v2-topbar">
@@ -59,6 +66,9 @@ onMounted(() => {
                     <em>{{ currentUser?.role }}</em>
                 </span>
                 <a class="btn btn-secondary btn-sm" href="/">กลับหน้าเดิม</a>
+                <button type="button" class="btn btn-secondary btn-sm" title="ออกจากระบบ" @click="doLogout">
+                    <i class="fa-solid fa-power-off"></i>
+                </button>
             </div>
         </header>
 
@@ -72,37 +82,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.v2-gate {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-}
-
-.v2-gate-card {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 32px;
-    max-width: 460px;
-    text-align: center;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-}
-
-.v2-gate-card h2 {
-    margin: 0 0 10px;
-    font-size: 1.2rem;
-    color: #1e293b;
-}
-
-.v2-gate-card p {
-    color: #64748b;
-    font-size: 0.9rem;
-    line-height: 1.6;
-    margin: 0 0 20px;
-}
-
 .v2-shell {
     min-height: 100vh;
     background: #f1f5f9;

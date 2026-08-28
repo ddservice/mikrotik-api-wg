@@ -447,6 +447,21 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (5)** — `/v2/` gets its own login page; no longer depends on the legacy UI.
+  - The pilot previously showed a "กรุณาเข้าสู่ระบบที่หน้าหลักก่อน" gate when `localStorage` had no
+    token, which made it unusable in a fresh browser profile. Added `LoginPage.vue` posting to the
+    same `POST /api/auth/login` and storing the same `localStorage` keys (`token` / `user`), so the
+    two UIs still share a session. Added a logout button in the topbar (`POST /api/auth/logout`,
+    then clears client state even if the server call fails because the token already expired).
+  - Also checked the reported "หน้าเบี้ยว" layout: loaded the **live** `/v2/` in Chrome and measured
+    it — the card sits at x=210.5 in an 881px viewport and y=259.75 in a 734px one, i.e. exactly
+    centred, and the deployed CSS is byte-identical to the local build. No layout bug; it was a
+    paint artifact while the page was still loading. Kept as a note because "screenshot looks wrong,
+    measure before changing code" already saved time once this session.
+  - Verified end to end in real Chrome, no page errors: login form shows on a cold profile, wrong
+    password surfaces `Invalid username or password`, correct password lands on the dashboard with
+    9/9 cards, the session survives a reload, and logout returns to the form and clears the token.
+
 - **2026-08-28 (4)** — **Root cause of "Connection timeout to MikroTik Router" on 1-Click upgrade: `routeros.js` used an idle timeout as if it were a connect timeout.**
   - `connect()` called `socket.setTimeout(10000)` and left it set for the whole life of the socket.
     Node's `socket.setTimeout(ms)` is an **idle** timeout — it fires whenever the socket is quiet
