@@ -1,0 +1,102 @@
+/*
+  ฟอร์มและปุ่มกลางของหน้าใหม่ — ไม่ scoped เพราะทุกหน้าใช้ร่วมกัน
+  ตั้งใจไม่พึ่ง .form-control / .btn ของ style.css เดิม เพราะของเดิมผูกกับ
+  ดีไซน์เก่าและมี !important หลายจุด แก้ทับแล้วเปราะ
+*/
+
+.v2-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.v2-field:last-child { margin-bottom: 0; }
+
+.v2-field > label {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--v2-text-soft);
+}
+
+.v2-field .req { color: #dc2626; }
+
+.v2-input,
+.v2-select,
+.v2-textarea {
+    font: inherit;
+    font-size: .88rem;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--v2-border);
+    border-radius: 9px;
+    background: var(--v2-surface);
+    color: var(--v2-text);
+    transition: border-color .14s ease, box-shadow .14s ease;
+}
+
+.v2-textarea { resize: vertical; min-height: 78px; line-height: 1.5; }
+.v2-select { cursor: pointer; }
+
+.v2-input:focus,
+.v2-select:focus,
+.v2-textarea:focus {
+    outline: none;
+    border-color: var(--v2-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+
+.v2-input:disabled,
+.v2-select:disabled { background: var(--v2-bg); color: var(--v2-text-muted); cursor: not-allowed; }
+
+.v2-input.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.v2-hint { font-size: .76rem; color: var(--v2-text-muted); line-height: 1.5; }
+.v2-hint.warn { color: var(--v2-warn); }
+
+.v2-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 560px) { .v2-row-2 { grid-template-columns: 1fr; } }
+
+/* ---------- ปุ่ม ---------- */
+.v2-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .14s ease, border-color .14s ease, transform .14s ease;
+}
+
+.v2-btn:disabled { opacity: .55; cursor: not-allowed; }
+.v2-btn:not(:disabled):hover { transform: translateY(-1px); }
+.v2-btn:focus-visible { outline: 2px solid var(--v2-primary); outline-offset: 2px; }
+
+.v2-btn.primary { background: var(--v2-primary); color: #fff; }
+.v2-btn.primary:not(:disabled):hover { background: #1d4ed8; }
+
+.v2-btn.ghost { background: var(--v2-surface); border-color: var(--v2-border); color: var(--v2-text-soft); }
+.v2-btn.ghost:not(:disabled):hover { background: var(--v2-bg); color: var(--v2-text); }
+
+.v2-btn.danger { background: var(--v2-danger-soft); border-color: #fecaca; color: var(--v2-danger); }
+.v2-btn.danger:not(:disabled):hover { background: #fee2e2; }
+
+.v2-btn.sm { font-size: .77rem; padding: 6px 12px; border-radius: 8px; }
+
+/* ---------- แถบเตือนในโมดัล ---------- */
+.v2-callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 11px 14px;
+    border-radius: 9px;
+    font-size: .81rem;
+    line-height: 1.55;
+    margin-bottom: 16px;
+    border: 1px solid;
+}
+
+.v2-callout i { margin-top: 2px; flex-shrink: 0; }
+.v2-callout.info { background: var(--v2-primary-soft); border-color: #bfdbfe; color: #1d4ed8; }
+.v2-callout.warn { background: var(--v2-warn-soft); border-color: #fed7aa; color: var(--v2-warn); }
+.v2-callout.danger { background: var(--v2-danger-soft); border-color: #fecaca; color: var(--v2-danger); }

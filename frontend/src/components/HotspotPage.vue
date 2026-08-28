@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { apiFetch, activeSiteId } from '../api.js';
 import { formatBytes, formatUptime, parseUptimeToMs } from '../format.js';
+import { toast } from '../toast.js';
+import HotspotUserModal from './HotspotUserModal.vue';
 
 const TABS = [
     { key: 'active', label: 'ผู้ใช้ที่กำลังเชื่อมต่อ', icon: 'fa-solid fa-signal' },
@@ -12,6 +14,9 @@ const tab = ref('active');
 
 const active = ref([]);
 const users = ref([]);
+const profiles = ref([]);
+const editorOpen = ref(false);
+const editing = ref(null);
 const loading = ref(false);
 const error = ref('');
 const lastUpdated = ref('');
@@ -27,22 +32,21 @@ async function load({ quiet = false } = {}) {
     const myId = ++requestId;
     if (!quiet) loading.value = true;
 
-    const [a, u] = await Promise.allSettled([
+    const [a, u, p] = await Promise.allSettled([
         apiFetch('/api/mikrotik/hotspot/active'),
-        apiFetch('/api/mikrotik/hotspot/users')
+        apiFetch('/api/mikrotik/hotspot/users'),
+        apiFetch('/api/mikrotik/hotspot/profiles')
     ]);
 
     if (myId !== requestId) return; // สลับสาขาระหว่างรอ — ทิ้งผลนี้
 
-    if (a.status === 'fulfilled' && u.status === 'fulfilled') {
-        active.value = a.value || [];
-        users.value = u.value || [];
-        error.value = '';
-        lastUpdated.value = new Date().toLocaleTimeString('th-TH');
-    } else {
-        const reason = (a.status === 'rejected' ? a.reason : u.reason);
-        error.value = reason?.message || 'ดึงข้อมูล Hotspot ไม่สำเร็จ';
-    }
+    if (a.status === 'fulfilled') active.value = a.value || [];
+    if (u.status === 'fulfilled') users.value = u.value || [];
+    if (p.status === 'fulfilled') profiles.value = p.value || [];
+
+    const failed = [a, u].find((r) => r.status === 'rejected');
+    error.value = failed ? (failed.reason?.message || 'ดึงข้อมูล Hotspot ไม่สำเร็จ') : '';
+    if (!error.value) lastUpdated.value = new Date().toLocaleTimeString('th-TH');
     loading.value = false;
 }
 
@@ -58,17 +62,13 @@ onUnmounted(() => {
 watch(activeSiteId, () => {
     active.value = [];
     users.value = [];
+    profiles.value = [];
     error.value = '';
     load();
 });
 
 // ชุดชื่อผู้ใช้ที่ออนไลน์อยู่ ใช้ติดป้าย "ออนไลน์" ในตารางบัญชี
 const onlineNames = computed(() => new Set(active.value.map((s) => s.user)));
-
-const profiles = computed(() => {
-    const set = new Set(users.value.map((u) => u.profile).filter(Boolean));
-    return [...set].sort();
-});
 
 // สถานะบัญชี — ใช้ตรรกะเดียวกับหน้าเดิม: เทียบ uptime สะสมกับ limit-uptime
 // (parseUptimeToMs เข้าใจทั้งรูปแบบ 1w2d3h และ HH:MM:SS)
@@ -106,18 +106,84 @@ const statusCounts = computed(() => {
     return c;
 });
 
-const kicking = ref('');
-async function kick(session) {
-    if (!window.confirm(`เตะผู้ใช้ "${session.user}" ออกจากระบบ?\n\nผู้ใช้จะต้องล็อกอินใหม่`)) return;
-    kicking.value = session.id;
+const busy = ref('');
+
+async function runAction(key, fn, okMsg, failMsg) {
+    busy.value = key;
     try {
-        await apiFetch('/api/mikrotik/hotspot/active/' + encodeURIComponent(session.id), { method: 'DELETE' });
+        await fn();
+        toast.success(okMsg);
         await load({ quiet: true });
     } catch (err) {
-        window.alert('เตะผู้ใช้ไม่สำเร็จ: ' + err.message);
+        toast.error(failMsg + ': ' + err.message);
     } finally {
-        kicking.value = '';
+        busy.value = '';
     }
+}
+
+// ข้อความยืนยันประกอบด้วย ask() เพื่อไม่ต้องเขียน escape ขึ้นบรรทัดใหม่กระจายทั่วไฟล์
+function ask(lines) {
+    return window.confirm(lines.join('\n'));
+}
+
+function kick(session) {
+    if (!ask([
+        `เตะผู้ใช้ "${session.user}" ออกจากระบบ?`,
+        '',
+        'ผู้ใช้จะต้องล็อกอินใหม่'
+    ])) return;
+    runAction(
+        session.id,
+        () => apiFetch('/api/mikrotik/hotspot/active/' + encodeURIComponent(session.id), { method: 'DELETE' }),
+        'เตะ "' + session.user + '" ออกจากระบบแล้ว',
+        'เตะผู้ใช้ไม่สำเร็จ'
+    );
+}
+
+function openCreate() {
+    editing.value = null;
+    editorOpen.value = true;
+}
+
+function openEdit(u) {
+    editing.value = u;
+    editorOpen.value = true;
+}
+
+function removeUser(u) {
+    // ยังใช้ confirm ที่บล็อกจริง เพราะย้อนกลับจากหน้านี้ไม่ได้ (ต้องไปกู้ในคลังคูปอง)
+    if (!ask([
+        `ลบบัญชี "${u.name}" ออกจากเราท์เตอร์?`,
+        '',
+        'ข้อมูลจะถูกเก็บเข้าคลังคูปองที่ถูกลบ และกู้คืนได้ภายหลัง'
+    ])) return;
+    runAction(
+        u.id,
+        () => apiFetch('/api/mikrotik/hotspot/users/' + encodeURIComponent(u.id), { method: 'DELETE' }),
+        'ลบ "' + u.name + '" แล้ว (เก็บเข้าคลังคูปองเรียบร้อย)',
+        'ลบไม่สำเร็จ'
+    );
+}
+
+// ต่ออายุด่วน — ใช้ limit-uptime เดิม แต่ล้างเวลาสะสมและเตะเซสชันให้
+// ครอบเคสที่พบบ่อยที่สุด: ลูกค้าเติมแพ็กเกจเดิมซ้ำด้วย username เดิม
+function quickRenew(u) {
+    const limit = u.limitUptime && u.limitUptime !== 'Unlimited' ? u.limitUptime : '';
+    if (!ask([
+        `ต่ออายุ "${u.name}" ด้วยแพ็กเกจเดิม?`,
+        '',
+        `จำกัดเวลา: ${limit || 'ไม่จำกัด'}`,
+        'ระบบจะล้างเวลาใช้งานสะสมและเตะเซสชันที่ค้างอยู่ให้'
+    ])) return;
+    runAction(
+        u.id,
+        () => apiFetch('/api/mikrotik/hotspot/users/' + encodeURIComponent(u.id) + '/renew', {
+            method: 'POST',
+            body: JSON.stringify({ name: u.name, limitUptime: limit, limitBytesTotal: u.limitBytesTotal || 0 })
+        }),
+        'ต่ออายุ "' + u.name + '" แล้ว — เวลาใช้งานเริ่มนับใหม่',
+        'ต่ออายุไม่สำเร็จ'
+    );
 }
 </script>
 
@@ -127,11 +193,16 @@ async function kick(session) {
             <h1>จัดการระบบ Hotspot</h1>
             <p>ผู้ใช้ที่กำลังเชื่อมต่อและบัญชีคูปองทั้งหมดของสาขาที่เลือก</p>
         </div>
-        <button type="button" class="refresh" :disabled="loading" @click="load()">
-            <i class="fa-solid" :class="loading ? 'fa-spinner fa-spin' : 'fa-rotate'"></i>
-            {{ loading ? 'กำลังโหลด...' : 'รีเฟรช' }}
-            <span v-if="lastUpdated && !loading" class="v2-num stamp">{{ lastUpdated }}</span>
-        </button>
+        <div class="head-actions">
+            <button type="button" class="refresh" :disabled="loading" @click="load()">
+                <i class="fa-solid" :class="loading ? 'fa-spinner fa-spin' : 'fa-rotate'"></i>
+                {{ loading ? 'กำลังโหลด...' : 'รีเฟรช' }}
+                <span v-if="lastUpdated && !loading" class="v2-num stamp">{{ lastUpdated }}</span>
+            </button>
+            <button type="button" class="v2-btn primary" @click="openCreate">
+                <i class="fa-solid fa-user-plus"></i> เพิ่มบัญชี
+            </button>
+        </div>
     </div>
 
     <div v-if="error" class="alert">
@@ -165,7 +236,7 @@ async function kick(session) {
         <template v-if="tab === 'accounts'">
             <select v-model="profileFilter" class="select">
                 <option value="">— ทุกโปรไฟล์ —</option>
-                <option v-for="p in profiles" :key="p" :value="p">{{ p }}</option>
+                <option v-for="p in profiles" :key="p.id" :value="p.name">{{ p.name }}</option>
             </select>
             <div class="pills">
                 <button
@@ -226,10 +297,10 @@ async function kick(session) {
                             <button
                                 type="button"
                                 class="danger-btn"
-                                :disabled="kicking === s.id"
+                                :disabled="busy === s.id"
                                 @click="kick(s)"
                             >
-                                <i class="fa-solid" :class="kicking === s.id ? 'fa-spinner fa-spin' : 'fa-right-from-bracket'"></i>
+                                <i class="fa-solid" :class="busy === s.id ? 'fa-spinner fa-spin' : 'fa-right-from-bracket'"></i>
                                 เตะออก
                             </button>
                         </td>
@@ -243,7 +314,7 @@ async function kick(session) {
     <div v-else class="panel">
         <div class="note">
             <i class="fa-solid fa-circle-info"></i>
-            หน้านี้ยังแสดงผลอย่างเดียว — การเพิ่ม/แก้ไข/ต่ออายุ/พิมพ์คูปอง ยังทำที่
+            พิมพ์คูปอง, สร้างคูปองแบบกลุ่ม และคลังคูปองที่ถูกลบ ยังทำที่
             <a href="/">หน้าเดิม</a> จนกว่าจะย้ายครบ
         </div>
         <div class="tablewrap">
@@ -257,11 +328,12 @@ async function kick(session) {
                         <th class="num">ดาวน์โหลด</th>
                         <th class="num">อัปโหลด</th>
                         <th>หมายเหตุ</th>
+                        <th class="right">จัดการ</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-if="!filteredUsers.length">
-                        <td colspan="7" class="empty">
+                        <td colspan="8" class="empty">
                             {{ loading ? 'กำลังโหลด...' : 'ไม่พบบัญชีที่ตรงกับเงื่อนไข' }}
                         </td>
                     </tr>
@@ -284,11 +356,35 @@ async function kick(session) {
                         <td class="num v2-num">{{ formatBytes(u.bytesIn) }}</td>
                         <td class="num v2-num">{{ formatBytes(u.bytesOut) }}</td>
                         <td class="cmt">{{ u.comment || '—' }}</td>
+                        <td class="right">
+                            <div class="rowbtns">
+                                <button
+                                    type="button" class="v2-btn ghost sm" title="ต่ออายุด้วยแพ็กเกจเดิม (ล้างเวลาสะสม)"
+                                    :disabled="busy === u.id" @click="quickRenew(u)"
+                                >
+                                    <i class="fa-solid" :class="busy === u.id ? 'fa-spinner fa-spin' : 'fa-rotate-right'"></i> ต่ออายุ
+                                </button>
+                                <button type="button" class="v2-btn ghost sm" title="แก้ไข" :disabled="busy === u.id" @click="openEdit(u)">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <button type="button" class="v2-btn danger sm" title="ลบ" :disabled="busy === u.id" @click="removeUser(u)">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
                     </tr>
                 </tbody>
             </table>
         </div>
     </div>
+
+    <HotspotUserModal
+        :open="editorOpen"
+        :user="editing"
+        :profiles="profiles"
+        @close="editorOpen = false"
+        @saved="load({ quiet: true })"
+    />
 </template>
 
 <style scoped>

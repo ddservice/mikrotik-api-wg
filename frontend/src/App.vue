@@ -9,6 +9,7 @@ import OverviewPage from './components/OverviewPage.vue';
 import HotspotPage from './components/HotspotPage.vue';
 import PppoePage from './components/PppoePage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
+import ToastHost from './components/ToastHost.vue';
 
 const sites = ref([]);
 const upgradeOpen = ref(false);
@@ -78,6 +79,8 @@ const activeSiteName = computed(() => {
 </script>
 
 <template>
+    <ToastHost />
+
     <LoginPage v-if="!loggedIn" @logged-in="onLoggedIn" />
 
     <div v-else class="shell">
