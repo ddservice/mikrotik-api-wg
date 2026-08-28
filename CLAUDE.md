@@ -447,6 +447,48 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-29** — **มาตรา 26 DNS logging had been dead for 50 days.** Found while backfilling the
+  sealed archives; two further bugs found on the way.
+  - Every day queried returned **zero DNS rows**. All 109,514 rows in `dns_query_logs` come from
+    **8-9 July only** — a two-day window. Nothing recorded since `2026-07-09T13:44:36`.
+  - **Two independent causes, both required.** Router side: `A4-Residence` had the rule
+    `topics=dns,!packet action=dnsmem` with a dedicated 3000-line buffer already configured — but the
+    rule was **disabled**. The other three sites had no dns logging rule at all, so their routers
+    never emitted a `dns` log line for the poller to read. Application side:
+    `dns_logging_enabled` was `false` for `A4-Residence` and `TingTing`, and the poller skips
+    `/log/print` entirely when that flag is off. The one site whose router was configured was the
+    one the app was skipping.
+  - Added `scripts/enable-dns-logging.js` (`npm run enable-dns-logging`, dry-run by default) fixing
+    both layers per site: creates the dedicated `dnsmem` memory action (separate buffer so DNS
+    volume cannot evict hotspot/system entries from the default 1000-line log), creates or
+    re-enables the `topics=dns,!packet` rule, and sets the DB flag. `!packet` keeps this at query
+    level — domain names, not content, which is what มาตรา 26 asks for.
+  - **Applied to all four sites.** Verified 45 s later that every router was emitting dns lines
+    (A4 238, TingTing 24, Suksawad-CMU 543, Auioun@WiFi 24 in buffer).
+  - **The 10 July – 28 August gap is permanent and unrecoverable.** Worth knowing before anyone
+    relies on that period.
+  - **Bug found: sealed archives were silently truncated at 1000 rows.** PostgREST caps a response
+    at 1000 rows regardless of the range requested; `fetchDay` asked for 5000 per page then trusted
+    the `pages` count computed from that requested limit, so a 1200-row day reported `pages: 1` and
+    the loop stopped after one round. Caught because two consecutive days both produced *exactly*
+    1000 hotspot records — not a number real traffic produces. After the fix 2026-08-27 went from
+    1000 to **2773**. Page size now matches the server cap, the loop stops on a short batch or when
+    the collected count reaches the reported total, rows are de-duplicated by id across pages, and a
+    count mismatch logs a warning. **For a compliance artifact an incomplete file is worse than no
+    file** — it looks authoritative while missing evidence.
+  - **Bug found: date-range filters dropped the entire end day.** `new Date('2026-08-27')` is
+    `2026-08-27T00:00:00Z`; used with `lte` that excluded everything after midnight, so filtering
+    from the 27th to the 27th always returned nothing and any range silently lost its final day.
+    This affected the **Logs page filters and CSV exports**, not just the archive job. Also logs are
+    stored UTC while operators think in Bangkok dates, which matters here because a sealed daily
+    archive must match the real calendar day. `rangeStart`/`rangeEnd` now map a bare `YYYY-MM-DD` to
+    the correct UTC span for a Bangkok day (17:00Z the previous day → 16:59:59.999Z) and pass full
+    timestamps through unchanged.
+  - **Lesson**: a suspiciously round number in real data (exactly 1000 twice) is worth chasing.
+    And a feature that *stores* compliance data is worth verifying end-to-end against production
+    counts, not just its own unit behaviour — the archive feature worked perfectly while archiving
+    nothing, because the thing it archives had been switched off upstream for seven weeks.
+
 - **2026-08-28 (14)** — v2 migration finished for every daily-use page, then **มาตรา 26 sealed log archives**.
   - `/v2/` now covers Overview, Hotspot (full CRUD + renewal), PPPoE, Logs, Settings, Firewall and
     Dashboard Users. Deliberately **not** migrated, with the sidebar linking back to `/`: Multi-WAN,
