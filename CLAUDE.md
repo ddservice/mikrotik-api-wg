@@ -447,6 +447,70 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-29 (2)** — Storage Monitor: watch all three storage backends, and verify
+  the ม.26 retention purge is actually still running. Found a dead `module.exports`
+  in `db.js` on the way.
+  - **Why**: the app writes continuously to three places — VPS disk (PM2 logs, backups,
+    sealed archives), Cloudflare R2, and Postgres on Supabase (free tier = 500 MB) —
+    and nothing watched any of them. When one fills up the symptom is just "the system
+    broke", with no advance warning. Same shape of failure as the DNS outage above:
+    something that *should* work, with nothing checking that it does.
+  - `lib/storage-monitor.js` (new) — `getDiskUsage()` via `fs.statfs` (no shelling out
+    to `df`; percentage computed as `used / (used + available)` to match what `df -h`
+    prints, since ext4 reserves ~5% for root that a normal user cannot write to),
+    `getDirUsage()`, `getR2Usage()`, `buildReport(db)`, `formatAlert(report)`.
+  - **Percent alone is the wrong alarm.** Caught in local testing: a 4 TB dev disk at
+    95% still has 200 GB free and fired `critical`, while a 20 GB disk at 90% has 2 GB
+    free and is genuinely urgent. What actually breaks the system is bytes-free, not the
+    percentage. `diskLevel()` therefore pairs the two: absolute free below the floor
+    alerts on its own, and a high percentage only alerts when free space is also under
+    `STORAGE_HEADROOM_BYTES` (20 GB). Verified against 7 scenarios covering both disk sizes.
+  - **Retention verification** is the part worth keeping even when disks are roomy:
+    `getStorageStats()` reports each table's oldest row age against its retention window,
+    so a broken `purgeOldDnsQueryLogs`/`purgeOldHotspotLogs` now surfaces as a warning
+    instead of going unnoticed for months. Holding logs past 90 days is its own ม.26
+    problem, not just a disk problem.
+  - `getStorageStats()` added to **both** DB layers (49 → 50 exports each). Supabase
+    counts via `head: true` and estimates size by sampling 200 rows for a measured
+    average — labelled an estimate everywhere it is shown, because it excludes indexes
+    and TOAST and is not Postgres's real on-disk size. The JSON layer reads real file
+    sizes, so there it is exact (`exactSize: true`).
+  - Per-site row counts reconcile against the table total, and any shortfall is surfaced
+    as **"อื่น ๆ / ชื่อเดิม"** rather than silently dropped — this is what makes rows
+    still carrying the pre-rename `CCR2004` site name visible instead of invisible.
+  - `lib/r2.js`: added `listObjects(prefix)` with proper `continuation-token` paging
+    (same 1000-item cap that truncated the archives), replacing a would-be duplicate of
+    the lister already inside `scripts/cleanup-old-backups.js`.
+  - **`db.js` had two `module.exports` blocks.** The second (end of file) silently
+    overwrote the first, so the first had been dead code for a long time. Discovered
+    because `getStorageStats` was added to the dead block and came back `undefined` at
+    runtime — while `scripts/check-db-parity.js` reported "ผ่าน", since its non-greedy
+    regex matched the dead block too. Removed the dead block (verified first that the
+    live one was an exact superset), and `check-db-parity.js` now **fails** when a file
+    has more than one `module.exports` — confirmed it rejects the pre-fix `db.js` and
+    accepts the fixed one.
+  - Telegram gains a third, independently switchable alert kind: `alertStorage`
+    (`sendOpsAlert(text, 'storage')`), added to both DB layers and to
+    `sanitizeTelegramConfig`. Bot token still never leaves the server.
+  - `GET /api/mikrotik/storage` and `POST /api/mikrotik/storage/check-now` (both admin
+    only). `check-now` takes `{ force: true }` to send even when nothing is wrong —
+    otherwise a healthy system sends nothing and there is no way to tell whether the
+    alert path works at all.
+  - Daily check at **08:00** Bangkok, not alongside the 02:00 backup: these messages
+    need someone awake to act on them, and 08:00 is after the nightly jobs finish, so
+    the numbers reflect the state *after* the old files were cleaned up. It repeats
+    daily while unresolved — deliberately, since disk pressure does not fix itself.
+  - v2 UI: new "พื้นที่เก็บข้อมูล" tab in Settings (disk meter, watched folders, R2
+    breakdown, per-table rows/size/oldest/newest/retention status, per-site split).
+    Loads only on first open of the tab, since scanning folders and counting rows is not
+    free. Added the missing `.v2-callout.ok` variant and switched the new styles from
+    hardcoded hex to the theme's own colour tokens.
+  - Verified end-to-end against a locally-run server in JSON mode (real router hosts
+    neutralised to `127.0.0.1` first, restored after): report renders, per-site split
+    correct, `check-now` returns `sent: false` gracefully when Telegram is unconfigured
+    instead of erroring, `alertStorage` round-trips, no `botToken` in the response, and
+    `401` without a token.
+
 - **2026-08-29** — **มาตรา 26 DNS logging had been dead for 50 days.** Found while backfilling the
   sealed archives; two further bugs found on the way.
   - Every day queried returned **zero DNS rows**. All 109,514 rows in `dns_query_logs` come from

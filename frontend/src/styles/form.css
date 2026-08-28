@@ -100,3 +100,4 @@
 .v2-callout.info { background: var(--v2-primary-soft); border-color: #bfdbfe; color: #1d4ed8; }
 .v2-callout.warn { background: var(--v2-warn-soft); border-color: #fed7aa; color: var(--v2-warn); }
 .v2-callout.danger { background: var(--v2-danger-soft); border-color: #fecaca; color: var(--v2-danger); }
+.v2-callout.ok { background: var(--v2-success-soft); border-color: #bbf7d0; color: var(--v2-success); }

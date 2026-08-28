@@ -28,6 +28,17 @@ const SUPABASE_DB = path.join(ROOT, 'db-supabase.js');
 // ดึงชื่อที่ถูก export จาก object literal ของ module.exports
 // รองรับทั้ง { a, b } (shorthand, db.js) และ { a: a, b: b } (db-supabase.js)
 function exportedNames(source, file) {
+    // ต้องมี module.exports จุดเดียวเท่านั้น
+    //
+    // ถ้ามีหลายจุด ตัวที่รันจริงคือตัวสุดท้าย (ทับตัวก่อนหน้าทั้งก้อน) แต่ regex ข้างล่าง
+    // เป็นแบบ non-greedy จึงจับตัวแรก — ตัวตรวจจะรายงานว่า "ผ่าน" ทั้งที่ของจริงไม่มีฟังก์ชันนั้น
+    // เกิดขึ้นจริงกับ db.js เมื่อ 2026-08-29 (getStorageStats ถูกเพิ่มในบล็อกที่ตายแล้ว)
+    const occurrences = (source.match(/module\.exports\s*=\s*\{/g) || []).length;
+    if (occurrences > 1) {
+        throw new Error(`${file} มี module.exports ${occurrences} จุด — ตัวท้ายทับตัวก่อนหน้าทั้งหมด ` +
+            `ทำให้ของที่เพิ่มในบล็อกก่อนหน้าไม่มีผลจริง ให้รวมเหลือจุดเดียว`);
+    }
+
     const m = /module\.exports\s*=\s*\{([\s\S]*?)\n\};?/.exec(source);
     if (!m) throw new Error(`หา module.exports object literal ใน ${file} ไม่เจอ`);
     const names = new Set();

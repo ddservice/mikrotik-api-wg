@@ -867,7 +867,8 @@ function _defaultTelegramAlertConfig() {
         botToken: '',
         chatId: '',
         alertOffline: true,
-        alertOnline: true
+        alertOnline: true,
+        alertStorage: true
     };
 }
 
@@ -882,7 +883,8 @@ function getTelegramAlertConfig() {
                 botToken: cfg.botToken || '',
                 chatId: cfg.chatId || '',
                 alertOffline: cfg.alertOffline !== false,
-                alertOnline: cfg.alertOnline !== false
+                alertOnline: cfg.alertOnline !== false,
+                alertStorage: cfg.alertStorage !== false
             };
         }
         // ยังไม่เคยตั้งค่า — ยืมค่าจากหน้า Multi-WAN มาเป็นค่าเริ่มต้น แต่ยังไม่เปิดใช้งาน
@@ -906,7 +908,8 @@ function saveTelegramAlertConfig(config) {
             botToken: config.botToken !== undefined ? String(config.botToken).trim() : current.botToken,
             chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
             alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
-            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline
+            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline,
+            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage
         };
         data.telegram_alert_config = updated;
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -1153,57 +1156,110 @@ function saveLogArchive(rec) {
     return row;
 }
 
-module.exports = {
-    getConfig,
-    saveConfig,
-    getSites,
-    setActiveSite,
-    addSite,
-    updateSite,
-    deleteSite,
-    getUsers,
-    addUser,
-    updateUser,
-    deleteUser,
-    authenticateUser,
-    getLogs,
-    getAllLogsRaw,
-    addLog,
-    getHotspotLogs,
-    getAllHotspotLogsRaw,
-    addHotspotSessionLog,
-    updateHotspotSessionLog,
-    purgeOldHotspotLogs,
-    getDnsQueryLogs,
-    getAllDnsQueryLogsRaw,
-    addDnsQueryLogsBulk,
-    purgeOldDnsQueryLogs,
-    getPppoeUsageLogs,
-    getAllPppoeUsageLogsRaw,
-    addPppoeUsageLog,
-    getPppoeUsageSummary,
-    getAutoCleanupConfig,
-    saveAutoCleanupConfig,
-    getMenuPermissions,
-    saveMenuPermissions,
-    getMultiWanConfig,
-    saveMultiWanConfig,
-    getArchivedHotspotUsers,
-    archiveDeletedHotspotUser,
-    archiveDeletedHotspotUsersBulk,
-    deleteArchivedHotspotUser,
-    clearArchivedHotspotUsers,
-    getLineDigestConfig,
-    saveLineDigestConfig,
-    getLineUserBinding,
-    bindLineUser,
-    unbindLineUser,
-    getTelegramAlertConfig,
-    saveTelegramAlertConfig,
-    getLogArchives,
-    getLogArchive,
-    saveLogArchive
-};
+
+// ==========================================================================
+// สถิติปริมาณข้อมูล — คู่ขนานกับ getStorageStats ใน db-supabase.js
+//
+// โหมด JSON ได้เปรียบตรงที่วัดขนาดไฟล์จริงบนดิสก์ได้เลย ไม่ต้องประมาณ
+// เหมือนฝั่ง Supabase ที่ต้องสุ่มวัดขนาดแถว — ค่า estimatedBytes ที่นี่จึงแม่นจริง
+//
+// ชื่อฟิลด์ฝั่ง JSON เป็น camelCase (queryTime/loginTime) ต่างจาก Postgres
+// ที่เป็น snake_case จึงรับได้หลายชื่อ เพื่อให้ผลลัพธ์ออกมาหน้าตาเดียวกัน
+// ==========================================================================
+const STORAGE_TABLES = [
+    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', file: DNS_LOGS_FILE, timeFields: ['queryTime', 'query_time'], retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'hotspot_logs', label: 'ประวัติใช้งาน Hotspot', file: HOTSPOT_LOGS_FILE, timeFields: ['loginTime', 'login_time'], retentionDays: HOTSPOT_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'pppoe_usage_logs', label: 'ประวัติใช้งาน PPPoE (บิล)', file: PPPOE_LOGS_FILE, timeFields: ['loginTime', 'login_time'], retentionDays: null, law: null },
+    { table: 'archived_hotspot_users', label: 'ผู้ใช้ Hotspot ที่ถูกลบ', file: ARCHIVED_HOTSPOT_USERS_FILE, timeFields: ['deletedAt', 'deleted_at'], retentionDays: null, law: null },
+    { table: 'activity_logs', label: 'ประวัติการใช้งานระบบ', file: LOGS_FILE, timeFields: ['createdAt', 'created_at', 'timestamp'], retentionDays: null, law: null },
+    { table: 'log_archives', label: 'ทะเบียนไฟล์ปิดผนึก', file: LOG_ARCHIVES_FILE, timeFields: ['createdAt', 'created_at'], retentionDays: null, law: null }
+];
+
+function pickTime(row, fields) {
+    for (const f of fields) {
+        if (row && row[f]) return row[f];
+    }
+    return null;
+}
+
+function pickSite(row) {
+    return (row && (row.siteName || row.site_name)) || '';
+}
+
+async function getStorageStats() {
+    const sitesData = await getSites();
+    const siteNames = ((sitesData && sitesData.sites) || []).map(s => s.name);
+
+    const tables = STORAGE_TABLES.map((def) => {
+        try {
+            let rows = [];
+            let fileBytes = 0;
+            if (fs.existsSync(def.file)) {
+                fileBytes = fs.statSync(def.file).size;
+                const parsed = JSON.parse(fs.readFileSync(def.file, 'utf8'));
+                rows = Array.isArray(parsed) ? parsed : [];
+            }
+
+            const times = rows.map(r => pickTime(r, def.timeFields)).filter(Boolean)
+                .map(t => new Date(t).getTime()).filter(n => !isNaN(n));
+            const oldest = times.length ? new Date(Math.min(...times)).toISOString() : null;
+            const newest = times.length ? new Date(Math.max(...times)).toISOString() : null;
+
+            const oldestAgeDays = oldest
+                ? Math.floor((Date.now() - new Date(oldest).getTime()) / 86400000)
+                : null;
+            let retentionOk = true;
+            if (def.retentionDays && oldestAgeDays !== null) {
+                // เผื่อ 2 วัน เพราะ purge ทำงานรอบกลางคืน ไม่ได้ลบทันทีเมื่อครบกำหนดพอดี
+                retentionOk = oldestAgeDays <= def.retentionDays + 2;
+            }
+
+            let bySite = null;
+            const hasSite = rows.some(r => pickSite(r));
+            if (hasSite) {
+                const counts = new Map();
+                rows.forEach((r) => {
+                    const n = pickSite(r) || '(ไม่ระบุสาขา)';
+                    counts.set(n, (counts.get(n) || 0) + 1);
+                });
+                bySite = [...counts.entries()]
+                    .map(([siteName, n]) => ({
+                        siteName,
+                        rows: n,
+                        // ชื่อที่ไม่อยู่ในทะเบียนสาขาแล้ว = ข้อมูลเก่าจากตอนที่ยังใช้ชื่อเดิม
+                        unmatched: !siteNames.includes(siteName)
+                    }))
+                    .sort((a, b) => b.rows - a.rows);
+            }
+
+            return {
+                table: def.table, label: def.label, law: def.law,
+                rows: rows.length, oldest, newest, oldestAgeDays,
+                retentionDays: def.retentionDays, retentionOk,
+                avgRowBytes: rows.length ? Math.round(fileBytes / rows.length) : 0,
+                estimatedBytes: fileBytes,
+                exactSize: true,
+                bySite
+            };
+        } catch (e) {
+            return { table: def.table, label: def.label, error: e.message, rows: 0, estimatedBytes: 0 };
+        }
+    });
+
+    return {
+        backend: 'json',
+        generatedAt: new Date().toISOString(),
+        tables,
+        totalRows: tables.reduce((a, t) => a + (t.rows || 0), 0),
+        estimatedBytes: tables.reduce((a, t) => a + (t.estimatedBytes || 0), 0)
+    };
+}
+
+// หมายเหตุ (2026-08-29): ตรงนี้เคยมี module.exports ซ้ำอีกชุดหนึ่ง ซึ่งถูกชุดท้ายไฟล์
+// ทับทั้งก้อนอยู่แล้ว จึงเป็นโค้ดตายมานาน — เพิ่งรู้ตอนเพิ่ม getStorageStats แล้วเรียกไม่เจอ
+// เพราะไปเพิ่มในชุดที่ตายแล้ว ตัวตรวจ parity ก็อ่านชุดแรกจึงบอกว่าผ่านทั้งที่ใช้งานไม่ได้
+// ลบทิ้งเพื่อให้เหลือ module.exports จุดเดียวที่ท้ายไฟล์ (ดู scripts/check-db-parity.js
+// ที่ตอนนี้ดักกรณีมี module.exports ซ้ำแล้ว)
 
 function getLineDigestConfig(siteId) {
     try {
@@ -1420,7 +1476,8 @@ module.exports = {
     saveTelegramAlertConfig,
     getLogArchives,
     getLogArchive,
-    saveLogArchive
+    saveLogArchive,
+    getStorageStats
 };
 
 

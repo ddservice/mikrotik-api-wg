@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
 const logArchive = require('./lib/log-archive');
+const storageMonitor = require('./lib/storage-monitor');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -2927,6 +2928,7 @@ async function sendOpsAlert(text, kind) {
         if (!cfg || !cfg.enabled || !cfg.botToken || !cfg.chatId) return false;
         if (kind === 'offline' && cfg.alertOffline === false) return false;
         if (kind === 'online' && cfg.alertOnline === false) return false;
+        if (kind === 'storage' && cfg.alertStorage === false) return false;
         await sendTelegramMessage(cfg.botToken, cfg.chatId, text);
         return true;
     } catch (e) {
@@ -3573,7 +3575,8 @@ function sanitizeTelegramConfig(cfg) {
         botTokenPreview: cfg.botToken ? String(cfg.botToken).slice(0, 8) + '…' : '',
         chatId: cfg.chatId || '',
         alertOffline: cfg.alertOffline !== false,
-        alertOnline: cfg.alertOnline !== false
+        alertOnline: cfg.alertOnline !== false,
+        alertStorage: cfg.alertStorage !== false
     };
 }
 
@@ -3717,6 +3720,56 @@ app.post('/api/mikrotik/log-archives/run', requireAuth(['admin']), async (req, r
             : await logArchive.archiveDay(db, date, opts);
         db.addLog(req.user.username, 'สร้างไฟล์ log ปิดผนึก', days ? `ย้อนหลัง ${days} วัน` : `วันที่ ${date || 'เมื่อวาน'}`);
         res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// เฝ้าดูพื้นที่เก็บข้อมูล (Storage Monitor)
+//
+// ระบบเขียนข้อมูลลงที่เก็บ 3 แห่งตลอดเวลา (ดิสก์ VPS / Cloudflare R2 / Supabase)
+// แต่ไม่เคยมีอะไรคอยดูว่าเหลือที่เท่าไร — เต็มเมื่อไรจะเห็นแค่ "ระบบพัง"
+// โดยไม่มีสัญญาณเตือนล่วงหน้า และตรวจด้วยว่าการลบข้อมูลตาม ม.26 ยังทำงานอยู่จริง
+// ==========================================
+
+app.get('/api/mikrotik/storage', requireAuth(['admin']), async (req, res) => {
+    try {
+        res.json(await storageMonitor.buildReport(db));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ตรวจเดี๋ยวนี้แล้วส่งเข้า Telegram — ใช้ทดสอบว่าการแจ้งเตือนถึงจริงไหม
+// force = ส่งแม้ไม่มีปัญหา (ไม่งั้นตอนทุกอย่างปกติจะไม่มีอะไรส่งออกไป จนไม่รู้ว่าใช้ได้ไหม)
+app.post('/api/mikrotik/storage/check-now', requireAuth(['admin']), async (req, res) => {
+    try {
+        const force = !!(req.body && req.body.force);
+        const report = await storageMonitor.buildReport(db);
+        let sent = false;
+
+        if (report.issues.length || force) {
+            const text = report.issues.length
+                ? storageMonitor.formatAlert(report)
+                : [
+                    '🟢 <b>พื้นที่เก็บข้อมูลปกติ</b>',
+                    '',
+                    report.disk.available
+                        ? `💽 ดิสก์: ${report.disk.human.used} / ${report.disk.human.total} (${report.disk.usedPercent}%) เหลือ ${report.disk.human.available}`
+                        : '💽 ดิสก์: อ่านค่าไม่ได้',
+                    `🗄 ฐานข้อมูล: ${(report.database.totalRows || 0).toLocaleString()} แถว ~${report.database.human}`,
+                    report.r2 && report.r2.configured && !report.r2.error
+                        ? `☁️ R2: ${report.r2.objects} ไฟล์ ${report.r2.human}` : '☁️ R2: ยังไม่ได้ตั้งค่า',
+                    '',
+                    '🕐 ' + new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
+                ].join('\n');
+            sent = await sendOpsAlert(text, 'storage');
+        }
+
+        db.addLog(req.user.username, 'ตรวจพื้นที่เก็บข้อมูล',
+            `พบ ${report.issues.length} เรื่องที่ต้องดู, ส่ง Telegram: ${sent ? 'สำเร็จ' : 'ไม่ได้ส่ง'}`);
+        res.json({ success: true, sent, report });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -4091,6 +4144,39 @@ setInterval(async () => {
         }
     } catch (e) {
         console.error('[Backup] Scheduled backup error:', e.message || e);
+    }
+}, 60000);
+
+// ตรวจพื้นที่เก็บข้อมูลวันละครั้ง เวลา 08:00 น. — เตือนเฉพาะตอนมีเรื่องต้องทำ
+//
+// ตั้งเป็น 08:00 ไม่ใช่ตอนกลางดึกพร้อมงานสำรองข้อมูล เพราะข้อความแบบนี้ต้องการ
+// ให้คนเห็นแล้วลงมือแก้ได้เลย ส่งตอนตีสองไปก็จมอยู่ในแจ้งเตือนค้างคืน
+// และเป็นเวลาหลังงานกลางคืนทำเสร็จหมดแล้ว ตัวเลขที่เห็นจึงเป็นภาพหลังลบของเก่าแล้วจริง
+//
+// ถ้ายังไม่ได้แก้ ก็จะเตือนซ้ำทุกวัน — ตั้งใจให้เป็นแบบนั้น เพราะพื้นที่ที่ใกล้เต็ม
+// ไม่หายไปเอง การเงียบหลังเตือนครั้งแรกคือสาเหตุที่ปัญหาแบบนี้ถูกลืมจนสายเกินแก้
+let lastStorageCheckDate = '';
+setInterval(async () => {
+    try {
+        const bkkTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+        const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
+        const todayDateStr = bkkTime.toISOString().slice(0, 10);
+        if (currentHHMM !== '08:00' || lastStorageCheckDate === todayDateStr) return;
+        lastStorageCheckDate = todayDateStr;
+
+        const report = await storageMonitor.buildReport(db);
+        if (!report.issues.length) {
+            console.log(`[Storage] ตรวจแล้ว ปกติดี — ดิสก์ ${report.disk.usedPercent || '?'}%, ฐานข้อมูล ${report.database.totalRows || 0} แถว`);
+            return;
+        }
+
+        console.warn(`[Storage] พบ ${report.issues.length} เรื่องที่ต้องดู:`,
+            report.issues.map((i) => `${i.area}: ${i.message}`).join(' | '));
+        const sent = await sendOpsAlert(storageMonitor.formatAlert(report), 'storage');
+        db.addLog('System Auto', 'เตือนพื้นที่เก็บข้อมูล',
+            `${report.issues.map((i) => i.area + ' — ' + i.message).join('; ')}${sent ? '' : ' (ส่ง Telegram ไม่ได้)'}`);
+    } catch (e) {
+        console.error('[Storage] ตรวจพื้นที่ไม่สำเร็จ:', e.message || e);
     }
 }, 60000);
 

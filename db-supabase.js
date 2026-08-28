@@ -646,7 +646,8 @@ function _defaultTelegramAlertConfig() {
         botToken: '',
         chatId: '',
         alertOffline: true,
-        alertOnline: true
+        alertOnline: true,
+        alertStorage: true
     };
 }
 
@@ -660,7 +661,8 @@ async function getTelegramAlertConfig() {
                 botToken: data.botToken || '',
                 chatId: data.chatId || '',
                 alertOffline: data.alertOffline !== false,
-                alertOnline: data.alertOnline !== false
+                alertOnline: data.alertOnline !== false,
+                alertStorage: data.alertStorage !== false
             };
         }
         // ยังไม่เคยตั้งค่า — ยืมค่าที่กรอกไว้ในหน้า Multi-WAN มาเป็นค่าเริ่มต้น
@@ -684,7 +686,8 @@ async function saveTelegramAlertConfig(config) {
             botToken: config.botToken !== undefined ? String(config.botToken).trim() : current.botToken,
             chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
             alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
-            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline
+            alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline,
+            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage
         };
         await supabase.from('app_settings').upsert({ key: 'telegram_alert_config', value: updated, updated_at: new Date().toISOString() });
         return updated;
@@ -1070,6 +1073,115 @@ async function saveLogArchive(rec) {
     return _mapArchiveRow(res.data);
 }
 
+
+// ==========================================================================
+// สถิติปริมาณข้อมูล — ใช้โดย lib/storage-monitor.js
+//
+// ตอบคำถามที่ระบบตอบไม่ได้มาก่อน 2 ข้อ:
+//   1. ข้อมูลแต่ละสาขากินพื้นที่เท่าไร (Supabase แพ็กเกจฟรีมีให้ 500 MB)
+//   2. การลบข้อมูลเกิน 90 วันตาม ม.26 ยังทำงานอยู่จริงหรือไม่
+//      ถ้าแถวที่เก่าที่สุดอายุเกินกำหนด แปลว่า purge พัง — ที่ผ่านมาไม่มีใครรู้เลย
+//      เพราะไม่เคยมีอะไรตรวจสอบย้อนกลับ
+//
+// เรื่องขนาด: ตัวเลขที่ได้เป็น "ค่าประมาณจากการสุ่มวัด" ไม่ใช่ขนาดบนดิสก์จริง
+// ของ Postgres (ไม่รวม index / TOAST / overhead ต่อแถว) วิธีวัดคือสุ่มมา 200 แถว
+// หาขนาด JSON เฉลี่ยแล้วคูณจำนวนแถวจริง — วัดจริง ไม่ใช่เดา แต่ก็ไม่ใช่ขนาดบนดิสก์
+// ต้องใช้อ่านแนวโน้มว่าตารางไหนโตเร็ว ไม่ใช่ใช้อ้างอิงโควตาแบบเป๊ะ ๆ
+// ==========================================================================
+var STORAGE_TABLES = [
+    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', timeField: 'query_time', siteField: 'site_name', retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'hotspot_logs', label: 'ประวัติใช้งาน Hotspot', timeField: 'login_time', siteField: 'site_name', retentionDays: HOTSPOT_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'pppoe_usage_logs', label: 'ประวัติใช้งาน PPPoE (บิล)', timeField: 'login_time', siteField: 'site_name', retentionDays: null, law: null },
+    { table: 'archived_hotspot_users', label: 'ผู้ใช้ Hotspot ที่ถูกลบ', timeField: 'deleted_at', siteField: 'site_name', retentionDays: null, law: null },
+    { table: 'activity_logs', label: 'ประวัติการใช้งานระบบ', timeField: 'created_at', siteField: null, retentionDays: null, law: null },
+    { table: 'log_archives', label: 'ทะเบียนไฟล์ปิดผนึก', timeField: 'created_at', siteField: null, retentionDays: null, law: null }
+];
+
+var STORAGE_SAMPLE_ROWS = 200;
+
+async function countRows(table, filter) {
+    var q = supabase.from(table).select('id', { count: 'exact', head: true });
+    if (filter) q = q.eq(filter.field, filter.value);
+    var res = await q;
+    if (res.error) throw new Error(res.error.message);
+    return res.count || 0;
+}
+
+async function edgeTime(table, timeField, ascending) {
+    var res = await supabase.from(table).select(timeField).order(timeField, { ascending: ascending }).limit(1);
+    if (res.error || !res.data || !res.data.length) return null;
+    return res.data[0][timeField] || null;
+}
+
+async function getStorageStats() {
+    // ชื่อสาขาเอามาจากทะเบียนสาขา แต่ผลรวมต่อสาขาอาจไม่เท่ายอดรวมของตาราง
+    // เพราะข้อมูลเก่าอาจใช้ชื่อสาขาที่เปลี่ยนไปแล้ว (เช่น CCR2004 -> A4-Residence)
+    // ส่วนต่างจึงถูกยกไปไว้ใน "อื่น ๆ / ชื่อเดิม" แทนที่จะซ่อนหายไปเฉย ๆ
+    var sitesData = await getSites();
+    var siteNames = ((sitesData && sitesData.sites) || []).map(function(s) { return s.name; });
+
+    var tables = await Promise.all(STORAGE_TABLES.map(async function(def) {
+        try {
+            var parts = await Promise.all([
+                countRows(def.table),
+                edgeTime(def.table, def.timeField, true),
+                edgeTime(def.table, def.timeField, false),
+                supabase.from(def.table).select('*').limit(STORAGE_SAMPLE_ROWS)
+            ]);
+            var rows = parts[0], oldest = parts[1], newest = parts[2], sample = parts[3];
+
+            var avgBytes = 0;
+            if (sample.data && sample.data.length) {
+                var total = sample.data.reduce(function(sum, r) {
+                    return sum + Buffer.byteLength(JSON.stringify(r), 'utf8');
+                }, 0);
+                avgBytes = Math.round(total / sample.data.length);
+            }
+
+            // อายุของแถวที่เก่าที่สุด — ใช้ตัดสินว่า purge ยังทำงานอยู่ไหม
+            var oldestAgeDays = oldest
+                ? Math.floor((Date.now() - new Date(oldest).getTime()) / 86400000)
+                : null;
+            var retentionOk = true;
+            if (def.retentionDays && oldestAgeDays !== null) {
+                // เผื่อ 2 วัน เพราะ purge ทำงานรอบกลางคืน ไม่ได้ลบทันทีเมื่อครบ 90 วันพอดี
+                retentionOk = oldestAgeDays <= def.retentionDays + 2;
+            }
+
+            var bySite = null;
+            if (def.siteField && siteNames.length) {
+                var counts = await Promise.all(siteNames.map(function(n) {
+                    return countRows(def.table, { field: def.siteField, value: n }).catch(function() { return 0; });
+                }));
+                bySite = siteNames.map(function(n, i) { return { siteName: n, rows: counts[i] }; });
+                var accounted = counts.reduce(function(a, b) { return a + b; }, 0);
+                if (rows - accounted > 0) {
+                    bySite.push({ siteName: 'อื่น ๆ / ชื่อเดิม', rows: rows - accounted, unmatched: true });
+                }
+                bySite.sort(function(a, b) { return b.rows - a.rows; });
+            }
+
+            return {
+                table: def.table, label: def.label, law: def.law,
+                rows: rows, oldest: oldest, newest: newest, oldestAgeDays: oldestAgeDays,
+                retentionDays: def.retentionDays, retentionOk: retentionOk,
+                avgRowBytes: avgBytes, estimatedBytes: avgBytes * rows,
+                bySite: bySite
+            };
+        } catch (e) {
+            return { table: def.table, label: def.label, error: e.message, rows: 0, estimatedBytes: 0 };
+        }
+    }));
+
+    return {
+        backend: 'supabase',
+        generatedAt: new Date().toISOString(),
+        tables: tables,
+        totalRows: tables.reduce(function(a, t) { return a + (t.rows || 0); }, 0),
+        estimatedBytes: tables.reduce(function(a, t) { return a + (t.estimatedBytes || 0); }, 0)
+    };
+}
+
 module.exports = {
     getMultiWanConfig: getMultiWanConfig, saveMultiWanConfig: saveMultiWanConfig,
     getConfig: getConfig, saveConfig: saveConfig,
@@ -1094,5 +1206,6 @@ module.exports = {
     getLineDigestConfig: getLineDigestConfig, saveLineDigestConfig: saveLineDigestConfig,
     getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser,
     getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
-    getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive
+    getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive,
+    getStorageStats: getStorageStats
 };

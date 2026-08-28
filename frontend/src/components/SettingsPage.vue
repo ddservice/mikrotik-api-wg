@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { apiFetch, activeSiteId, setActiveSiteId } from '../api.js';
 import { toast } from '../toast.js';
 import SiteModal from './SiteModal.vue';
@@ -7,7 +7,8 @@ import SiteModal from './SiteModal.vue';
 const TABS = [
     { key: 'sites', label: 'สาขา / เราท์เตอร์', icon: 'fa-solid fa-network-wired' },
     { key: 'telegram', label: 'แจ้งเตือนแอดมิน (Telegram)', icon: 'fa-brands fa-telegram' },
-    { key: 'line', label: 'แจ้งเตือนลูกค้า (LINE OA)', icon: 'fa-brands fa-line' }
+    { key: 'line', label: 'แจ้งเตือนลูกค้า (LINE OA)', icon: 'fa-brands fa-line' },
+    { key: 'storage', label: 'พื้นที่เก็บข้อมูล', icon: 'fa-solid fa-hard-drive' }
 ];
 
 const tab = ref('sites');
@@ -75,7 +76,7 @@ async function removeSite(s) {
 }
 
 // ---------- Telegram ----------
-const tg = ref({ enabled: false, hasBotToken: false, botTokenPreview: '', chatId: '', alertOffline: true, alertOnline: true });
+const tg = ref({ enabled: false, hasBotToken: false, botTokenPreview: '', chatId: '', alertOffline: true, alertOnline: true, alertStorage: true });
 const tgToken = ref('');
 const tgBusy = ref('');
 const tgChats = ref(null);
@@ -93,7 +94,8 @@ function tgPayload() {
         enabled: tg.value.enabled,
         chatId: String(tg.value.chatId || '').trim(),
         alertOffline: tg.value.alertOffline,
-        alertOnline: tg.value.alertOnline
+        alertOnline: tg.value.alertOnline,
+        alertStorage: tg.value.alertStorage
     };
     // ส่ง token เฉพาะตอนกรอกใหม่ ช่องว่าง = ใช้ตัวเดิมที่บันทึกไว้
     if (tgToken.value.trim()) body.botToken = tgToken.value.trim();
@@ -196,6 +198,63 @@ async function testLine() {
         lineBusy.value = '';
     }
 }
+
+// ---------- พื้นที่เก็บข้อมูล ----------
+const st = ref(null);
+const stBusy = ref('');
+
+// ตัวเลขขนาดต้องคิดแบบเดียวกับฝั่ง server (lib/storage-monitor.js) ไม่งั้นหน้าเว็บ
+// กับข้อความใน Telegram จะบอกตัวเลขไม่ตรงกัน ซึ่งทำให้ไม่รู้ว่าอันไหนเชื่อได้
+function fmtBytes(n) {
+    if (!n || n < 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+function shortDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
+}
+
+async function loadStorage() {
+    stBusy.value = 'load';
+    try {
+        st.value = await apiFetch('/api/mikrotik/storage');
+    } catch (err) {
+        toast.error('ตรวจพื้นที่เก็บข้อมูลไม่สำเร็จ: ' + err.message);
+    } finally {
+        stBusy.value = '';
+    }
+}
+
+async function sendStorageReport() {
+    stBusy.value = 'send';
+    try {
+        // force = ส่งแม้ทุกอย่างปกติ ไม่งั้นตอนไม่มีปัญหาจะไม่มีอะไรออกไป
+        // แล้วจะไม่มีทางรู้ว่าช่องทางแจ้งเตือนใช้ได้จริงหรือเปล่า
+        const r = await apiFetch('/api/mikrotik/storage/check-now', {
+            method: 'POST',
+            body: JSON.stringify({ force: true })
+        });
+        st.value = r.report;
+        if (r.sent) toast.success('ส่งรายงานเข้า Telegram แล้ว');
+        else toast.error('ส่งไม่ได้ — ตรวจการตั้งค่า Telegram ในแท็บแจ้งเตือนแอดมิน');
+    } catch (err) {
+        toast.error('ส่งรายงานไม่สำเร็จ: ' + err.message);
+    } finally {
+        stBusy.value = '';
+    }
+}
+
+// โหลดตอนเปิดแท็บครั้งแรกเท่านั้น — การสแกนโฟลเดอร์กับนับแถวในฐานข้อมูลมีต้นทุน
+// ไม่ควรยิงทุกครั้งที่สลับแท็บไปมา ถ้าอยากได้ค่าล่าสุดมีปุ่ม "ตรวจใหม่" ให้กด
+watch(tab, (v) => {
+    if (v === 'storage' && !st.value && !stBusy.value) loadStorage();
+});
 
 onMounted(async () => {
     await loadSites();
@@ -366,6 +425,7 @@ onMounted(async () => {
             <div class="checks">
                 <label class="chk"><input v-model="tg.alertOffline" type="checkbox"> แจ้งเมื่อเราท์เตอร์ Offline</label>
                 <label class="chk"><input v-model="tg.alertOnline" type="checkbox"> แจ้งเมื่อกลับมาออนไลน์</label>
+                <label class="chk"><input v-model="tg.alertStorage" type="checkbox"> แจ้งเมื่อพื้นที่เก็บข้อมูลใกล้เต็ม</label>
             </div>
 
             <div class="actions">
@@ -380,7 +440,7 @@ onMounted(async () => {
     </template>
 
     <!-- ================= LINE ================= -->
-    <template v-else>
+    <template v-else-if="tab === 'line'">
         <div class="v2-callout warn">
             <i class="fa-solid fa-triangle-exclamation"></i>
             <span>
@@ -440,10 +500,173 @@ onMounted(async () => {
         </div>
     </template>
 
+    <!-- ================= พื้นที่เก็บข้อมูล ================= -->
+    <template v-else>
+        <div class="bar">
+            <button type="button" class="v2-btn ghost" :disabled="stBusy === 'load'" @click="loadStorage">
+                <i class="fa-solid" :class="stBusy === 'load' ? 'fa-spinner fa-spin' : 'fa-rotate'"></i> ตรวจใหม่
+            </button>
+            <button type="button" class="v2-btn ghost" :disabled="stBusy === 'send'" @click="sendStorageReport">
+                <i class="fa-brands fa-telegram"></i> ส่งรายงานเข้า Telegram
+            </button>
+            <span v-if="st" class="sub">ตรวจเมื่อ {{ new Date(st.generatedAt).toLocaleString('th-TH') }}</span>
+        </div>
+
+        <div v-if="!st && stBusy === 'load'" class="sub">กำลังตรวจ…</div>
+
+        <template v-else-if="st">
+            <!-- เรื่องที่ต้องทำ อยู่บนสุดเสมอ ถ้าไม่มีก็บอกว่าไม่มี ไม่ปล่อยให้เดา -->
+            <div v-if="!st.issues.length" class="v2-callout ok">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>ทุกอย่างปกติ — ไม่มีเรื่องที่ต้องจัดการตอนนี้</span>
+            </div>
+            <div
+                v-for="(i, idx) in st.issues" :key="idx"
+                class="v2-callout" :class="i.level === 'critical' ? 'danger' : 'warn'"
+            >
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span><strong>{{ i.area }}:</strong> {{ i.message }} — <em>{{ i.action }}</em></span>
+            </div>
+
+            <div class="v2-row-2">
+                <!-- ดิสก์ VPS -->
+                <div class="panel">
+                    <div class="ptitle"><i class="fa-solid fa-hard-drive"></i> ดิสก์เครื่อง VPS</div>
+                    <template v-if="st.disk.available">
+                        <div class="bignum" :class="st.disk.level">{{ st.disk.usedPercent }}%</div>
+                        <div class="meter"><span :class="st.disk.level" :style="{ width: st.disk.usedPercent + '%' }"></span></div>
+                        <div class="sub">
+                            ใช้ {{ st.disk.human.used }} / {{ st.disk.human.total }} ·
+                            <strong>เหลือ {{ st.disk.human.available }}</strong>
+                        </div>
+                    </template>
+                    <div v-else class="sub">อ่านค่าไม่ได้: {{ st.disk.reason }}</div>
+
+                    <div class="dirs">
+                        <div v-for="d in st.dirs" :key="d.key" class="dirrow">
+                            <span>
+                                <i v-if="d.growing" class="fa-solid fa-arrow-trend-up grow" title="โตขึ้นเรื่อย ๆ ตามการใช้งาน"></i>
+                                {{ d.label }}
+                            </span>
+                            <span class="mono">{{ d.human }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cloudflare R2 -->
+                <div class="panel">
+                    <div class="ptitle"><i class="fa-solid fa-cloud"></i> Cloudflare R2 (สำเนานอกเครื่อง)</div>
+                    <template v-if="!st.r2.configured">
+                        <div class="sub">ยังไม่ได้ตั้งค่า R2 — ข้อมูลสำรองมีสำเนาเดียวบน VPS เท่านั้น</div>
+                    </template>
+                    <template v-else-if="st.r2.error">
+                        <div class="sub err">เชื่อมต่อไม่ได้: {{ st.r2.error }}</div>
+                    </template>
+                    <template v-else>
+                        <div class="bignum">{{ st.r2.human }}</div>
+                        <div class="sub">{{ st.r2.objects.toLocaleString() }} ไฟล์ ใน {{ st.r2.bucket }}/{{ st.r2.prefix }}</div>
+                        <div class="dirs">
+                            <div v-for="g in st.r2.groups" :key="g.group" class="dirrow">
+                                <span>{{ g.group }} <span class="sub">({{ g.objects }} ไฟล์)</span></span>
+                                <span class="mono">{{ g.human }}</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ฐานข้อมูล -->
+            <div class="panel">
+                <div class="ptitle">
+                    <i class="fa-solid fa-database"></i> ฐานข้อมูล
+                    <span class="sub">({{ st.database.backend === 'supabase' ? 'Supabase' : 'ไฟล์ JSON' }})</span>
+                </div>
+                <div class="sub">
+                    รวม {{ (st.database.totalRows || 0).toLocaleString() }} แถว ·
+                    <template v-if="st.database.backend === 'supabase'">
+                        ประมาณ {{ st.database.human }} จากโควตา {{ fmtBytes(st.database.quotaBytes) }}
+                        (~{{ st.database.quotaPercent }}%)
+                        <span class="note">— ขนาดเป็นค่าประมาณจากการสุ่มวัดแถว ไม่ใช่ขนาดจริงบนดิสก์ของ Postgres</span>
+                    </template>
+                    <template v-else>{{ st.database.human }} (ขนาดไฟล์จริง)</template>
+                </div>
+
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ข้อมูล</th><th class="r">จำนวนแถว</th><th class="r">ขนาด</th>
+                                <th>เก่าสุด</th><th>ใหม่สุด</th><th>การลบตามกำหนด</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="t in st.database.tables" :key="t.table">
+                                <td>
+                                    {{ t.label }}
+                                    <span v-if="t.law" class="badge law">{{ t.law }}</span>
+                                </td>
+                                <td class="r mono">{{ (t.rows || 0).toLocaleString() }}</td>
+                                <td class="r mono">{{ fmtBytes(t.estimatedBytes) }}</td>
+                                <td class="mono sub">{{ shortDate(t.oldest) }}</td>
+                                <td class="mono sub">{{ shortDate(t.newest) }}</td>
+                                <td>
+                                    <span v-if="!t.retentionDays" class="badge">เก็บถาวร</span>
+                                    <span v-else-if="t.retentionOk" class="badge ok">
+                                        ปกติ ({{ t.retentionDays }} วัน)
+                                    </span>
+                                    <span v-else class="badge bad">
+                                        เก่าสุด {{ t.oldestAgeDays }} วัน เกิน {{ t.retentionDays }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- แยกตามสาขา: เห็นว่าสาขาไหนกินที่มากที่สุด -->
+                <template v-for="t in st.database.tables" :key="'s-' + t.table">
+                    <div v-if="t.bySite && t.bySite.length" class="sitebreak">
+                        <div class="sub strong">{{ t.label }} แยกตามสาขา</div>
+                        <div v-for="b in t.bySite" :key="b.siteName" class="dirrow">
+                            <span>
+                                {{ b.siteName }}
+                                <span v-if="b.unmatched" class="badge warn" title="ชื่อนี้ไม่อยู่ในทะเบียนสาขาแล้ว — เป็นข้อมูลเก่าจากตอนที่ยังใช้ชื่อเดิม">ชื่อเดิม</span>
+                            </span>
+                            <span class="mono">{{ b.rows.toLocaleString() }}</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </template>
+
     <SiteModal :open="siteModalOpen" :site="editingSite" @close="siteModalOpen = false" @saved="loadSites" />
 </template>
 
 <style scoped>
+/* ---- พื้นที่เก็บข้อมูล ---- */
+.ptitle { font-weight: 600; font-size: .9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.bignum { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.bignum.warn { color: var(--v2-warn); }
+.bignum.critical { color: var(--v2-danger); }
+.meter { height: 8px; border-radius: 999px; background: var(--v2-border); overflow: hidden; margin: 8px 0; }
+.meter span { display: block; height: 100%; border-radius: 999px; background: var(--v2-primary); transition: width .3s; }
+.meter span.warn { background: var(--v2-warn); }
+.meter span.critical { background: var(--v2-danger); }
+.dirs { margin-top: 12px; border-top: 1px solid var(--v2-border); padding-top: 8px; }
+.dirrow { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: .82rem; }
+.dirrow .grow { color: var(--v2-primary); font-size: .7rem; margin-right: 2px; }
+.sitebreak { margin-top: 14px; border-top: 1px solid var(--v2-border); padding-top: 10px; }
+.note { font-size: .78rem; opacity: .8; }
+.err { color: var(--v2-danger); }
+.badge { display: inline-block; font-size: .72rem; padding: 1px 7px; border-radius: 999px;
+         border: 1px solid var(--v2-border); color: var(--v2-text-muted); }
+.badge.ok { border-color: color-mix(in srgb, var(--v2-success) 35%, transparent); color: var(--v2-success); }
+.badge.bad { border-color: color-mix(in srgb, var(--v2-danger) 35%, transparent); color: var(--v2-danger); }
+.badge.warn { border-color: color-mix(in srgb, var(--v2-warn) 35%, transparent); color: var(--v2-warn); }
+.badge.law { border-color: var(--v2-primary); color: var(--v2-primary); margin-left: 6px; }
+th.r, td.r { text-align: right; }
+
 .head { margin-bottom: 16px; }
 .head h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
 .head p { margin: 3px 0 0; font-size: .85rem; color: var(--v2-text-muted); }
