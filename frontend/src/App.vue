@@ -7,6 +7,8 @@ import FullUpgradeModal from './components/FullUpgradeModal.vue';
 
 const sites = ref([]);
 const upgradeOpen = ref(false);
+const upgradeMode = ref('full');
+const overviewRef = ref(null);
 const loadError = ref('');
 
 const loggedIn = computed(() => !!token.value && !!currentUser.value);
@@ -28,6 +30,11 @@ onMounted(() => {
 async function onLoggedIn() {
     loadError.value = '';
     await loadSites();
+}
+
+function openUpgrade(mode) {
+    upgradeMode.value = mode;
+    upgradeOpen.value = true;
 }
 
 async function doLogout() {
@@ -55,7 +62,7 @@ async function doLogout() {
             </div>
             <div class="v2-topbar-right">
                 <select
-                    class="form-control select-sm"
+                    class="v2-site-select"
                     :value="activeSiteId"
                     @change="setActiveSiteId($event.target.value)"
                 >
@@ -65,8 +72,8 @@ async function doLogout() {
                     {{ currentUser?.displayName || currentUser?.username }}
                     <em>{{ currentUser?.role }}</em>
                 </span>
-                <a class="btn btn-secondary btn-sm" href="/">กลับหน้าเดิม</a>
-                <button type="button" class="btn btn-secondary btn-sm" title="ออกจากระบบ" @click="doLogout">
+                <a class="v2-ghost-btn" href="/">หน้าเดิม</a>
+                <button type="button" class="v2-ghost-btn is-icon" title="ออกจากระบบ" @click="doLogout">
                     <i class="fa-solid fa-power-off"></i>
                 </button>
             </div>
@@ -74,35 +81,95 @@ async function doLogout() {
 
         <main class="v2-main">
             <div v-if="loadError" class="v2-load-error">{{ loadError }}</div>
-            <OverviewPage @open-upgrade="upgradeOpen = true" />
+            <OverviewPage
+                ref="overviewRef"
+                @open-upgrade="openUpgrade('full')"
+                @open-firmware-upgrade="openUpgrade('firmware')"
+            />
         </main>
 
-        <FullUpgradeModal :open="upgradeOpen" @close="upgradeOpen = false" />
+        <FullUpgradeModal
+            :open="upgradeOpen"
+            :mode="upgradeMode"
+            @close="upgradeOpen = false"
+            @done="overviewRef?.reload()"
+        />
     </div>
 </template>
 
 <style scoped>
 .v2-shell {
     min-height: 100vh;
-    background: #f1f5f9;
+    background: var(--v2-bg);
 }
 
 .v2-topbar {
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 12px 24px;
+    background: var(--v2-surface);
+    border-bottom: 1px solid var(--v2-border);
+    padding: 11px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 14px;
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.v2-site-select {
+    font: inherit;
+    font-size: .84rem;
+    font-weight: 500;
+    color: var(--v2-text);
+    background: var(--v2-bg);
+    border: 1px solid var(--v2-border);
+    border-radius: 9px;
+    padding: 7px 30px 7px 12px;
+    max-width: 230px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c8ba1' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.v2-site-select:focus-visible {
+    outline: 2px solid var(--v2-primary);
+    outline-offset: 1px;
+}
+
+.v2-ghost-btn {
+    font: inherit;
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--v2-text-soft);
+    background: var(--v2-bg);
+    border: 1px solid var(--v2-border);
+    border-radius: 9px;
+    padding: 7px 13px;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.4;
+    transition: background .15s ease, color .15s ease;
+}
+
+.v2-ghost-btn:hover {
+    background: #eef2f7;
+    color: var(--v2-text);
+}
+
+.v2-ghost-btn.is-icon {
+    padding: 7px 11px;
 }
 
 .v2-brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    color: #1e293b;
+    color: var(--v2-text);
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 
 .v2-brand i {
@@ -130,9 +197,10 @@ async function doLogout() {
 }
 
 .v2-user {
-    font-size: 0.85rem;
-    color: #475569;
+    font-size: 0.82rem;
+    color: var(--v2-text-soft);
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .v2-user em {

@@ -447,6 +447,31 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (6)** — `/v2/`: firmware-only upgrade path + typography/card redesign.
+  - **The pilot had no way to upgrade firmware alone.** The 1-Click button only appeared when
+    RouterOS itself had an update. On Auioun@WiFi (`RBD52G-5HacD2HnD`) RouterOS was already at
+    `6.49.20 (long-term)` while the RouterBOARD firmware was still `6.49.7` — so the operator could
+    see the pending firmware upgrade but had no button to run it. Added a separate action on the
+    Firmware card, and `FullUpgradeModal` now takes `mode`: `'full'` (4 steps, unchanged) or
+    `'firmware'` (2 steps — `full-upgrade-stage2`, which is `/system/routerboard/upgrade` plus an
+    automatic reboot, then poll until the board is back). Header, description, confirm text and
+    button label all switch with the mode.
+  - **`/v2/index.html` never loaded any webfont.** `style.css` asks for `'Inter', 'Prompt'` and the
+    legacy `index.html` pulls both from Google Fonts, but the pilot's own entry HTML did not — so
+    every glyph fell back to the Windows default (Tahoma/Leelawadee), which is what "ตัวอักษรโบราณ"
+    was. Now loads **Inter** (Latin/numerals) + **IBM Plex Sans Thai** (Thai); the browser picks per
+    script. Added `src/styles/base.css` with design tokens, antialiasing, and a `.v2-num` class using
+    `tabular-nums` so the numbers stop shifting sideways on every 10-second refresh.
+  - Rewrote `StatCard.vue` with its own CSS instead of borrowing legacy `.stat-card`. The old card
+    assumed short values, so `RBD52G-5HacD2HnD` and `อุณหภูมิ & Voltage` wrapped across three lines
+    and left the grid ragged. Now: label on one line with ellipsis, value on its own line, footer
+    slot for pills/actions, `240px` minimum column, hover lift, and `<button>` semantics (real focus
+    ring) when the card is clickable.
+  - Verified in Chrome with a fixture matching the reported state (`hasUpdate: false`,
+    `currentFirmware 6.49.7`, `upgradeFirmware 6.49.20`): fonts report as loaded, the Firmware card
+    shows the upgrade button, the modal opens in 2-step firmware mode as a direct child of `<body>`,
+    and the 4-step full mode still works when RouterOS does have an update. Zero page errors.
+
 - **2026-08-28 (5)** — `/v2/` gets its own login page; no longer depends on the legacy UI.
   - The pilot previously showed a "กรุณาเข้าสู่ระบบที่หน้าหลักก่อน" gate when `localStorage` had no
     token, which made it unusable in a fresh browser profile. Added `LoginPage.vue` posting to the

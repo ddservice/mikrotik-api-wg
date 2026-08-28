@@ -1,0 +1,64 @@
+/*
+  Design tokens + typography ของหน้าใหม่
+  โหลดหลัง /style.css จึงเขียนทับค่าเดิมได้ตรงจุดที่ต้องการ โดยไม่ต้องแก้ style.css
+  (หน้าเดิมยังใช้ style.css ตัวเดิมอยู่ ห้ามทำให้มันเปลี่ยนตาม)
+*/
+
+:root {
+    /* ตัวเลขใช้ Inter เพราะมี tabular figures — ค่าอัปเดตทุก 10 วิแล้วตัวเลขไม่ขยับซ้ายขวา */
+    --v2-font: 'Inter', 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    --v2-bg: #f6f8fb;
+    --v2-surface: #ffffff;
+    --v2-border: #e6ebf2;
+    --v2-border-strong: #d5dee9;
+
+    --v2-text: #0f172a;
+    --v2-text-soft: #475569;
+    --v2-text-muted: #7c8ba1;
+
+    --v2-primary: #2563eb;
+    --v2-primary-soft: #eff4ff;
+    --v2-success: #15803d;
+    --v2-success-soft: #ecfdf3;
+    --v2-warn: #b45309;
+    --v2-warn-soft: #fff7ed;
+    --v2-danger: #b91c1c;
+    --v2-danger-soft: #fef2f2;
+
+    --v2-radius: 14px;
+    --v2-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 6px 16px -6px rgba(15, 23, 42, .08);
+    --v2-shadow-lift: 0 2px 4px rgba(15, 23, 42, .05), 0 14px 28px -10px rgba(15, 23, 42, .16);
+}
+
+html,
+body,
+#app {
+    font-family: var(--v2-font);
+}
+
+body {
+    background: var(--v2-bg);
+    color: var(--v2-text);
+    /* เปิด kerning/ligature และปรับ contrast ให้ตัวอักษรคมขึ้นบนจอความละเอียดสูง */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv05' 1, 'ss01' 1;
+}
+
+/* ตัวเลขทุกที่ในหน้านี้กว้างเท่ากันหมด กันตัวเลขกระตุกตอนรีเฟรช */
+.v2-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+    letter-spacing: -0.01em;
+}
+
+/* ปุ่มของ style.css เดิมสืบทอดฟอนต์จาก body อยู่แล้ว แต่ย้ำไว้กันพลาด */
+.v2-shell button,
+.v2-shell input,
+.v2-shell select,
+.v2-login button,
+.v2-login input {
+    font-family: inherit;
+}

@@ -57,29 +57,41 @@ onUnmounted(() => {
     if (timer) clearInterval(timer);
 });
 
+defineExpose({ reload: load });
+
 const connected = computed(() => !!status.value && !error.value);
 
+const cpu = computed(() => {
+    const v = status.value?.cpuLoad;
+    if (v === undefined || v === null || v === '') return '-';
+    // RouterOS ส่งมาเป็น '0' บ้าง '0%' บ้าง — กัน '0% %' แบบที่หน้าเดิมเคยขึ้น
+    return String(v).trim().endsWith('%') ? String(v).trim() : `${v}%`;
+});
+
 const ram = computed(() => {
-    if (!status.value) return '- / - MB';
+    if (!status.value) return '-';
     return `${formatMegabytes(status.value.freeMemory)} / ${formatMegabytes(status.value.totalMemory)} MB`;
 });
+
+const hasSensor = computed(() => !!(status.value?.temperature || status.value?.voltage));
 
 const temperature = computed(() => {
     const s = status.value;
     if (!s) return '-';
-    if (!s.temperature && !s.voltage) return 'ปกติ (ไม่มี sensor)';
-    return `${s.temperature || ''} ${s.voltage ? '(' + s.voltage + ')' : ''}`.trim() || 'ปกติ';
+    if (!hasSensor.value) return 'ไม่มีเซ็นเซอร์';
+    return `${s.temperature || ''}${s.voltage ? ' · ' + s.voltage : ''}`.trim();
 });
 
 const tempBadge = computed(() => {
+    if (!hasSensor.value) return null;
     const t = parseFloat(status.value?.temperature);
-    if (!Number.isFinite(t)) return { text: 'ปกติ', bg: '#dcfce7', color: '#15803d' };
-    if (t >= 75) return { text: 'ร้อนสูง ⚠️', bg: '#fee2e2', color: '#dc2626' };
-    if (t >= 60) return { text: 'อุ่น', bg: '#fef3c7', color: '#d97706' };
-    return { text: 'ปกติ', bg: '#dcfce7', color: '#15803d' };
+    if (!Number.isFinite(t)) return { text: 'ปกติ', tone: 'ok' };
+    if (t >= 75) return { text: 'ร้อนสูง', tone: 'bad' };
+    if (t >= 60) return { text: 'อุ่น', tone: 'warn' };
+    return { text: 'ปกติ', tone: 'ok' };
 });
 
-const hasUpdate = computed(() => {
+const hasRosUpdate = computed(() => {
     const s = status.value;
     return !!(s && s.hasUpdate && s.latestVersion && s.latestVersion !== s.currentVersion);
 });
@@ -89,230 +101,245 @@ const firmwareNeedsUpgrade = computed(() => {
     return !!(s && s.upgradeFirmware && s.upgradeFirmware !== 'N/A' && s.upgradeFirmware !== s.currentFirmware);
 });
 
-const emit = defineEmits(['open-upgrade']);
+const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
 </script>
 
 <template>
-    <div class="overview-head">
-        <div>
-            <h1>ข้อมูลทั่วไป (Overview)</h1>
-            <p>ภาพรวมสถานะเราท์เตอร์และทราฟฟิกอินเตอร์เฟส</p>
+    <div class="head">
+        <div class="head-text">
+            <h1>ข้อมูลทั่วไป</h1>
+            <p>ภาพรวมสถานะเราท์เตอร์ของสาขาที่เลือกอยู่</p>
         </div>
-        <div class="overview-status">
-            <span class="status-dot" :class="connected ? 'status-online' : 'status-offline'"></span>
-            {{ connected ? 'Connected' : 'Disconnected' }}
-            <span v-if="lastUpdated" class="overview-timestamp">· อัปเดต {{ lastUpdated }}</span>
+        <div class="head-status" :class="connected ? 'is-up' : 'is-down'">
+            <span class="dot"></span>
+            {{ connected ? 'เชื่อมต่ออยู่' : 'ขาดการเชื่อมต่อ' }}
+            <span v-if="lastUpdated" class="stamp v2-num">· {{ lastUpdated }}</span>
         </div>
     </div>
 
-    <div v-if="error" class="overview-error">
+    <div v-if="error" class="alert alert-danger">
         <i class="fa-solid fa-triangle-exclamation"></i> {{ error }}
     </div>
 
-    <div class="stats-grid">
-        <StatCard
-            icon="fa-solid fa-microchip"
-            icon-class="cpu"
-            title="CPU Load"
-            :value="status ? status.cpuLoad + ' %' : '- %'"
-        />
+    <div class="grid">
+        <StatCard icon="fa-solid fa-microchip" tone="blue" title="CPU Load" :value="cpu" />
 
-        <StatCard
-            icon="fa-solid fa-memory"
-            icon-class="ram"
-            title="RAM Memory"
-            :value="ram"
-        />
+        <StatCard icon="fa-solid fa-memory" tone="violet" title="RAM (ว่าง / ทั้งหมด)" :value="ram" />
 
         <StatCard
             icon="fa-solid fa-temperature-half"
-            :icon-style="{ background: '#ccfbf1', color: '#0f766e' }"
-            title="อุณหภูมิ & Voltage"
+            tone="teal"
+            title="อุณหภูมิ & แรงดัน"
             :value="temperature"
-            card-title="อุณหภูมิและแรงดันไฟฟ้าอุปกรณ์เราท์เตอร์ (Hardware Temperature & Voltage)"
+            card-title="อุณหภูมิและแรงดันไฟฟ้าของบอร์ด"
         >
             <template #badge>
-                <span
-                    class="temp-badge"
-                    :style="{ background: tempBadge.bg, color: tempBadge.color }"
-                >{{ tempBadge.text }}</span>
+                <span v-if="tempBadge" class="pill" :class="'pill-' + tempBadge.tone">{{ tempBadge.text }}</span>
             </template>
         </StatCard>
 
         <StatCard
             icon="fa-solid fa-clock-rotate-left"
-            icon-class="uptime"
-            title="Uptime (เปิดทำงาน)"
+            tone="slate"
+            title="Uptime"
             :value="formatUptime(status?.uptime)"
-            :value-title="status?.uptime ? 'Uptime เต็ม: ' + status.uptime : ''"
-            card-title="ระยะเวลาเปิดทำงานต่อเนื่องของเราท์เตอร์"
+            :value-title="status?.uptime ? 'ค่าดิบจากเราท์เตอร์: ' + status.uptime : ''"
+            card-title="ระยะเวลาเปิดทำงานต่อเนื่อง"
         />
 
         <StatCard
             icon="fa-solid fa-server"
-            icon-class="model"
-            title="Router Model"
-            :value="status?.model || (error ? 'Cannot Connect' : '-')"
+            tone="amber"
+            title="รุ่นเราท์เตอร์"
+            :value="status?.model || (error ? 'เชื่อมต่อไม่ได้' : '-')"
         />
 
         <StatCard
             icon="fa-solid fa-code-branch"
-            :icon-style="{ background: '#e0f2fe', color: '#0284c7' }"
-            title="RouterOS Version"
+            tone="blue"
+            title="RouterOS"
             :value="status?.version || '-'"
-            clickable
-            card-title="คลิกเพื่อเปิดระบบอัปเกรดเต็มรูปแบบอัตโนมัติ 1-Click (RouterOS + Firmware)"
-            @click="emit('open-upgrade')"
         >
             <template #footer>
-                <div v-if="status" class="ros-badge">
-                    <template v-if="hasUpdate">
-                        <span class="ros-badge-new">
-                            <i class="fa-solid fa-circle-arrow-up"></i> มีเวอร์ชัน v{{ status.latestVersion }}
+                <div v-if="status" class="foot-row">
+                    <template v-if="hasRosUpdate">
+                        <span class="pill pill-warn">
+                            <i class="fa-solid fa-circle-arrow-up"></i> มี v{{ status.latestVersion }}
                         </span>
-                        <button
-                            type="button"
-                            class="btn btn-sm btn-primary ros-upgrade-btn"
-                            title="คลิกเพื่ออัปเกรด RouterOS + Firmware แบบ 1-Click"
-                            @click.stop="emit('open-upgrade')"
-                        >
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click อัปเกรด
+                        <button type="button" class="mini-btn" @click.stop="emit('open-upgrade')">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> อัปเกรด
                         </button>
                     </template>
-                    <span v-else class="ros-badge-ok">
-                        <i class="fa-solid fa-circle-check"></i> เวอร์ชันล่าสุดแล้ว
+                    <span v-else class="pill pill-ok">
+                        <i class="fa-solid fa-circle-check"></i> ล่าสุดแล้ว
                     </span>
                 </div>
             </template>
         </StatCard>
 
         <StatCard
-            icon="fa-solid fa-microchip"
-            :icon-style="{ background: '#fef3c7', color: '#d97706' }"
-            title="Firmware / Boot"
+            icon="fa-solid fa-hard-drive"
+            tone="amber"
+            title="Firmware (บอร์ด)"
+            :value="status?.currentFirmware || status?.version || '-'"
         >
-            <template #value>
-                {{ status?.currentFirmware || status?.version || '-' }}
-                <span v-if="firmwareNeedsUpgrade" class="fw-upgrade">
-                    (อัปเกรด: {{ status.upgradeFirmware }})
-                </span>
+            <template #footer>
+                <!--
+                  เดิมปุ่มอัปเกรดมีเฉพาะตอน RouterOS มีเวอร์ชันใหม่ พอ ROS อัปครบแล้ว
+                  เหลือแต่ Firmware ก็เลยไม่มีปุ่มให้กด ต้องแยกปุ่มของ Firmware ออกมาต่างหาก
+                -->
+                <div v-if="status" class="foot-row">
+                    <template v-if="firmwareNeedsUpgrade">
+                        <span class="pill pill-warn">
+                            <i class="fa-solid fa-circle-arrow-up"></i> มี {{ status.upgradeFirmware }}
+                        </span>
+                        <button type="button" class="mini-btn" @click.stop="emit('open-firmware-upgrade')">
+                            <i class="fa-solid fa-bolt"></i> อัปเกรด
+                        </button>
+                    </template>
+                    <span v-else class="pill pill-ok">
+                        <i class="fa-solid fa-circle-check"></i> ล่าสุดแล้ว
+                    </span>
+                </div>
             </template>
         </StatCard>
 
         <StatCard
             icon="fa-solid fa-users"
-            icon-class="hotspot-online"
-            title="ผู้ใช้ Hotspot ออนไลน์"
+            tone="green"
+            title="Hotspot ออนไลน์"
             :value="hotspotOnline === null ? '-' : hotspotOnline + ' คน'"
-            clickable
             live
-            card-title="จำนวนผู้ใช้ที่ล็อกอิน Hotspot อยู่ในขณะนี้"
+            card-title="ผู้ใช้ที่ล็อกอิน Hotspot อยู่ในขณะนี้"
         />
 
         <StatCard
             icon="fa-solid fa-door-closed"
-            icon-class="model"
+            tone="slate"
             title="ห้อง PPPoE ออนไลน์"
             :value="pppoeOnline === null ? '-' : pppoeOnline + ' ห้อง'"
-            clickable
             live
-            card-title="จำนวนห้องพักที่เชื่อมต่อ PPPoE อยู่ในขณะนี้"
+            card-title="ห้องพักที่เชื่อมต่อ PPPoE อยู่ในขณะนี้"
         />
     </div>
 </template>
 
 <style scoped>
-.overview-head {
+.head {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: flex-end;
     gap: 16px;
     flex-wrap: wrap;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
 }
 
-.overview-head h1 {
+.head h1 {
     margin: 0;
-    font-size: 1.6rem;
+    font-size: 1.55rem;
     font-weight: 700;
-    color: #1e293b;
+    letter-spacing: -0.02em;
+    color: var(--v2-text);
 }
 
-.overview-head p {
-    margin: 4px 0 0;
-    font-size: 0.85rem;
-    color: #64748b;
+.head p {
+    margin: 3px 0 0;
+    font-size: .86rem;
+    color: var(--v2-text-muted);
 }
 
-.overview-status {
+.head-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: .8rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--v2-border);
+    background: var(--v2-surface);
+}
+
+.head-status .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.head-status.is-up { color: var(--v2-success); }
+.head-status.is-up .dot { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .16); }
+.head-status.is-down { color: var(--v2-danger); }
+.head-status.is-down .dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, .16); }
+
+.stamp {
+    color: var(--v2-text-muted);
+    font-weight: 500;
+}
+
+.alert {
+    padding: 11px 15px;
+    border-radius: 10px;
+    font-size: .86rem;
+    margin-bottom: 18px;
+}
+
+.alert-danger {
+    background: var(--v2-danger-soft);
+    border: 1px solid #fecaca;
+    color: var(--v2-danger);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+    gap: 14px;
+}
+
+.foot-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.85rem;
-    color: #475569;
-    font-weight: 600;
-}
-
-.overview-timestamp {
-    color: #94a3b8;
-    font-weight: 400;
-}
-
-.overview-error {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #b91c1c;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 0.85rem;
-    margin-bottom: 16px;
-}
-
-.temp-badge {
-    font-size: 0.68rem;
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 10px;
-    white-space: nowrap;
-}
-
-.ros-badge {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
     flex-wrap: wrap;
-    margin-top: 6px;
-    font-size: 0.75rem;
 }
 
-.ros-badge-new {
-    color: #d97706;
-    font-weight: 700;
-}
-
-.ros-badge-ok {
-    color: #15803d;
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: .72rem;
     font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
 }
 
-.ros-upgrade-btn {
-    padding: 4px 10px;
-    font-size: 0.72rem;
-    white-space: nowrap;
-    height: auto;
-    border-radius: 10px;
-    font-weight: 700;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    border: none;
-    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+.pill-ok { background: var(--v2-success-soft); color: var(--v2-success); }
+.pill-warn { background: var(--v2-warn-soft); color: var(--v2-warn); }
+.pill-bad { background: var(--v2-danger-soft); color: var(--v2-danger); }
+
+.mini-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    font-size: .74rem;
+    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: var(--v2-primary);
     color: #fff;
     cursor: pointer;
+    transition: background .15s ease, transform .15s ease;
 }
 
-.fw-upgrade {
-    color: #d97706;
-    font-size: 0.75rem;
-    font-weight: 700;
+.mini-btn:hover {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+}
+
+.mini-btn:focus-visible {
+    outline: 2px solid var(--v2-primary);
+    outline-offset: 2px;
 }
 </style>

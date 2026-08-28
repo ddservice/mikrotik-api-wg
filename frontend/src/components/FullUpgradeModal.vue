@@ -1,20 +1,31 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { apiFetch } from '../api.js';
 
 const props = defineProps({
-    open: { type: Boolean, default: false }
+    open: { type: Boolean, default: false },
+    // 'full'     = อัปเดต RouterOS แล้วต่อด้วย Firmware (4 ขั้น)
+    // 'firmware' = ข้ามขั้น RouterOS ไปเลย ใช้ตอน ROS อัปครบแล้วเหลือแต่ Firmware (2 ขั้น)
+    mode: { type: String, default: 'full' }
 });
 const emit = defineEmits(['close', 'done']);
 
-const STEP_DEFAULTS = [
-    { title: 'ดาวน์โหลด & ติดตั้ง RouterOS Package', desc: 'รอเริ่มคำสั่ง...' },
-    { title: 'รอเราท์เตอร์รีสตาร์ทเข้า RouterOS ใหม่', desc: 'รอการเริ่มต้นใหม่...' },
-    { title: 'อัปเกรด RouterBOARD Firmware', desc: 'รอการตรวจสอบ Firmware...' },
-    { title: 'รีบูตรอบสุดท้าย & พร้อมใช้งาน', desc: 'รอเสร็จสิ้น...' }
+const STEPS_FULL = [
+    { key: 'ros-install', title: 'ดาวน์โหลด & ติดตั้ง RouterOS Package', desc: 'รอเริ่มคำสั่ง...' },
+    { key: 'ros-reboot', title: 'รอเราท์เตอร์รีสตาร์ทเข้า RouterOS ใหม่', desc: 'รอการเริ่มต้นใหม่...' },
+    { key: 'fw-upgrade', title: 'อัปเกรด RouterBOARD Firmware', desc: 'รอการตรวจสอบ Firmware...' },
+    { key: 'fw-reboot', title: 'รีบูตรอบสุดท้าย & พร้อมใช้งาน', desc: 'รอเสร็จสิ้น...' }
 ];
 
-const steps = ref(STEP_DEFAULTS.map((s) => ({ ...s, state: 'waiting' })));
+const STEPS_FIRMWARE = [
+    { key: 'fw-upgrade', title: 'อัปเกรด RouterBOARD Firmware', desc: 'รอเริ่มคำสั่ง...' },
+    { key: 'fw-reboot', title: 'รีบูต & ตรวจสอบว่ากลับมาออนไลน์', desc: 'รอเสร็จสิ้น...' }
+];
+
+const stepDefs = computed(() => (props.mode === 'firmware' ? STEPS_FIRMWARE : STEPS_FULL));
+const isFirmwareOnly = computed(() => props.mode === 'firmware');
+
+const steps = ref(STEPS_FULL.map((s) => ({ ...s, state: 'waiting' })));
 const running = ref(false);
 const finished = ref(false);
 const failure = ref('');
@@ -23,7 +34,7 @@ watch(
     () => props.open,
     (isOpen) => {
         if (!isOpen) return;
-        steps.value = STEP_DEFAULTS.map((s) => ({ ...s, state: 'waiting' }));
+        steps.value = stepDefs.value.map((s) => ({ ...s, state: 'waiting' }));
         running.value = false;
         finished.value = false;
         failure.value = '';
@@ -50,38 +61,66 @@ async function pollUntilOnline(maxWaitSec, onTick) {
     throw new Error('หมดเวลาการรอคอย เราท์เตอร์ยังไม่ตอบกลับ API (กรุณาตรวจเช็คที่หน้างาน)');
 }
 
-async function start() {
-    const ok = window.confirm(
-        '⚠️ ยืนยันอัปเกรดระบบเต็มรูปแบบ?\n\n' +
-        'เราท์เตอร์จะรีบูต 2 ครั้ง และเน็ตจะหลุดชั่วคราวราว 2-5 นาที\n' +
-        'ห้ามปิดหน้านี้จนกว่าจะขึ้นว่าเสร็จสมบูรณ์'
+async function runFullUpgrade() {
+    setStep(0, 'active', 'กำลังส่งคำสั่งดาวน์โหลดและติดตั้ง RouterOS Packages...');
+    await apiFetch('/api/mikrotik/system/update-install', { method: 'POST' });
+    setStep(0, 'done', 'ติดตั้ง RouterOS สำเร็จแล้ว เราท์เตอร์กำลัง Reboot');
+
+    setStep(1, 'active', 'เราท์เตอร์กำลังเริ่มต้นใหม่ (Rebooting)... กรุณารอสักครู่');
+    const ros = await pollUntilOnline(180, (sec) =>
+        setStep(1, 'active', `กำลังรอเราท์เตอร์รีบูตเข้า RouterOS ใหม่... (${sec} วินาที)`)
     );
+    setStep(1, 'done', `ออนไลน์แล้ว! RouterOS: ${ros.version}`);
+
+    setStep(2, 'active', 'กำลังสั่งอัปเกรด RouterBOARD Firmware...');
+    await new Promise((r) => setTimeout(r, 2000));
+    await apiFetch('/api/mikrotik/system/full-upgrade-stage2', { method: 'POST' });
+    setStep(2, 'done', 'สั่งอัปเกรด Firmware สำเร็จแล้ว เราท์เตอร์กำลัง Reboot ครั้งสุดท้าย');
+
+    setStep(3, 'active', 'กำลังรอการรีบูตรอบสุดท้ายเพื่อให้ Firmware ใหม่มีผล...');
+    const final = await pollUntilOnline(150, (sec) =>
+        setStep(3, 'active', `กำลังรอรีบูตครั้งสุดท้าย... (${sec} วินาที)`)
+    );
+    setStep(3, 'done', `เสร็จสมบูรณ์! Firmware: ${final.currentFirmware || final.version}`);
+}
+
+// ใช้ตอน RouterOS อัปครบแล้ว เหลือแต่ Firmware ของบอร์ด
+// full-upgrade-stage2 คือ /system/routerboard/upgrade แล้วสั่งรีบูตต่อให้อัตโนมัติ
+async function runFirmwareUpgrade() {
+    setStep(0, 'active', 'กำลังสั่งอัปเกรด RouterBOARD Firmware...');
+    await apiFetch('/api/mikrotik/system/full-upgrade-stage2', { method: 'POST' });
+    setStep(0, 'done', 'สั่งอัปเกรด Firmware สำเร็จแล้ว เราท์เตอร์กำลังรีบูต');
+
+    setStep(1, 'active', 'กำลังรอเราท์เตอร์รีบูตเพื่อให้ Firmware ใหม่มีผล...');
+    const final = await pollUntilOnline(150, (sec) =>
+        setStep(1, 'active', `กำลังรอเราท์เตอร์กลับมาออนไลน์... (${sec} วินาที)`)
+    );
+    setStep(1, 'done', `เสร็จสมบูรณ์! Firmware ปัจจุบัน: ${final.currentFirmware || final.version}`);
+}
+
+const CONFIRM_FIRMWARE = [
+    '⚠️ ยืนยันอัปเกรด RouterBOARD Firmware?',
+    '',
+    'เราท์เตอร์จะรีบูต 1 ครั้ง เน็ตจะหลุดชั่วคราวราว 1-3 นาที',
+    'ห้ามปิดหน้านี้จนกว่าจะขึ้นว่าเสร็จสมบูรณ์'
+].join('\n');
+
+const CONFIRM_FULL = [
+    '⚠️ ยืนยันอัปเกรดระบบเต็มรูปแบบ?',
+    '',
+    'เราท์เตอร์จะรีบูต 2 ครั้ง เน็ตจะหลุดชั่วคราวราว 2-5 นาที',
+    'ห้ามปิดหน้านี้จนกว่าจะขึ้นว่าเสร็จสมบูรณ์'
+].join('\n');
+
+async function start() {
+    const ok = window.confirm(isFirmwareOnly.value ? CONFIRM_FIRMWARE : CONFIRM_FULL);
     if (!ok) return;
 
     running.value = true;
     failure.value = '';
     try {
-        setStep(0, 'active', 'กำลังส่งคำสั่งดาวน์โหลดและติดตั้ง RouterOS Packages...');
-        await apiFetch('/api/mikrotik/system/update-install', { method: 'POST' });
-        setStep(0, 'done', 'ติดตั้ง RouterOS สำเร็จแล้ว เราท์เตอร์กำลัง Reboot');
-
-        setStep(1, 'active', 'เราท์เตอร์กำลังเริ่มต้นใหม่ (Rebooting)... กรุณารอสักครู่');
-        const ros = await pollUntilOnline(120, (sec) =>
-            setStep(1, 'active', `กำลังรอเราท์เตอร์รีบูตเข้า RouterOS ใหม่... (${sec} วินาที)`)
-        );
-        setStep(1, 'done', `ออนไลน์แล้ว! RouterOS เวอร์ชันใหม่: v${ros.version}`);
-
-        setStep(2, 'active', 'กำลังสั่งอัปเกรด RouterBOARD Firmware...');
-        await new Promise((r) => setTimeout(r, 2000));
-        await apiFetch('/api/mikrotik/system/full-upgrade-stage2', { method: 'POST' });
-        setStep(2, 'done', 'สั่งอัปเกรด Firmware สำเร็จแล้ว เราท์เตอร์กำลัง Reboot ครั้งสุดท้าย');
-
-        setStep(3, 'active', 'กำลังรอการรีบูตรอบสุดท้ายเพื่อให้ Firmware ใหม่มีผล...');
-        const final = await pollUntilOnline(90, (sec) =>
-            setStep(3, 'active', `กำลังรอรีบูตครั้งสุดท้าย... (${sec} วินาที)`)
-        );
-        setStep(3, 'done', `🎉 เสร็จสมบูรณ์ 100%! Firmware: ${final.currentFirmware || final.version}`);
-
+        if (isFirmwareOnly.value) await runFirmwareUpgrade();
+        else await runFullUpgrade();
         finished.value = true;
         emit('done');
     } catch (err) {
@@ -105,8 +144,8 @@ async function start() {
             <div class="v2-modal-card">
                 <div class="v2-modal-header">
                     <h4>
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>
-                        อัปเกรดระบบเต็มรูปแบบ 1-Click (ROS + Firmware)
+                        <i class="fa-solid" :class="isFirmwareOnly ? 'fa-bolt' : 'fa-wand-magic-sparkles'"></i>
+                        {{ isFirmwareOnly ? 'อัปเกรด RouterBOARD Firmware' : 'อัปเกรดระบบเต็มรูปแบบ 1-Click (ROS + Firmware)' }}
                     </h4>
                     <button
                         type="button"
@@ -119,11 +158,17 @@ async function start() {
                 <div class="v2-modal-body">
                     <div class="v2-alert">
                         <i class="fa-solid fa-circle-info"></i>
-                        ระบบจะทำตามขั้นตอนอัตโนมัติ:
-                        <strong>1. อัปเดต RouterOS</strong> ➔
-                        <strong>2. รีบูตรอบที่ 1</strong> ➔
-                        <strong>3. อัปเกรด Firmware</strong> ➔
-                        <strong>4. รีบูตรอบสุดท้าย</strong>
+                        <template v-if="isFirmwareOnly">
+                            RouterOS เป็นเวอร์ชันล่าสุดแล้ว เหลือเฉพาะ Firmware ของบอร์ด:
+                            <strong>1. อัปเกรด Firmware</strong> ➔ <strong>2. รีบูต 1 ครั้ง</strong>
+                        </template>
+                        <template v-else>
+                            ระบบจะทำตามขั้นตอนอัตโนมัติ:
+                            <strong>1. อัปเดต RouterOS</strong> ➔
+                            <strong>2. รีบูตรอบที่ 1</strong> ➔
+                            <strong>3. อัปเกรด Firmware</strong> ➔
+                            <strong>4. รีบูตรอบสุดท้าย</strong>
+                        </template>
                     </div>
 
                     <div class="v2-steps">
@@ -151,7 +196,7 @@ async function start() {
                         เกิดข้อผิดพลาดระหว่างการอัปเกรด: {{ failure }}
                     </div>
                     <div v-else-if="finished" class="v2-success">
-                        🎉 อัปเกรดสำเร็จสมบูรณ์ทั้ง RouterOS และ Firmware เรียบร้อยแล้วครับ
+                        🎉 {{ isFirmwareOnly ? 'อัปเกรด Firmware สำเร็จเรียบร้อยแล้วครับ' : 'อัปเกรดสำเร็จสมบูรณ์ทั้ง RouterOS และ Firmware เรียบร้อยแล้วครับ' }}
                     </div>
                 </div>
 
@@ -170,7 +215,7 @@ async function start() {
                         @click="start"
                     >
                         <i class="fa-solid" :class="running ? 'fa-spinner fa-spin' : 'fa-play'"></i>
-                        {{ running ? 'กำลังดำเนินการ...' : 'เริ่มอัปเกรดเต็มรูปแบบทันที' }}
+                        {{ running ? 'กำลังดำเนินการ...' : (isFirmwareOnly ? 'เริ่มอัปเกรด Firmware ทันที' : 'เริ่มอัปเกรดเต็มรูปแบบทันที') }}
                     </button>
                 </div>
             </div>
