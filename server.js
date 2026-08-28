@@ -4002,6 +4002,17 @@ setInterval(async () => {
                 if (code === 0) {
                     console.log(`[Backup] Scheduled nightly backup completed successfully for ${todayDateStr}`);
                     db.addLog('System Auto', 'สำรองข้อมูลอัตโนมัติ', `สำรองข้อมูลประจำวัน (${todayDateStr}) เรียบร้อยแล้ว`);
+
+                    // ลบของเก่าทันทีหลังสำรองสำเร็จเท่านั้น
+                    // ถ้าสำรองพัง จะไม่ลบอะไรเลย — กันเคสลบของเก่าทิ้งแล้วของใหม่ก็ไม่มี
+                    const cleanup = spawn(process.execPath, [path.join(__dirname, 'scripts', 'cleanup-old-backups.js'), '--apply'], {
+                        stdio: 'inherit',
+                        env: process.env
+                    });
+                    cleanup.on('close', (c) => {
+                        if (c === 0) console.log('[Backup] ลบ backup/log ที่เก่าเกิน 90 วันเรียบร้อย');
+                        else console.error(`[Backup] cleanup-old-backups exited with code ${c}`);
+                    });
                 } else {
                     console.error(`[Backup] Nightly backup exited with code ${code}`);
                 }
