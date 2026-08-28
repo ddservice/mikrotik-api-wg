@@ -447,6 +447,38 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (4)** — **Root cause of "Connection timeout to MikroTik Router" on 1-Click upgrade: `routeros.js` used an idle timeout as if it were a connect timeout.**
+  - `connect()` called `socket.setTimeout(10000)` and left it set for the whole life of the socket.
+    Node's `socket.setTimeout(ms)` is an **idle** timeout — it fires whenever the socket is quiet
+    for `ms`, *including while waiting for a slow command to finish*. `handleSocketError()` then
+    rejected every queued command. So **any RouterOS command taking more than 10 seconds failed,
+    while the router was working perfectly.** Affected: `/system/backup/save` (writes a file on the
+    board), `/system/package/update/install` (downloads from MikroTik's servers — 30s to several
+    minutes), `/system/routerboard/upgrade`, and `/ping count=N` (takes ≥N seconds by definition).
+  - Second, separate defect on the same path: `/system/reboot`, `/system/package/update/install`
+    and `/system/routerboard/upgrade` make the board drop the connection and **never send `!done`**.
+    The old client reported that as `Socket connection closed` — a failure — even though the command
+    had been delivered and the router was doing exactly what was asked.
+  - Fix in `routeros.js`:
+    - `socket.setTimeout(connectTimeoutMs)` now applies only until the `connect` event; on connect it
+      switches to `socket.setTimeout(0)` and per-command timers take over.
+    - `exec(command, args, options)` gained `timeoutMs` (default 30s) and `expectDisconnect`.
+      With `expectDisconnect`, a socket close or timeout **after the command was written** resolves
+      instead of rejecting.
+    - Added `finishItem()` so a queued command can never be settled twice.
+  - Call-site timeouts in `server.js`: check-for-updates 60s, backup/save 120s, routerboard/upgrade
+    120s, ping `(count + 15)s`, quality-test ping 30s; `package/update/install` 300s +
+    `expectDisconnect`; `/system/reboot` 15s + `expectDisconnect`.
+  - Verified against a fake RouterOS API server (fixture, not the live router). Old client vs new,
+    same three cases:
+    | case | before | after |
+    |---|---|---|
+    | command that takes 15s | ✗ `Connection timeout to MikroTik Router` (the exact error reported) | ✓ succeeds at 15.0s |
+    | install then board drops the link | ✗ `Socket connection closed` | ✓ resolves as success |
+    | command that genuinely hangs | ✓ times out at 10s | ✓ times out at the configured 3s |
+  - **Lesson**: `socket.setTimeout()` in Node is not a connect timeout. Setting it once at connect
+    time silently caps how long *every future command* may take.
+
 - **2026-08-28 (3)** — Frontend migration starts: Vue 3 + Vite pilot at `/v2/`, backend untouched.
   - Audited the backend before deciding: **97 REST routes, all JSON, Bearer-token auth, zero
     server-rendered HTML, no client-side routing.** The frontend is already a pure API client, so

@@ -1655,7 +1655,7 @@ app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req,
     try {
         const officialVersions = await getOfficialMikrotikLatestVersions();
         const result = await executeOnRouter(req, async (client) => {
-            const updates = await client.exec('/system/package/update/check-for-updates');
+            const updates = await client.exec('/system/package/update/check-for-updates', {}, { timeoutMs: 60000 });
             const resources = await client.exec('/system/resource/print');
             const u = updates[0] || {};
             const r = resources[0] || {};
@@ -1685,11 +1685,11 @@ app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (r
             // Safety Step: Save backup snapshot on router before updating
             try {
                 const nowStr = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_' + Date.now();
-                await client.exec('/system/backup/save', { name: `pre-upgrade-${nowStr}` });
+                await client.exec('/system/backup/save', { name: `pre-upgrade-${nowStr}` }, { timeoutMs: 120000 });
             } catch (backupErr) {
                 console.warn('[Update Safety Guard] Auto-backup notice:', backupErr.message);
             }
-            await client.exec('/system/package/update/install');
+            await client.exec('/system/package/update/install', {}, { timeoutMs: 300000, expectDisconnect: true });
         });
         db.addLog(req.user.username, 'อัปเดต RouterOS (Auto-Backup)', 'สร้างไฟล์สำรองอัตโนมัติและสั่งติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
         res.json({ success: true, message: 'สำรองคอนฟิกอัตโนมัติและสั่งดาวน์โหลด/ติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตใน 1-2 นาที' });
@@ -1702,7 +1702,7 @@ app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (r
 app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async (req, res) => {
     try {
         const result = await executeOnRouter(req, async (client) => {
-            await client.exec('/system/routerboard/upgrade');
+            await client.exec('/system/routerboard/upgrade', {}, { timeoutMs: 120000 });
             const rb = await client.exec('/system/routerboard/print');
             return rb[0] || {};
         });
@@ -1717,13 +1717,13 @@ app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async 
 app.post('/api/mikrotik/system/full-upgrade-stage2', requireAuth(['admin']), async (req, res) => {
     try {
         const result = await executeOnRouter(req, async (client) => {
-            await client.exec('/system/routerboard/upgrade');
+            await client.exec('/system/routerboard/upgrade', {}, { timeoutMs: 120000 });
             const rb = await client.exec('/system/routerboard/print');
             // Trigger reboot after 1.5s
             setTimeout(async () => {
                 try {
                     await executeOnRouter(req, async (c2) => {
-                        await c2.exec('/system/reboot');
+                        await c2.exec('/system/reboot', {}, { timeoutMs: 15000, expectDisconnect: true });
                     });
                 } catch (_) {}
             }, 1500);
@@ -1740,7 +1740,7 @@ app.post('/api/mikrotik/system/full-upgrade-stage2', requireAuth(['admin']), asy
 app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res) => {
     try {
         executeOnRouter(req, async (client) => {
-            await client.exec('/system/reboot');
+            await client.exec('/system/reboot', {}, { timeoutMs: 15000, expectDisconnect: true });
         }).catch(() => {});
         db.addLog(req.user.username, 'รีบูตเราท์เตอร์', 'สั่ง Reboot เราท์เตอร์ผ่านแดชบอร์ด');
         res.json({ success: true, message: 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว ระบบกำลังเริ่มต้นใหม่ใน 30-60 วินาที' });
@@ -1768,7 +1768,7 @@ app.post('/api/mikrotik/system/ping-test', requireAuth(['admin']), async (req, r
         const host = req.body.host || '8.8.8.8';
         const count = req.body.count || '4';
         const result = await executeOnRouter(req, async (client) => {
-            return await client.exec('/ping', { address: host, count: String(count) });
+            return await client.exec('/ping', { address: host, count: String(count) }, { timeoutMs: (count + 15) * 1000 });
         });
         res.json({ success: true, host, count, results: result });
     } catch (err) {
@@ -1782,7 +1782,7 @@ app.post('/api/mikrotik/system/backup', requireAuth(['admin']), async (req, res)
         const dateStr = new Date().toISOString().slice(0, 10);
         const name = (req.body.name || `backup-${dateStr}`).replace(/[^a-zA-Z0-9_-]/g, '');
         await executeOnRouter(req, async (client) => {
-            await client.exec('/system/backup/save', { name });
+            await client.exec('/system/backup/save', { name }, { timeoutMs: 120000 });
         });
         db.addLog(req.user.username, 'สำรองคอนฟิกเราท์เตอร์', `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์สำเร็จ`);
         res.json({ success: true, message: `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์เรียบร้อยแล้ว` });
@@ -1796,7 +1796,7 @@ app.post('/api/mikrotik/system/quality-test', requireAuth(['admin', 'co-admin'])
     try {
         const targetHost = req.body.target || '1.1.1.1'; // Cloudflare DNS
         const result = await executeOnRouter(req, async (client) => {
-            const pings = await client.exec('/ping', { address: targetHost, count: '6' });
+            const pings = await client.exec('/ping', { address: targetHost, count: '6' }, { timeoutMs: 30000 });
             const times = [];
             let lost = 0;
             (pings || []).forEach(p => {

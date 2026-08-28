@@ -1,8 +1,13 @@
 const net = require('net');
 const crypto = require('crypto');
 
+// เวลารอเชื่อมต่อ TCP + ล็อกอิน — สั้นได้ เพราะถ้าเราท์เตอร์ออนไลน์มันตอบเร็ว
+const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
+// เวลารอผลของคำสั่งทั่วไป (print/add/remove) — คำสั่งพวกนี้ตอบในเสี้ยววินาที
+const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
+
 class RouterOSClient {
-    constructor(host, port = 8728, username, password) {
+    constructor(host, port = 8728, username, password, options = {}) {
         this.host = host;
         this.port = parseInt(port) || 8728;
         this.username = username;
@@ -13,6 +18,8 @@ class RouterOSClient {
         this.busy = false;
         this.connected = false;
         this.connectPromise = null;
+        this.connectTimeoutMs = options.connectTimeoutMs || DEFAULT_CONNECT_TIMEOUT_MS;
+        this.commandTimeoutMs = options.commandTimeoutMs || DEFAULT_COMMAND_TIMEOUT_MS;
     }
 
     connect() {
@@ -24,10 +31,24 @@ class RouterOSClient {
             }
 
             this.socket = new net.Socket();
-            this.socket.setTimeout(10000); // 10s timeout
+            // ใช้กับ "ตอนเชื่อมต่อ" เท่านั้น
+            this.socket.setTimeout(this.connectTimeoutMs);
 
             this.socket.on('connect', async () => {
                 this.connected = true;
+                // ปิด idle timeout ของ socket ทันทีที่ต่อติด แล้วใช้ตัวจับเวลาแยกรายคำสั่งแทน
+                //
+                // เดิมตั้ง socket.setTimeout(10000) ค้างไว้ตลอดอายุ socket ซึ่งเป็น
+                // "idle timeout" ไม่ใช่ "connect timeout" — มันยิง event 'timeout'
+                // ทุกครั้งที่ socket เงียบเกิน 10 วินาที *รวมถึงตอนกำลังรอผลคำสั่งที่ใช้เวลานาน*
+                // แล้ว handleSocketError() ก็ reject คำสั่งที่ค้างอยู่ในคิวทิ้งทั้งหมด
+                //
+                // ผลคือคำสั่งที่ใช้เวลาเกิน 10 วิ พังทุกครั้ง ทั้งที่เราท์เตอร์ทำงานปกติ:
+                //   /system/backup/save            — เขียนไฟล์ backup บนบอร์ด
+                //   /system/package/update/install — โหลดไฟล์จากเซิร์ฟเวอร์ MikroTik (30 วิ - หลายนาที)
+                //   /system/routerboard/upgrade    — เขียน firmware
+                //   /ping count=N                  — N วินาทีขึ้นไปโดยธรรมชาติ
+                this.socket.setTimeout(0);
                 try {
                     await this.login();
                     resolve(this);
@@ -65,12 +86,29 @@ class RouterOSClient {
     }
 
     handleSocketError(err) {
-        // Reject current running commands in queue
         while (this.queue.length > 0) {
             const item = this.queue.shift();
-            item.reject(err);
+            if (item.timer) clearTimeout(item.timer);
+            if (item.settled) continue;
+            item.settled = true;
+            // คำสั่งที่ "ตั้งใจให้เราท์เตอร์รีบูตหาย" (reboot / package install / firmware upgrade)
+            // จะไม่มีวันได้ !done กลับมา เพราะบอร์ดตัดการเชื่อมต่อไปก่อน
+            // ถ้าเขียนคำสั่งออกไปได้สำเร็จแล้ว ให้ถือว่าสำเร็จ ไม่ใช่ error
+            if (item.expectDisconnect && item.sent) {
+                item.resolve(item.results);
+            } else {
+                item.reject(err);
+            }
         }
         this.busy = false;
+    }
+
+    // ปิดงานหนึ่งชิ้นในคิวให้เรียบร้อย — เคลียร์ตัวจับเวลาและกันไม่ให้ settle ซ้ำ
+    finishItem(item, action) {
+        if (item.timer) clearTimeout(item.timer);
+        if (item.settled) return;
+        item.settled = true;
+        action();
     }
 
     close() {
@@ -125,7 +163,16 @@ class RouterOSClient {
         }
     }
 
-    exec(command, args = {}) {
+    /**
+     * ส่งคำสั่งไปยัง RouterOS
+     * @param {string} command เช่น '/ip/hotspot/user/print'
+     * @param {object|array} args พารามิเตอร์ของคำสั่ง
+     * @param {object} options
+     *   - timeoutMs: เวลารอผลสูงสุด (ค่าเริ่มต้น 30 วินาที)
+     *   - expectDisconnect: true สำหรับคำสั่งที่ทำให้เราท์เตอร์รีบูต/ตัดการเชื่อมต่อ
+     *     แล้วไม่ส่ง !done กลับมา (reboot, package install, firmware upgrade)
+     */
+    exec(command, args = {}, options = {}) {
         return new Promise((resolve, reject) => {
             if (!this.connected) {
                 return reject(new Error('Not connected to router'));
@@ -147,7 +194,12 @@ class RouterOSClient {
                 words,
                 resolve,
                 reject,
-                results: []
+                results: [],
+                timeoutMs: options.timeoutMs || this.commandTimeoutMs,
+                expectDisconnect: !!options.expectDisconnect,
+                sent: false,
+                settled: false,
+                timer: null
             });
 
             this.processQueue();
@@ -159,7 +211,7 @@ class RouterOSClient {
         this.busy = true;
 
         const item = this.queue[0];
-        
+
         // Write the words
         const bufferList = [];
         for (const word of item.words) {
@@ -170,6 +222,27 @@ class RouterOSClient {
         bufferList.push(Buffer.from([0])); // End of sentence (zero word)
 
         this.socket.write(Buffer.concat(bufferList));
+        item.sent = true;
+
+        // ตัวจับเวลาแยกรายคำสั่ง แทน idle timeout ของ socket
+        // คำสั่งยาว ๆ ส่ง timeoutMs เข้ามาเองได้ โดยไม่กระทบคำสั่งอื่นหรือ socket
+        if (item.timer) clearTimeout(item.timer);
+        item.timer = setTimeout(() => {
+            if (this.queue[0] !== item) return;
+            this.queue.shift();
+            this.busy = false;
+            if (item.settled) return;
+            item.settled = true;
+            if (item.expectDisconnect) {
+                // สั่งไปแล้วและไม่ได้ตั้งใจรอคำตอบอยู่แล้ว — ถือว่าสำเร็จ
+                item.resolve(item.results);
+            } else {
+                item.reject(new Error(
+                    `RouterOS command timed out after ${Math.round(item.timeoutMs / 1000)}s: ${item.words[0]}`
+                ));
+            }
+            this.processQueue();
+        }, item.timeoutMs);
     }
 
     encodeLength(len) {
@@ -306,18 +379,22 @@ class RouterOSClient {
             const res = item.results;
             this.queue.shift();
             this.busy = false;
-            item.resolve(res);
+            this.finishItem(item, () => item.resolve(res));
             this.processQueue();
         } else if (type === '!trap') {
             const msg = attributes.message || 'Unknown RouterOS error';
             this.queue.shift();
             this.busy = false;
-            item.reject(new Error(msg));
+            this.finishItem(item, () => item.reject(new Error(msg)));
             this.processQueue();
         } else if (type === '!fatal') {
             const msg = words[1] || 'Fatal RouterOS error';
+            // close() -> handleSocketError() จะจัดการคิวรวมถึง expectDisconnect ให้เอง
+            this.finishItem(item, () => {
+                if (item.expectDisconnect && item.sent) item.resolve(item.results);
+                else item.reject(new Error(msg));
+            });
             this.close();
-            item.reject(new Error(msg));
         }
     }
 }
