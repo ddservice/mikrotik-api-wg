@@ -1,7 +1,7 @@
 # frontend/ — Vue 3 + Vite (นำร่อง)
 
 หน้าเว็บเวอร์ชันใหม่ที่กำลังทยอยย้ายมาจาก `public/index.html` + `public/app.js`
-ตอนนี้ย้ายมาแล้ว **3 หน้า**: Overview, Hotspot, PPPoE (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
+ตอนนี้ย้ายมาแล้ว **4 หน้า**: Overview, Hotspot, PPPoE, Logs (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
 
 เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — มีหน้าล็อกอินของตัวเอง
 และใช้ token ร่วมกับหน้าเดิมใน `localStorage` เข้าสลับไปมาได้ระหว่างช่วงย้ายระบบ
@@ -76,6 +76,10 @@ frontend/
         ├── OverviewPage.vue      # การ์ดสถิติ 9 ใบ
         ├── HotspotPage.vue       # ผู้ใช้ออนไลน์ + บัญชีทั้งหมด
         ├── PppoePage.vue         # สถานะออนไลน์ + ห้องพัก + แพ็กเกจ
+        ├── LogsPage.vue          # DNS / Hotspot / PPPoE / ประวัติผู้ดูแล
+        ├── BaseModal.vue         # โมดัลกลาง (Teleport to body เสมอ)
+        ├── ToastHost.vue         # แจ้งผลแบบ toast แทน alert()
+        ├── HotspotUserModal.vue  # เพิ่ม/แก้ไขบัญชี + ตรรกะต่ออายุ
         └── FullUpgradeModal.vue  # โมดัล 1-Click (ใช้ Teleport)
 ```
 
@@ -90,8 +94,10 @@ frontend/
    *ยังขาด: เพิ่ม/แก้ไข/ต่ออายุ/พิมพ์คูปอง/โปรไฟล์/voucher generator/คลังคูปองที่ลบ*
 4. ✅ PPPoE — สถานะออนไลน์ (ตัดการเชื่อมต่อได้), ห้องพักทั้งหมด + ระงับ/ยกเลิกระงับ, แพ็กเกจ
    *ยังขาด: เพิ่ม/แก้ไขห้องและแพ็กเกจ, server settings, สคริปต์ติดตั้ง*
-5. Settings — ไซต์, LINE OA, Router Operations
-6. Logs / Firewall / Multi-WAN
-7. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
+5. ✅ Logs — DNS (ม.26), Hotspot (ม.26), สรุป PPPoE รายเดือน, ประวัติผู้ดูแล (admin)
+   พร้อมค้นหา/กรองช่วงวัน/แบ่งหน้า/ส่งออก CSV
+6. Settings — ไซต์, LINE OA, Telegram, Router Operations
+7. Firewall / Multi-WAN / ผู้ใช้งาน Dashboard
+8. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
 
 ข้อ 7 ทำเป็นข้อสุดท้ายเท่านั้น และทำหลังจากคลิกทดสอบครบทุกหน้าแล้ว

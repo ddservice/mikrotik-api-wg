@@ -8,6 +8,7 @@ import AppSidebar from './components/AppSidebar.vue';
 import OverviewPage from './components/OverviewPage.vue';
 import HotspotPage from './components/HotspotPage.vue';
 import PppoePage from './components/PppoePage.vue';
+import LogsPage from './components/LogsPage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
 import ToastHost from './components/ToastHost.vue';
 
@@ -126,6 +127,7 @@ const activeSiteName = computed(() => {
                 />
                 <HotspotPage v-else-if="resolvedRoute === 'hotspot'" />
                 <PppoePage v-else-if="resolvedRoute === 'pppoe'" />
+                <LogsPage v-else-if="resolvedRoute === 'logs'" />
             </main>
         </div>
 
