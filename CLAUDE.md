@@ -447,6 +447,30 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (12)** — `/v2/` PPPoE page (read + suspend), and the shell it needed.
+  - Shell built first because every remaining page depends on it: `AppSidebar.vue`, a tiny
+    hash-based router (`src/router.js`), and `src/menu.js` mirroring `ALL_CONFIGURABLE_MENUS` +
+    `DEFAULT_MENU_PERMISSIONS_FALLBACK` from `public/app.js` so both UIs show identical menus.
+    Hash routing rather than history mode **on purpose** — history mode needs an nginx rewrite, and
+    the whole premise of this migration is that the server config is not touched. Side benefit the
+    old UI never had: `#/pppoe` survives a reload and can be bookmarked.
+  - `NOT_MIGRATED_YET` drives the sidebar: unmigrated pages render with a ↗ icon and navigate to `/`
+    instead of showing an empty screen, so an operator is never stranded. A key is removed from that
+    set as each page lands. `resolvedRoute` also refuses routes the role cannot open — still only a
+    UI hint, the API keeps its own `requireAuth`.
+  - **PPPoE page**: online status (with disconnect), all rooms with suspend/unsuspend, and packages.
+    Uses **"ระงับการใช้งาน"**, the billing term this project standardised on — not "ล็อก"/"ปิดใช้งาน".
+    Ported `parseRouterOSDate` + a `formatLastSeen` helper: RouterOS returns `last-logged-out` as
+    `aug/12/2026 19:45:10`, which `new Date()` cannot parse, and `jan/01/1970` means never online.
+  - Both pages carry an inline note pointing at `/` for the actions not migrated yet (add/edit,
+    renew, vouchers, package CRUD), so the split is visible rather than surprising.
+  - Verified in Chrome against fixtures, zero page errors: `#/pppoe` routes and survives reload,
+    summary chips read 2 online / 1 offline / 1 suspended / 4 total, all four statuses render, the
+    suspended filter narrows to 1 row, `formatLastSeen` produces `28 ส.ค. 14:28 น. (5 ชม. ที่แล้ว)`
+    for an offline room and `ไม่เคยออนไลน์` for `jan/01/1970`, and the unsuspend button issues
+    exactly `PATCH …/rm999/suspend {"suspend":false}` — intercepted in the test, never sent to a real
+    router.
+
 - **2026-08-28 (11)** — VPS housekeeping: 90-day retention everywhere, a dead cron, and a third tracked-secret file.
   - **`ecosystem.config.js` was still git-tracked on the VPS** — `git check-ignore` said NOT ignored
     and `git status` listed it as modified, i.e. the copy holding the real `SUPABASE_SERVICE_KEY`,

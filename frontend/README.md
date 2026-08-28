@@ -1,10 +1,10 @@
 # frontend/ — Vue 3 + Vite (นำร่อง)
 
 หน้าเว็บเวอร์ชันใหม่ที่กำลังทยอยย้ายมาจาก `public/index.html` + `public/app.js`
-ตอนนี้มี **หน้า Overview หน้าเดียว** เป็นตัวอย่างให้เทียบกับของเดิม
+ตอนนี้ย้ายมาแล้ว **3 หน้า**: Overview, Hotspot, PPPoE (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
 
-เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — ต้องล็อกอินที่หน้าเดิม
-ก่อน เพราะทั้งสองหน้าใช้ token ตัวเดียวกันใน `localStorage`
+เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — มีหน้าล็อกอินของตัวเอง
+และใช้ token ร่วมกับหน้าเดิมใน `localStorage` เข้าสลับไปมาได้ระหว่างช่วงย้ายระบบ
 
 ## สิ่งที่ไม่ถูกแตะเลย
 
@@ -65,11 +65,17 @@ frontend/
 └── src/
     ├── main.js
     ├── api.js                    # apiFetch + session state (ยึดสัญญาเดิมจาก app.js)
-    ├── format.js                 # formatUptime ฯลฯ ยกมาจาก app.js
+    ├── menu.js                   # นิยามเมนู + สิทธิ์ตาม role (สะท้อนของเดิม)
+    ├── router.js                 # hash router เล็ก ๆ ไม่ต้องแก้ nginx
+    ├── format.js                 # formatUptime / formatBytes / parseRouterOSDate ยกมาจากของเดิม
     ├── App.vue                   # shell + site selector
     └── components/
+        ├── AppSidebar.vue        # เมนูข้าง + ตัวชี้ว่าหน้าไหนยังอยู่ระบบเดิม
+        ├── LoginPage.vue
         ├── StatCard.vue          # แทน .stat-card ที่เดิมเขียนซ้ำ 9 รอบ
         ├── OverviewPage.vue      # การ์ดสถิติ 9 ใบ
+        ├── HotspotPage.vue       # ผู้ใช้ออนไลน์ + บัญชีทั้งหมด
+        ├── PppoePage.vue         # สถานะออนไลน์ + ห้องพัก + แพ็กเกจ
         └── FullUpgradeModal.vue  # โมดัล 1-Click (ใช้ Teleport)
 ```
 
@@ -77,10 +83,13 @@ frontend/
 
 ย้ายทีละหน้า ของเดิมยังทำงานอยู่ตลอด ย้อนกลับได้ทุกจุด:
 
-1. ✅ Overview (เสร็จ — เป็นตัวอย่างให้เทียบ)
-2. Login + shell (sidebar, site switcher, role gating)
-3. Hotspot — บัญชี, active, โปรไฟล์, voucher generator
-4. PPPoE — ห้องพัก, active, แพ็กเกจ
+1. ✅ Overview — การ์ดสถิติ 9 ใบ + โมดัลอัปเกรด (ROS / Firmware)
+2. ✅ Login + shell — sidebar, hash router (`#/hotspot` refresh แล้วอยู่หน้าเดิม),
+   site switcher, role gating ตาม `/api/settings/menu-permissions`
+3. ✅ Hotspot — ผู้ใช้ออนไลน์ (เตะออกได้), บัญชีทั้งหมด + ตัวกรองสถานะ
+   *ยังขาด: เพิ่ม/แก้ไข/ต่ออายุ/พิมพ์คูปอง/โปรไฟล์/voucher generator/คลังคูปองที่ลบ*
+4. ✅ PPPoE — สถานะออนไลน์ (ตัดการเชื่อมต่อได้), ห้องพักทั้งหมด + ระงับ/ยกเลิกระงับ, แพ็กเกจ
+   *ยังขาด: เพิ่ม/แก้ไขห้องและแพ็กเกจ, server settings, สคริปต์ติดตั้ง*
 5. Settings — ไซต์, LINE OA, Router Operations
 6. Logs / Firewall / Multi-WAN
 7. ตัดหน้าหลัก `/` มาใช้ของใหม่ แล้วลบ `public/app.js` + `public/index.html` เดิม
