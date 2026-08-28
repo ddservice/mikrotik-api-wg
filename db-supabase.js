@@ -287,8 +287,8 @@ async function getLogs(options) {
             var q = '%' + options.search + '%';
             query = query.or('username.ilike.' + q + ',action.ilike.' + q + ',details.ilike.' + q);
         }
-        if (options.from) query = query.gte('created_at', new Date(options.from).toISOString());
-        if (options.to) query = query.lte('created_at', new Date(options.to).toISOString());
+        if (options.from) query = query.gte('created_at', rangeStart(options.from).toISOString());
+        if (options.to) query = query.lte('created_at', rangeEnd(options.to).toISOString());
         var page = parseInt(options.page) || 1;
         var limit = parseInt(options.limit) || 100;
         var res = await query.range((page - 1) * limit, page * limit - 1);
@@ -330,6 +330,41 @@ async function addLog(username, action, details) {
 // ==========================================
 var HOTSPOT_LOG_RETENTION_DAYS = 90;
 
+
+// ==========================================================================
+// ช่วงวันที่ของตัวกรอง log — ตีความเป็น "วันตามปฏิทินไทย" ไม่ใช่ UTC
+//
+// บั๊กเดิม: `new Date('2026-08-27').toISOString()` ได้ '2026-08-27T00:00:00Z'
+// พอเอาไปใช้กับ lte จึงตัดทั้งวันที่ 27 ทิ้ง เหลือเฉพาะแถวที่ตรงเที่ยงคืนพอดี
+// ผลคือกรอง "ตั้งแต่ 27 ถึง 27" ได้ 0 แถวเสมอ และช่วงวันใด ๆ จะขาดวันสุดท้ายไป
+//
+// อีกชั้นหนึ่ง: log เก็บเป็น UTC แต่ผู้ใช้คิดเป็นเวลาไทย (UTC+7 ไม่มี DST)
+// วันที่ 27 ตามเวลาไทย = 2026-08-26T17:00:00Z ถึง 2026-08-27T16:59:59.999Z
+// สำคัญกับ พรบ. ม.26 เพราะไฟล์ปิดผนึกรายวันต้องตรงกับวันตามปฏิทินจริง
+// ==========================================================================
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function dayStartUtc(dateStr) {
+    // ต้นวันตามเวลาไทย -> UTC
+    return new Date(new Date(dateStr + 'T00:00:00.000Z').getTime() - BANGKOK_OFFSET_MS);
+}
+
+function dayEndUtc(dateStr) {
+    // ปลายวันตามเวลาไทย -> UTC
+    return new Date(new Date(dateStr + 'T23:59:59.999Z').getTime() - BANGKOK_OFFSET_MS);
+}
+
+// รับได้ทั้ง 'YYYY-MM-DD' และ timestamp เต็ม — ถ้าเป็น timestamp เต็มให้ใช้ตามที่ส่งมา
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function rangeStart(v) {
+    return DATE_ONLY.test(String(v)) ? dayStartUtc(v) : new Date(v);
+}
+
+function rangeEnd(v) {
+    return DATE_ONLY.test(String(v)) ? dayEndUtc(v) : new Date(v);
+}
+
 function _mapHotspotRow(l) {
     return { id: l.id, loginTime: l.login_time, logoutTime: l.logout_time,
              username: l.username, ipAddress: l.ip_address, macAddress: l.mac_address,
@@ -347,8 +382,8 @@ async function getHotspotLogs(options) {
             var q = '%' + options.search + '%';
             query = query.or('username.ilike.' + q + ',ip_address.ilike.' + q + ',mac_address.ilike.' + q);
         }
-        if (options.from) query = query.gte('login_time', new Date(options.from).toISOString());
-        if (options.to) query = query.lte('login_time', new Date(options.to).toISOString());
+        if (options.from) query = query.gte('login_time', rangeStart(options.from).toISOString());
+        if (options.to) query = query.lte('login_time', rangeEnd(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
         if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
@@ -422,8 +457,8 @@ async function getPppoeUsageLogs(options) {
             var q = '%' + options.search + '%';
             query = query.or('username.ilike.' + q + ',ip_address.ilike.' + q);
         }
-        if (options.from) query = query.gte('login_time', new Date(options.from).toISOString());
-        if (options.to) query = query.lte('login_time', new Date(options.to).toISOString());
+        if (options.from) query = query.gte('login_time', rangeStart(options.from).toISOString());
+        if (options.to) query = query.lte('login_time', rangeEnd(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
         if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
@@ -489,8 +524,8 @@ async function getDnsQueryLogs(options) {
             var q = '%' + options.search + '%';
             query = query.or('username.ilike.' + q + ',ip_address.ilike.' + q + ',mac_address.ilike.' + q + ',domain.ilike.' + q);
         }
-        if (options.from) query = query.gte('query_time', new Date(options.from).toISOString());
-        if (options.to) query = query.lte('query_time', new Date(options.to).toISOString());
+        if (options.from) query = query.gte('query_time', rangeStart(options.from).toISOString());
+        if (options.to) query = query.lte('query_time', rangeEnd(options.to).toISOString());
         if (options.username) query = query.eq('username', options.username);
         if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
