@@ -34,6 +34,31 @@ const ECO_PATH = ecoArgIdx >= 0 ? args[ecoArgIdx + 1] : '/home/ddservice/backups
 
 const CHUNK = 500;
 
+// โปรเจกต์นี้ไม่มี migration framework — schema เปลี่ยนด้วยมือผ่าน Supabase SQL Editor
+// (ดูหัวข้อ "Database migrations" ใน CLAUDE.md) RLS เปิดแต่ไม่มี policy = มีแต่ backend
+// ที่ใช้ service role key เท่านั้นที่แตะได้ ตรงกับสถาปัตยกรรมของแอปนี้
+const ARCHIVE_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS public.archived_hotspot_users (
+    id                 text PRIMARY KEY,
+    username           text NOT NULL DEFAULT '',
+    password           text NOT NULL DEFAULT '',
+    profile            text NOT NULL DEFAULT 'default',
+    limit_uptime       text NOT NULL DEFAULT '',
+    limit_bytes_total  bigint NOT NULL DEFAULT 0,
+    comment            text NOT NULL DEFAULT '',
+    site_name          text NOT NULL DEFAULT '',
+    expired_at         timestamptz,
+    deleted_at         timestamptz NOT NULL DEFAULT now(),
+    deleted_by         text NOT NULL DEFAULT 'System',
+    reason             text NOT NULL DEFAULT 'manual_delete'
+);
+CREATE INDEX IF NOT EXISTS archived_hotspot_users_deleted_at_idx
+    ON public.archived_hotspot_users (deleted_at DESC);
+CREATE INDEX IF NOT EXISTS archived_hotspot_users_site_name_idx
+    ON public.archived_hotspot_users (site_name);
+ALTER TABLE public.archived_hotspot_users ENABLE ROW LEVEL SECURITY;
+`;
+
 function readJson(file) {
     try {
         const raw = fs.readFileSync(path.join(DB_DIR, file), 'utf8');
@@ -221,7 +246,17 @@ async function upsertAll(sb, table, rows, label) {
         deleted_by: e.deletedBy || 'System',
         reason: e.reason || 'manual_delete'
     }));
-    const rAr = await upsertAll(sb, 'archived_hotspot_users', arRows, 'archived_hotspot_users');
+    // ตาราง archived_hotspot_users อาจยังไม่ถูกสร้างใน Postgres
+    // (ฟีเจอร์ถูกเขียนไว้แล้วแต่ยังไม่ได้รัน SQL — โปรเจกต์นี้ไม่มี migration framework)
+    let rAr = { inserted: 0, failed: 0 };
+    const arProbe = await sb.from('archived_hotspot_users').select('id').limit(1);
+    if (arProbe.error && /schema cache|does not exist/i.test(arProbe.error.message)) {
+        console.log('   archived_hotspot_users: ยังไม่มีตารางนี้ใน Supabase — ข้ามไปก่อน');
+        console.log('   >> รัน SQL ด้านล่างใน Supabase SQL Editor แล้วรันสคริปต์นี้ซ้ำเพื่อย้าย ' + arRows.length + ' รายการ:');
+        console.log(ARCHIVE_TABLE_SQL);
+    } else {
+        rAr = await upsertAll(sb, 'archived_hotspot_users', arRows, 'archived_hotspot_users');
+    }
 
     // ---------- 5. dns_query_logs ----------
     const dns = (readJson('dns_query_logs.json') || []).filter(x => x && x.id);
@@ -233,7 +268,7 @@ async function upsertAll(sb, table, rows, label) {
             mac_address: e.macAddress || '',
             domain: e.domain || '',
             site_name: canonical(e.siteName || ''),
-            queried_at: e.queriedAt || e.timestamp || new Date().toISOString()
+            query_time: e.queriedAt || e.queryTime || e.timestamp || new Date().toISOString()
         }));
         await upsertAll(sb, 'dns_query_logs', dnsRows, 'dns_query_logs');
     } else {
@@ -278,7 +313,7 @@ async function upsertAll(sb, table, rows, label) {
     console.log('=== ยอดหลังย้าย ===');
     for (const t of ['sites', 'hotspot_logs', 'dns_query_logs', 'pppoe_usage_logs', 'activity_logs', 'archived_hotspot_users']) {
         const { count, error } = await sb.from(t).select('*', { count: 'exact', head: true });
-        console.log('   ' + t.padEnd(24), error ? 'ERR ' + error.message.slice(0, 40) : count);
+        console.log('   ' + t.padEnd(24), error ? '(ยังไม่มีตาราง)' : count);
     }
 
     console.log('');
