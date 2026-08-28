@@ -447,6 +447,44 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-28 (11)** — VPS housekeeping: 90-day retention everywhere, a dead cron, and a third tracked-secret file.
+  - **`ecosystem.config.js` was still git-tracked on the VPS** — `git check-ignore` said NOT ignored
+    and `git status` listed it as modified, i.e. the copy holding the real `SUPABASE_SERVICE_KEY`,
+    `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`. `.gitignore` has listed it since 2026-08-13 but the
+    file was force-added before that rule, and git never retroactively untracks. One `git add -A` on
+    the server would have committed live credentials. This is the **third** instance of the identical
+    pattern (`db/config.json` + `db/users.json` 2026-07-30, `db/settings.json` earlier today) — and
+    the most sensitive. `git rm --cached` applied; only placeholders were ever committed so **no
+    rotation is needed**. On the VPS the real file was copied aside, the deletion pulled, then
+    restored — verified afterwards: untracked, ignored, real URL, `PORT: 3001` intact.
+  - **A cron had been failing silently every night for a month.** `0 1 * * *
+    /home/ddservice/mikrotik/log_rotation_backup.sh` still ran daily, but that script was deleted
+    from the repo on 2026-07-29; with `>/dev/null 2>&1` nobody ever saw the error. Removed (crontab
+    backed up to `~/backups/` first). Nothing was lost: `pm2-logrotate` v3.0.0 does the actual
+    rotation (`retain 10`, daily), and the nightly DB backup runs from inside `server.js` at 02:00.
+  - **Nothing was ever deleted anywhere.** `logs/` held rotated PM2 files back to 30 July, `backups/`
+    held incident folders from 13 August, and R2 gained a new `YYYY-MM-DD/` folder every night with
+    no expiry. Added `scripts/cleanup-old-backups.js` (`npm run cleanup-old-backups`) covering all
+    three, wired into the 02:00 backup **only on exit code 0** — a failed backup deletes nothing.
+    - `logs/`: only PM2-rotated names matching `(out|error)__YYYY-MM-DD*.log`. The live `out.log` /
+      `error.log` are deliberately excluded — deleting those leaves PM2 writing to an unlinked inode.
+    - R2: groups by the `YYYY-MM-DD` segment **in the object key**, not `LastModified`, which shifts
+      on re-upload. Reuses the zero-dependency SigV4 signer from `backup.js`, adding ListObjectsV2
+      with continuation-token paging and batched DeleteObjects.
+    - Always keeps the **3 most recent sets regardless of age**, so a system that stopped backing up
+      months ago cannot have its last copies deleted.
+    - Dry-run verified against live R2: found 9 objects, deleted nothing (backups only began 26 Aug).
+  - Moved leftover scratch scripts `_check-sites.js` / `_u.js` out of the project root into
+    `~/backups/`. Both read their keys from `ecosystem.config.js` rather than embedding them, so
+    nothing was exposed — but they sat untracked and unignored in the repo root.
+  - Disk after: 22G of 116G used (19%); `~/mikrotik` is 113M of which 14M is `node_modules`.
+  - **Correction to the previous entry**: the v2 sidebar + hash router + Hotspot page were reported
+    as "not deployed yet" — they were. They rode along in commit `c45aeb3` and have been live at
+    `/v2/` since. Tested afterwards against a fixture: 8 menu items for admin, 9 Overview cards,
+    `#/hotspot` routing, 2 active sessions, all four account states computed correctly
+    (ใช้งานได้ / หมดอายุ / ใกล้หมด / ปิดใช้งาน), the status filter narrowing to 1 row, the route
+    surviving a reload, and zero page errors. Verify before claiming deployment state.
+
 - **2026-08-28 (10)** — Router health alerts moved to **Telegram**, separated from LINE by audience.
   - Operator's call after the Suksawad-CMU alert landed in A4's customer group: **LINE OA is the
     customer channel** (expiry digests for tenants) and **Telegram is the ops channel** (a router is
