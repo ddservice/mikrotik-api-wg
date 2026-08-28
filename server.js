@@ -1880,7 +1880,19 @@ app.get('/api/search/global', requireAuth(['admin', 'co-admin', 'user']), async 
                 if (!config.host || !config.username) continue;
                 
                 // Hotspot Users
-                const hotspotUsers = await db.getHotspotUsers(s.id).catch(() => []);
+                // ดึงจากเราท์เตอร์โดยตรง — Hotspot user ไม่ได้เก็บใน DB (แก้ 2026-08-28:
+                // เดิมเรียก db.getHotspotUsers() ซึ่งไม่มีอยู่จริงในทั้ง db.js และ db-supabase.js
+                // TypeError เลยถูก catch(_){} กลืน ทำให้ Global Search คืนแต่ผลลัพธ์ประเภทไซต์)
+                const hotspotUsers = await executeOnRouter(async (client) => {
+                    const rows = await client.exec('/ip/hotspot/user/print');
+                    return rows.map(u => ({
+                        username: u.name,
+                        profile: u.profile || '',
+                        comment: u.comment || '',
+                        macAddress: u['mac-address'] || '',
+                        disabled: u.disabled === 'true'
+                    }));
+                }, s.id).catch(() => []);
                 for (const u of (hotspotUsers || [])) {
                     if ((u.username && u.username.toLowerCase().includes(q)) || (u.comment && u.comment.toLowerCase().includes(q)) || (u.macAddress && u.macAddress.toLowerCase().includes(q))) {
                         results.push({
@@ -1898,7 +1910,9 @@ app.get('/api/search/global', requireAuth(['admin', 'co-admin', 'user']), async 
                 }
 
                 // PPPoE Secrets
-                const pppoeSecrets = await db.getPppoeUsers(s.id).catch(() => []);
+                const pppoeSecrets = await executeOnRouter(async (client) => {
+                    return await client.exec('/ppp/secret/print');
+                }, s.id).catch(() => []);
                 for (const p of (pppoeSecrets || [])) {
                     if ((p.name && p.name.toLowerCase().includes(q)) || (p.comment && p.comment.toLowerCase().includes(q)) || (p['remote-address'] && p['remote-address'].includes(q))) {
                         results.push({

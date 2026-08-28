@@ -7,6 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "preflight": "bash scripts/preflight-mikrotik-ecosystem.sh",
+    "validate-html": "node scripts/validate-html.js",
+    "check-db-parity": "node scripts/check-db-parity.js",
     "rotate-api-password": "node scripts/rotate-mikrotik-api-password.js",
     "verify-pppoe-bytes": "node scripts/verify-pppoe-bytes.js"
   },

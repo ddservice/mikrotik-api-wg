@@ -315,11 +315,9 @@ function configureMenuRoles(role) {
     if (document.getElementById('nav-admins')) document.getElementById('nav-admins').style.display = 'none';
     if (document.getElementById('nav-settings')) document.getElementById('nav-settings').style.display = 'none';
 
-    // Super Admin exclusive panels (Router Operations & Maintenance)
-    const routerOpsPanel = document.getElementById('panel-router-operations');
-    if (routerOpsPanel) {
-        routerOpsPanel.style.display = (role === 'admin') ? 'block' : 'none';
-    }
+    // Router Operations & Maintenance now lives only on the Settings page (#tab-settings-ops),
+    // which is already admin-only via #nav-settings + requireAuth(['admin']) on the backend routes.
+    // (It used to be duplicated as #panel-router-operations on Overview — removed 2026-08-28.)
 
     if (role === 'admin') {
         // admin always sees everything

@@ -293,6 +293,17 @@ before pushing. (This specific binary path is a workaround for *this*
 sandbox having no system Node install — on a normal dev machine, just use
 your own `node -c <file>` or `node --check <file>`.)
 
+Two structural guards were added 2026-08-28 — run both before committing:
+```
+npm run validate-html      # public/index.html: unclosed tags, dup ids, nested forms/modals
+npm run check-db-parity    # db.js vs db-supabase.js exports + arg counts + .catch() on sync db calls
+```
+`validate-html` exists because three unclosed `<div>`s silently nested 8 modals
+inside hidden parents and killed the 1-Click upgrade, coupon renewal, Ctrl+K
+search and 5 other features — with no console error and no visible symptom
+other than "the button does nothing". A syntax check on the JS would never
+have caught it.
+
 ## Deploy workflow
 
 Changes are deployed by the user via SSH, not by Claude directly:
@@ -371,6 +382,25 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-28 (2)** — Follow-ups on the modal fix: de-duplicate Router Operations, add two guard scripts, fix Global Search.
+  - **Router Operations panel removed from Overview.** It was duplicated verbatim: `#panel-router-operations` on Overview *and* `#tab-settings-ops` on the Settings page ("จัดการระบบเราท์เตอร์ & แจ้งเตือน" → tab 3). Kept the Settings copy only — reboot/backup/upgrade are maintenance actions, they belong on the router-management page, not on a monitoring dashboard. Every handler already used class selectors (`.btn-system-reboot, #btn-system-reboot, #btn-system-reboot-settings`) so nothing needed rewiring. Dropped the now-dead `panel-router-operations` role gate in `app.js`; the Settings page is already admin-only via `#nav-settings` + `requireAuth(['admin'])`. The RouterOS Version stat card keeps its small "1-Click อัปเกรด" shortcut — that one is contextual, not a duplicate panel.
+  - **`scripts/validate-html.js`** (`npm run validate-html`) — static structure check on `public/index.html`: unclosed/stray tags, duplicate `id`s, `<form>` inside `<form>`, and `.modal-wrapper` nested inside another `.modal-wrapper`. Regression-tested against the pre-fix file: it reports all 18 defects including every one fixed in the entry below. Run it before any commit that touches `index.html`.
+  - **`scripts/check-db-parity.js`** (`npm run check-db-parity`) — enforces the "both DB files must match" convention: exports present in only one file, mismatched parameter counts, and `.then()/.catch()/.finally()` called directly on a `db.*()` result in `server.js` (the 2026-08-13 (6) bug — Supabase returns a real Promise so it passes, Local JSON returns a plain object and throws `.catch is not a function`). Current state: **44/44 exports match, no arg-count drift** — the two layers have not drifted.
+  - **Global Search (Ctrl+K) only ever returned sites.** `check-db-parity.js` immediately caught it: `GET /api/search/global` called `db.getHotspotUsers(s.id)` and `db.getPppoeUsers(s.id)`, which **exist in neither DB file** — Hotspot/PPPoE accounts live on the router, not in the DB. The `TypeError` was swallowed by a bare `catch (_) {}`, so the search silently skipped both categories. Rewired to `executeOnRouter(fn, s.id)` hitting `/ip/hotspot/user/print` and `/ppp/secret/print`. (Nobody could have noticed — the Ctrl+K modal itself was one of the 8 broken by the markup bug below.)
+  - Verified in real Chrome after all changes: Overview no longer has the panel, 1-Click modal opens at `top: 0`, Ctrl+K opens, Settings tab 3 renders the ops centre, zero page errors.
+
+- **2026-08-28** — **Root cause of "1-Click อัปเกรด กดแล้วไม่มีอะไรเกิดขึ้น": three unclosed `<div>`s in `public/index.html` that silently nested 8 modals inside other elements.** Not a JS/CSS bug — the previous three attempts (v123/v124/v125) patched `openFullUpgradeModal()` and `.modal-wrapper` CSS, but the modal was opening correctly all along; it was invisible because the browser had re-parented it inside a hidden ancestor.
+  - Verified with a real Chrome run (Playwright, local JSON-fallback server on port 3099, router host temporarily pointed at `127.0.0.1` per the 2026-07-30 safe-testing note): `document.getElementById('modal-full-upgrade').parentElement` was `#modal-security-script`, whose chain went `… < div.modal-footer < form#form-profile-item < div.modal-body < div.modal-card < div#modal-profile`. An ancestor with `opacity: 0 !important` makes every descendant invisible no matter what the child's own `opacity`/`visibility`/`z-index` say, and the ancestor's `backdrop-filter` also became the containing block for the child's `position: fixed` (measured `top: 168px` instead of `0`).
+  - Three separate defects, each from a different commit:
+    1. `#modal-profile` (`4fa11f0`, 2026-07-29) — `.modal-footer` / `form#form-profile-item` / `.modal-body` / `.modal-card` / `.modal-wrapper` all left unclosed after the "บันทึกโปรไฟล์" submit button.
+    2. `#modal-security-script` (`fbf22d1`, 2026-08-12) — `.modal-wrapper` left unclosed after `.modal-card`.
+    3. `#auto-cleanup-card` (`4fa11f0`, 2026-07-29) — left unclosed, so `#hotspot-sensitive-warning` and the whole Hotspot accounts table were rendered *inside* the auto-cleanup card.
+  - **Features that were dead in production because of this, not just the upgrade button**: ต่ออายุคูปอง 1-Click (`#modal-hotspot-renew`, broken since `90d487e` 2026-08-03 — nested forms are illegal, so the browser dropped `form#form-hotspot-renew` entirely; this is the real reason the recurring "reached uptime limit after top-up" complaints from the 2026-08-02 entry never went away), สคริปต์ Hardened Security, ตรวจสอบ/ติดตั้ง RouterOS Update, Ping Test, Site Diagnostics, Global Search (Ctrl+K), และ Network Quality/Jitter Test.
+  - Also removed a duplicate `<div id="sidebar-overlay">` (the stray copy at the end of the modal block; the real one lives inside `#dashboard-container` at line 63).
+  - `index.html` now passes a full tag-balance scan, all 18 `.modal-wrapper`s are direct children of `<body>`, no duplicate IDs, all 8 `.page-section`s sit directly under `.content-body`. Confirmed visually: the 1-Click upgrade modal opens centered at `top: 0`.
+  - Bumped `?v=` to `126.0`. **`index.html` itself is not cache-busted** — after deploy, hard-refresh and/or purge Cloudflare for `/` or the fix won't be visible.
+  - **Lesson**: when a UI element "does nothing" and the JS/CSS both look right, check the *parsed DOM parent chain* (`el.parentElement` walk) before touching the code again. Three commits were spent fixing symptoms in `app.js`/`style.css` for a markup bug.
 
 - **2026-08-26 (12)** — 4 Enterprise Enhancements: Auto-Backup Guard, Multi-Site Daily Health LINE Push, Live Jitter/Quality Test, and Global Search (Ctrl+K).
   - 1. **Auto-Backup Safety Net**: Auto-saves snapshot `.backup` on router before executing RouterOS upgrades.
