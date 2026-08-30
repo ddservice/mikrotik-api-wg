@@ -14,6 +14,7 @@ const {
 } = require('./lib/time');
 const { parseDnsLogMessage } = require('./lib/dns-log');
 const sessionStore = require('./lib/session-store');
+const siteDiagnostics = require('./lib/site-diagnostics');
 const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
@@ -1613,134 +1614,27 @@ app.get('/api/mikrotik/test-connection', requireAuth(['admin', 'co-admin', 'user
 
 // Deep Diagnostic Endpoint for Router Connection (Step-by-step root cause analysis)
 app.get('/api/mikrotik/diagnose-site', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
-    const siteId = req.query.siteId || req.headers?.['x-site-id'];
-    const dns = require('dns').promises;
-    const net = require('net');
-    const { execSync } = require('child_process');
-
-    const steps = [];
-    let isOverallSuccess = false;
-
+    const siteId = req.query.siteId || req.headers['x-site-id'];
     try {
-        // Step 1: Site Config Lookup
         const config = await db.getConfig(siteId);
-        if (!config || !config.host || !config.username) {
-            steps.push({ step: '1. ข้อมูลไซต์งาน', status: 'fail', detail: `ไม่พบข้อมูล Host หรือ Username สำหรับไซต์ ${siteId || 'Default'}` });
-            return res.json({ success: false, site: config, steps });
-        }
-        steps.push({
-            step: '1. ข้อมูลไซต์งาน',
-            status: 'ok',
-            detail: `ชื่อ: ${config.name}, Host: ${config.host}:${config.port}, User: ${config.username}, Connection: ${config.connectionType || 'direct'}`
-        });
-
-        // Step 2: DNS / IP Resolution
-        let resolvedIp = config.host;
-        try {
-            if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(config.host)) {
-                const lookup = await dns.lookup(config.host);
-                resolvedIp = lookup.address;
-                steps.push({ step: '2. ตรวจสอบชื่อ Host / DNS', status: 'ok', detail: `แปลงชื่อ ${config.host} ➔ IP: ${resolvedIp}` });
-            } else {
-                steps.push({ step: '2. ตรวจสอบชื่อ Host / DNS', status: 'ok', detail: `ใช้ IP ตรง: ${config.host}` });
-            }
-        } catch (dnsErr) {
-            steps.push({ step: '2. ตรวจสอบชื่อ Host / DNS', status: 'fail', detail: `ไม่สามารถ Resolve DNS ${config.host}: ${dnsErr.message}` });
-            return res.json({ success: false, site: config, steps });
-        }
-
-        // Step 3: WireGuard Peer Check (if WireGuard)
-        if (config.connectionType === 'wireguard' || config.host.startsWith('10.10.88.') || (config.wireguardIp && config.wireguardIp.startsWith('10.10.88.'))) {
-            const targetWgIp = config.wireguardIp || config.host;
-            try {
-                const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
-                const lines = dump.trim().split('\n').slice(1);
-                let peerFound = false;
-                for (const line of lines) {
-                    const parts = line.trim().split(/\s+/);
-                    if (parts.length < 8) continue;
-                    const ipMatch = (parts[3] || '').match(/^(\d{1,3}(?:\.\d{1,3}){3})\/32/);
-                    if (ipMatch && ipMatch[1] === targetWgIp) {
-                        peerFound = true;
-                        const handshake = parseInt(parts[4]) || 0;
-                        const secondsAgo = handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null;
-                        const endpoint = parts[2] && parts[2] !== '(none)' ? parts[2] : 'ยังไม่มี endpoint เชื่อมเข้ามา';
-                        if (handshake === 0) {
-                            steps.push({ step: '3. WireGuard VPN Handshake', status: 'warn', detail: `พบบันทึก Peer ${targetWgIp} บน VPS แล้ว แต่ยังไม่เคยมี Handshake (Endpoint: ${endpoint}) — ตรวจสอบว่า MikroTik เปิด Interface WireGuard และใส่ Endpoint VPS ถูกต้องหรือไม่` });
-                        } else if (secondsAgo > 180) {
-                            steps.push({ step: '3. WireGuard VPN Handshake', status: 'warn', detail: `Handshake ล่าสุดเมื่อ ${secondsAgo} วินาทีที่แล้ว (ขาดการติดต่อไปแล้ว) — ตรวจสอบ persistent-keepalive=25s บน MikroTik` });
-                        } else {
-                            steps.push({ step: '3. WireGuard VPN Handshake', status: 'ok', detail: `เชื่อมต่อ WireGuard ปกติ (Handshake เมื่อ ${secondsAgo} วินาทีที่แล้ว, Endpoint: ${endpoint})` });
-                        }
-                        break;
-                    }
+        // ตรรกะทั้งหมดอยู่ที่ lib/site-diagnostics.js — ใช้ร่วมกับ scripts/check-sites.js
+        // เดิมเขียนซ้ำกันคนละแบบสามที่ ทำให้เกณฑ์ตัดสิน (เช่น handshake เก่าแค่ไหน)
+        // เพี้ยนกันไปเรื่อยและหน้าเว็บกับ CLI ตอบไม่ตรงกัน
+        const result = await siteDiagnostics.diagnose({
+            config,
+            runOnRouter: (fn) => executeOnRouter(fn, siteId),
+            readWgDump: () => {
+                try {
+                    return require('child_process')
+                        .execSync('sudo -n wg show wg0 dump', { encoding: 'utf8', timeout: 8000 });
+                } catch (_) {
+                    return null;   // ไม่มีสิทธิ์ = ข้ามชั้นนั้น ไม่ใช่ถือว่าไม่มี peer
                 }
-                if (!peerFound) {
-                    steps.push({ step: '3. WireGuard VPN Handshake', status: 'fail', detail: `ไม่พบคีย์ของ Peer IP ${targetWgIp} บน VPS interface wg0 (กรุณากด 'ลงทะเบียน Peer บน VPS')` });
-                }
-            } catch (wgErr) {
-                steps.push({ step: '3. WireGuard VPN Handshake', status: 'warn', detail: `ไม่สามารถตรวจสอบ wg show wg0 ได้: ${wgErr.message}` });
             }
-        }
-
-        // Step 4: Raw TCP Port Reachability Check
-        const tcpCheck = await new Promise((resolve) => {
-            const socket = new net.Socket();
-            socket.setTimeout(4000);
-            socket.on('connect', () => {
-                socket.destroy();
-                resolve({ ok: true });
-            });
-            socket.on('timeout', () => {
-                socket.destroy();
-                resolve({ ok: false, error: `Connection Timeout ไปยัง ${resolvedIp}:${config.port} (เราท์เตอร์ไม่ตอบกลับพอร์ตนี้)` });
-            });
-            socket.on('error', (err) => {
-                socket.destroy();
-                resolve({ ok: false, error: err.message });
-            });
-            socket.connect(config.port, resolvedIp);
         });
-
-        if (!tcpCheck.ok) {
-            steps.push({
-                step: '4. ตรวจสอบพอร์ต API TCP',
-                status: 'fail',
-                detail: `ไม่สามารถเปิดการเชื่อมต่อไปยังพอร์ต ${config.port} ได้: ${tcpCheck.error} (ตรวจสอบ /ip service บนเราท์เตอร์ว่าเปิดพอร์ต ${config.port} หรือติด Firewall หรือไม่)`
-            });
-            return res.json({ success: false, site: config, steps });
-        }
-        steps.push({ step: '4. ตรวจสอบพอร์ต API TCP', status: 'ok', detail: `เปิดพอร์ต TCP ${config.port} บน ${resolvedIp} สำเร็จ (Socket Connected)` });
-
-        // Step 5: RouterOS API Authentication & System Identity
-        try {
-            const routerInfo = await executeOnRouter(siteId, async (client) => {
-                const resPrint = await client.exec('/system/resource/print');
-                let idPrint = [];
-                try { idPrint = await client.exec('/system/identity/print'); } catch (_) {}
-                return {
-                    resource: resPrint[0] || {},
-                    identity: idPrint[0] || {}
-                };
-            });
-            steps.push({
-                step: '5. เข้าสู่ระบบ RouterOS API (Authentication)',
-                status: 'ok',
-                detail: `เข้าสู่ระบบสำเร็จ! Identity: "${routerInfo.identity.name || 'MikroTik'}", รุ่น: ${routerInfo.resource['board-name'] || routerInfo.resource.platform || 'RouterOS'}, ROS: ${routerInfo.resource.version || 'v7'}, Uptime: ${routerInfo.resource.uptime || '-'}`
-            });
-            isOverallSuccess = true;
-        } catch (apiErr) {
-            steps.push({
-                step: '5. เข้าสู่ระบบ RouterOS API (Authentication)',
-                status: 'fail',
-                detail: `ล็อกอินล้มเหลว: ${apiErr.message} (ตรวจสอบ Username/Password ของผู้ใช้งาน "${config.username}" บน MikroTik)`
-            });
-        }
-
-        res.json({ success: isOverallSuccess, site: config, steps });
+        res.json({ success: result.success, site: sanitizeSitePublic ? sanitizeSitePublic(config) : config, steps: result.steps });
     } catch (err) {
-        steps.push({ step: 'การตรวจสอบระบบ', status: 'fail', detail: err.message });
-        res.status(500).json({ success: false, error: err.message, steps });
+        res.status(500).json({ success: false, steps: [], error: err.message });
     }
 });
 

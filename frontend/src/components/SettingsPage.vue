@@ -1,9 +1,11 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { apiFetch, activeSiteId, setActiveSiteId } from '../api.js';
 import { toast } from '../toast.js';
 import SiteModal from './SiteModal.vue';
 import RouterOpsPanel from './RouterOpsPanel.vue';
+import SiteDiagnosticsModal from './SiteDiagnosticsModal.vue';
+import WireguardSetupModal from './WireguardSetupModal.vue';
 
 const TABS = [
     { key: 'sites', label: 'สาขา / เราท์เตอร์', icon: 'fa-solid fa-network-wired' },
@@ -45,6 +47,26 @@ function checkAll() {
             .then(() => { siteStatus.value[s.id] = 'online'; })
             .catch(() => { siteStatus.value[s.id] = 'offline'; });
     });
+}
+
+// วินิจฉัย + ตั้งค่า WireGuard — สองอย่างนี้เดิมมีแต่ในหน้าเก่า ทำให้ v2 เปิดสาขาใหม่
+// และแก้ปัญหาสาขาล่มเองไม่ได้ ซึ่งเป็นสองในสี่ขั้นของวงจรชีวิตสาขา
+const diagOpen = ref(false);
+const diagSite = ref(null);
+const diagRef = ref(null);
+const wgOpen = ref(false);
+const wgSite = ref(null);
+
+function openDiagnose(s) {
+    diagSite.value = s;
+    diagOpen.value = true;
+    // เริ่มตรวจให้เลย ไม่ต้องกดซ้ำ — คนเปิดหน้านี้ตอนสาขาล่มอยู่แล้ว
+    nextTick(() => diagRef.value && diagRef.value.run());
+}
+
+function openWireguard(s) {
+    wgSite.value = s;
+    wgOpen.value = true;
 }
 
 function openAddSite() {
@@ -439,6 +461,16 @@ onMounted(async () => {
                                     >
                                         <i class="fa-solid fa-right-left"></i>
                                     </button>
+                                    <button type="button" class="v2-btn ghost sm" title="วินิจฉัยการเชื่อมต่อ 5 ขั้น" @click="openDiagnose(s)">
+                                        <i class="fa-solid fa-stethoscope"></i>
+                                    </button>
+                                    <button
+                                        v-if="s.connectionType === 'wireguard'"
+                                        type="button" class="v2-btn ghost sm" title="สร้างสคริปต์ตั้งค่า WireGuard"
+                                        @click="openWireguard(s)"
+                                    >
+                                        <i class="fa-solid fa-shield-halved"></i>
+                                    </button>
                                     <button type="button" class="v2-btn ghost sm" title="แก้ไข" :disabled="busySite === s.id" @click="openEditSite(s)">
                                         <i class="fa-solid fa-pen"></i>
                                     </button>
@@ -818,6 +850,15 @@ onMounted(async () => {
     <template v-else>
         <RouterOpsPanel />
     </template>
+
+    <SiteDiagnosticsModal
+        ref="diagRef" :open="diagOpen" :site="diagSite" @close="diagOpen = false"
+    />
+    <WireguardSetupModal
+        :open="wgOpen" :site="wgSite"
+        :used-ips="sites.filter((x) => !wgSite || x.id !== wgSite.id).map((x) => x.wireguardIp)"
+        @close="wgOpen = false" @registered="loadSites"
+    />
 
     <SiteModal :open="siteModalOpen" :site="editingSite" @close="siteModalOpen = false" @saved="loadSites" />
 </template>

@@ -19,7 +19,6 @@
  */
 
 const path = require('path');
-const net = require('net');
 const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -29,42 +28,22 @@ loadScriptEnv();
 
 const db = require(path.join(ROOT, process.env.SUPABASE_URL ? 'db-supabase.js' : 'db.js'));
 const RouterOS = require(path.join(ROOT, 'routeros.js'));
+// ใช้ตรรกะเดียวกับที่หน้าเว็บใช้ (lib/site-diagnostics.js) — เดิมสคริปต์นี้เขียน
+// tcpProbe และตัวอ่าน wg dump เองซ้ำกับฝั่ง server ซึ่งทำให้เกณฑ์เพี้ยนกันได้
+const { tcpProbe, parseWgDump, WG_STALE_SECONDS } = require(path.join(ROOT, 'lib', 'site-diagnostics'));
 
 function sh(cmd) {
     try { return execSync(cmd, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'] }); }
     catch (_) { return ''; }
 }
 
-function tcpProbe(host, port, timeoutMs = 8000) {
-    return new Promise((resolve) => {
-        const started = Date.now();
-        const sock = new net.Socket();
-        let done = false;
-        const finish = (ok, msg) => {
-            if (done) return;
-            done = true;
-            try { sock.destroy(); } catch (_) {}
-            resolve({ ok, ms: Date.now() - started, msg });
-        };
-        sock.setTimeout(timeoutMs);
-        sock.once('connect', () => finish(true, ''));
-        sock.once('timeout', () => finish(false, 'timeout'));
-        sock.once('error', (e) => finish(false, e.code || e.message));
-        sock.connect(port, host);
-    });
-}
 
 (async () => {
     // wg show ต้องใช้สิทธิ์ root — ถ้าอ่านไม่ได้ต้องบอกว่า "ข้ามชั้นนี้"
     // ไม่ใช่รายงานว่า "ไม่มี peer" ซึ่งเป็นคนละเรื่องและทำให้ตกใจฟรี
     const wg = sh('sudo -n wg show wg0 dump') || sh('wg show wg0 dump');
     const wgReadable = wg.indexOf('\t') >= 0;
-    const wgPeers = new Map();
-    wg.split('\n').slice(1).filter(Boolean).forEach((line) => {
-        const f = line.split('\t');   // pubkey, psk, endpoint, allowed-ips, handshake, rx, tx, keepalive
-        const ip = (f[3] || '').split('/')[0];
-        if (ip) wgPeers.set(ip, { handshake: parseInt(f[4]) || 0, rx: parseInt(f[5]) || 0, tx: parseInt(f[6]) || 0 });
-    });
+    const wgPeers = parseWgDump(wg);
 
     const { sites } = await db.getSites();
     console.log('');
@@ -101,8 +80,7 @@ function tcpProbe(host, port, timeoutMs = 8000) {
                 problems.push('ไม่มี WireGuard peer');
             } else {
                 const age = p.handshake ? Math.round(Date.now() / 1000 - p.handshake) : null;
-                // keepalive ปกติ 25 วินาที เกิน 180 = อุโมงค์น่าจะหลุด
-                const stale = age === null || age > 180;
+                const stale = age === null || age > WG_STALE_SECONDS;
                 console.log(`   WireGuard   : handshake ${age === null ? 'ไม่เคย' : age + ' วินาทีที่แล้ว'}` +
                             `   rx=${(p.rx / 1048576).toFixed(1)}MB tx=${(p.tx / 1048576).toFixed(1)}MB` +
                             (stale ? '   *** เก่าเกินไป ***' : ''));
@@ -129,7 +107,7 @@ function tcpProbe(host, port, timeoutMs = 8000) {
         }
 
         const tcp = await tcpProbe(cfg.host, cfg.port || 8728);
-        console.log(`   TCP         : ${tcp.ok ? 'ต่อได้ใน ' + tcp.ms + ' ms' : '*** ต่อไม่ได้: ' + tcp.msg + ' ***'}`);
+        console.log(`   TCP         : ${tcp.ok ? 'ต่อได้ใน ' + tcp.ms + ' ms' : '*** ต่อไม่ได้: ' + tcp.error + ' ***'}`);
         if (!tcp.ok) problems.push('TCP ต่อไม่ได้');
 
         if (tcp.ok) {
