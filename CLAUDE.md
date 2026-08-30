@@ -484,6 +484,33 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (2)** — Two problems in the new DNS file store, both found by measuring on the
+  real machine rather than trusting that it worked.
+  - **Memory would have restarted the process.** Loading a whole day into an array used
+    ~295 MB of heap for a 342,109-row day, while PM2 is configured with
+    `max_memory_restart: '500M'` and the process idles at 93 MB. Two concurrent queries would
+    have crossed the limit and PM2 would have killed the process mid-request. Added
+    `scanDay()`, which streams line by line (handling both the open `.jsonl` and the sealed
+    `.gz`), and `query()` now keeps only the `skip + limit` newest rows per day. Measured on
+    the real production archive: **295 MB → 12 MB**.
+  - **Deep pages took 11 seconds.** `query()` called `top.sort()` for every row that passed
+    the filter — O(want·log want) callback comparisons per row, which at want=2000 (page 20)
+    meant billions of comparisons. Replaced with a binary-search insert and a pop:
+    **11,380 ms → 203 ms**, a 56× improvement. On the real 342k-row sealed day, page 1, a
+    domain search and page 20 all land between 1.2 and 1.7 s, which is fine for a lookup
+    that happens when someone asks for records.
+  - Sealing no longer parses anything either: the open file is already JSONL, which is exactly
+    what the archive needs, so it is gzipped byte-for-byte. 300,000 rows → 3.7 MB in 608 ms
+    with **no measurable heap growth**, instead of building 342k objects and re-serialising
+    them at 02:00.
+  - The test runner now supports `async` tests, since streaming reads make `query()` async.
+  - Correctness re-checked at 300,000 rows after the rewrite: exact total, correct
+    newest-first ordering, no overlap between pages 1/20/50, and both the domain search
+    (60,000) and site filter (75,000) returning exactly the expected counts.
+  - Worth noting for anyone reading the numbers: an early run appeared to "lose" 97,309 rows.
+    It had not — the generated timestamps crossed 17:00 UTC, so those rows correctly landed in
+    the **next Bangkok day's** file. The store was right and the test's expectation was wrong.
+
 - **2026-08-31** — DNS visit logs moved out of Postgres into daily files. The Supabase quota
   problem is now structurally gone rather than deferred.
   - **The measurement that decided it**: the same 342,109 rows cost **~85 MB/day** as Postgres
