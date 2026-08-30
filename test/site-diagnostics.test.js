@@ -87,11 +87,18 @@ describe('lib/site-diagnostics — usesWireguard', () => {
     it('ดูจาก host ในวง 10.10.88.x', () => {
         assert.ok(sd.usesWireguard({ host: '10.10.88.3' }));
     });
-    it('ดูจาก wireguardIp', () => {
-        assert.ok(sd.usesWireguard({ host: 'a.example.com', wireguardIp: '10.10.88.5' }));
+    it('สาขาต่อตรงไม่นับ แม้จะมี wireguardIp ค้างอยู่', () => {
+        // เคสจริงของ Auioun@WiFi — ต่อผ่าน DDNS แต่มี wireguardIp 10.10.88.1 ค้าง
+        // (ซึ่งเป็น IP ของ VPS เอง ไม่ใช่ peer) เดิมทำให้ตรวจชั้น WireGuard แล้ว
+        // รายงาน fail ทั้งที่สาขานั้นไม่ได้ใช้อุโมงค์เลย
+        assert.ok(!sd.usesWireguard({
+            host: 'b4a00a4696aa.sn.mynetname.net',
+            connectionType: 'direct',
+            wireguardIp: '10.10.88.1'
+        }));
     });
-    it('สาขาต่อตรงไม่นับ', () => {
-        assert.ok(!sd.usesWireguard({ host: 'b4a00a4696aa.sn.mynetname.net', connectionType: 'direct' }));
+    it('connectionType=direct ชนะเสมอ ไม่ว่าจะมีอะไรค้างอยู่', () => {
+        assert.ok(!sd.usesWireguard({ host: 'x.example.com', connectionType: 'direct', wireguardIp: '10.10.88.9' }));
     });
 });
 
@@ -153,6 +160,16 @@ describe('lib/site-diagnostics — diagnose (ไล่ทีละชั้น)'
             runOnRouter: okRouter
         });
         assert.ok(!r.steps.some((s) => s.step.startsWith('3.')));
+    });
+
+    it('สาขาต่อตรงที่มี wireguardIp ค้าง ก็ต้องไม่ตรวจชั้น WireGuard', async () => {
+        const r = await sd.diagnose({
+            config: { name: 'Auioun@WiFi', host: '127.0.0.1', port: 9, username: 'u', password: 'p',
+                      connectionType: 'direct', wireguardIp: '10.10.88.1' },
+            runOnRouter: okRouter
+        });
+        assert.ok(!r.steps.some((s) => s.step.startsWith('3.')),
+            'ไม่ควรมีชั้น WireGuard เพราะสาขานี้ไม่ได้ต่อผ่านอุโมงค์');
     });
 
     it('ไม่มีรหัสผ่านก็ยังตรวจต่อ แต่เตือนไว้ในชั้น 1', async () => {
