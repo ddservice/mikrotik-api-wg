@@ -1094,8 +1094,27 @@ app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, 
 // (no TTY to prompt for a password). Errors here are intentionally left to
 // propagate (not swallowed with `|| true`) so callers/route handlers can
 // report the real failure instead of a false "success".
-function cleanupVpsPeerByIp(wireguardIp) {
+/**
+ * ลบ peer ที่ถือ IP นี้อยู่ออกจาก wg0
+ *
+ * @param {string} wireguardIp  IP ในอุโมงค์ เช่น 10.10.88.3
+ * @param {string} [keepPubKey] ถ้าระบุ จะ "ไม่ลบ" peer ที่คีย์ตรงกับค่านี้
+ *
+ * ทำไมต้องมี keepPubKey: การลบแล้วสร้าง peer ใหม่ทำให้ endpoint และสถานะ handshake
+ * หายไปทั้งหมด อุโมงค์จะขาดจนกว่าเราท์เตอร์ปลายทาง (ซึ่งอยู่หลัง NAT และเป็นฝ่าย
+ * เริ่มเชื่อมต่อ) จะส่ง keepalive มาใหม่ ซึ่งกินเวลาหลายนาที
+ *
+ * อาการจริงที่เจอ 2026-08-30: syncAllWireguardPeersOnStartup เรียก registerVpsPeer
+ * ทุกครั้งที่ server สตาร์ต ซึ่งลบแล้วสร้าง peer ใหม่ทุกรอบ ทำให้ทุก pm2 reload
+ * ทำให้สาขาที่เก็บ public key ไว้ (มีแค่ A4-Residence) หลุดไปสองสามนาที และเป็น
+ * ที่มาของแจ้งเตือน "Offline แล้วกลับมาใน 1 นาที" ที่เจอซ้ำ ๆ โดยไม่รู้สาเหตุ
+ *
+ * `wg set wg0 peer <key> allowed-ips <ip>/32` กับ peer ที่มีอยู่แล้วเป็นการอัปเดต
+ * ในที่เดิม ไม่แตะ endpoint จึงไม่ต้องลบก่อน — ลบเฉพาะ peer ที่คีย์ไม่ตรงเท่านั้น
+ */
+function cleanupVpsPeerByIp(wireguardIp, keepPubKey) {
     if (!wireguardIp) return;
+    const keep = keepPubKey ? String(keepPubKey).trim() : null;
     const { execSync } = require('child_process');
     const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
     const lines = dump.split('\n');
@@ -1106,6 +1125,7 @@ function cleanupVpsPeerByIp(wireguardIp) {
             const pubKey = parts[0];
             const allowedIps = parts[3];
             if (allowedIps && allowedIps.includes(targetIpStr)) {
+                if (keep && pubKey === keep) continue;   // คีย์ถูกต้องอยู่แล้ว ปล่อยไว้ อย่าทำให้อุโมงค์ขาด
                 execSync(`sudo wg set wg0 peer "${pubKey}" remove`, { encoding: 'utf8' });
             }
         }
@@ -1114,7 +1134,8 @@ function cleanupVpsPeerByIp(wireguardIp) {
 
 function registerVpsPeer(wireguardIp, clientPublicKey) {
     if (!wireguardIp || !clientPublicKey) return;
-    cleanupVpsPeerByIp(wireguardIp);
+    // ส่งคีย์ที่กำลังจะตั้งไปด้วย เพื่อไม่ให้ลบ peer ที่ถูกต้องอยู่แล้วทิ้ง
+    cleanupVpsPeerByIp(wireguardIp, clientPublicKey);
     const { execSync } = require('child_process');
     execSync(`sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32`, { encoding: 'utf8' });
     execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
