@@ -3974,14 +3974,43 @@ app.post('/api/mikrotik/line-health/run-now', requireAuth(['admin', 'co-admin'])
 // เกินช่วงนี้แล้วข้ามไปเลย ไม่งั้นเปิดเครื่องตอนดึกจะยิงสรุปของเมื่อเช้าออกไป
 const LINE_DIGEST_CATCHUP_MINUTES = 180;
 
-function bangkokNow() {
-    const now = new Date();
-    const bkk = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+/**
+ * เวลาปัจจุบันตามเขตเวลาไทย
+ *
+ * วิธีเดิมคือ new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }))
+ * ซึ่งแปลงเป็นเวลาไทยแล้วให้ new Date() ตีความสตริงนั้น "ตามเขตเวลาของเครื่อง" อีกที
+ * พอเรียก .toISOString() ก็แปลงกลับเป็น UTC — สุทธิแล้วเลื่อนไป -7 ชม.
+ * ผลคือ dateStr ได้ "วันที่ตาม UTC" ไม่ใช่วันที่ตามเวลาไทย และจะผิดไปหนึ่งวัน
+ * ทุกครั้งที่เวลาไทยยังไม่ถึง 07:00 น. — ซึ่งคือช่วงที่งานกลางคืนทำงานพอดี
+ * (พบ 2026-08-30: งานปิดวันเวลา 02:00 ปิดวันที่ 28 ทั้งที่ควรปิดวันที่ 29)
+ *
+ * ใช้ Intl แยกส่วนออกมาตรง ๆ แทน ได้ค่าที่ถูกไม่ว่าเครื่องจะตั้งเขตเวลาอะไรไว้
+ */
+const BANGKOK_TZ = 'Asia/Bangkok';
+
+function bangkokNow(at) {
+    const now = at || new Date();
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: BANGKOK_TZ,
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+    }).formatToParts(now).reduce((acc, p) => {
+        if (p.type !== 'literal') acc[p.type] = p.value;
+        return acc;
+    }, {});
+
+    // en-GB กับ hour12:false ให้ชั่วโมงเป็น 00-23 แต่บาง runtime คืน "24" ตอนเที่ยงคืน
+    const hour = parts.hour === '24' ? '00' : parts.hour;
+    const dateStr = `${parts.year}-${parts.month}-${parts.day}`;
+    const hh = parseInt(hour, 10);
+    const mm = parseInt(parts.minute, 10);
+
     return {
-        date: bkk,
-        hhmm: String(bkk.getHours()).padStart(2, '0') + ':' + String(bkk.getMinutes()).padStart(2, '0'),
-        minutes: bkk.getHours() * 60 + bkk.getMinutes(),
-        dateStr: bkk.toISOString().slice(0, 10)
+        date: new Date(now),
+        hhmm: hour.padStart(2, '0') + ':' + String(mm).padStart(2, '0'),
+        minutes: hh * 60 + mm,
+        dateStr
     };
 }
 
@@ -4165,10 +4194,11 @@ setInterval(async () => {
 let lastNightlyBackupDate = '';
 setInterval(async () => {
     try {
-        const now = new Date();
-        const bkkTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-        const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
-        const todayDateStr = bkkTime.toISOString().slice(0, 10);
+        // ใช้ bangkokNow() ตัวเดียวกับที่อื่น — วิธีคำนวณวันที่แบบเดิมได้วันที่ตาม UTC
+        // ซึ่งเพี้ยนไปหนึ่งวันตอนตีสอง ทำให้ log บอกวันที่ผิดและงานปิดวันปิดผิดวัน
+        const bkk = bangkokNow();
+        const currentHHMM = bkk.hhmm;
+        const todayDateStr = bkk.dateStr;
 
         if (currentHHMM === '02:00' && lastNightlyBackupDate !== todayDateStr) {
             lastNightlyBackupDate = todayDateStr;
@@ -4197,11 +4227,16 @@ setInterval(async () => {
                     // ปิดวันของเมื่อวานแล้วผนึกด้วย SHA-256 (พรบ. ม.26)
                     // ทำหลังสำรองข้อมูลสำเร็จเท่านั้น และทำก่อนที่ retention จะลบอะไร
                     // ไม่ได้ await เพราะอยู่ใน callback — ให้มันทำงานเบื้องหลังไป
-                    logArchive.archiveDay(db).then((r) => {
-                        const made = (r.results || []).filter((x) => x.sha256).length;
-                        if (made) {
-                            console.log(`[LogArchive] ปิดวัน ${r.date} เรียบร้อย (${made} ไฟล์)`);
-                            db.addLog('System Auto', 'สร้างไฟล์ log ปิดผนึก', `ปิดวัน ${r.date} จำนวน ${made} ไฟล์`);
+                    // runNightly ไล่ย้อนหลัง 7 วันเพื่ออุดวันที่ขาด ไม่ใช่ทำแค่เมื่อวาน
+                    // วันที่ทำไปแล้วถูกข้ามอัตโนมัติ คืนปกติจึงไม่มีภาระเพิ่ม
+                    logArchive.runNightly(db).then((r) => {
+                        if (r.made.length) {
+                            console.log(`[LogArchive] ปิดวันเรียบร้อย: ${r.made.join(', ')}`);
+                            db.addLog('System Auto', 'สร้างไฟล์ log ปิดผนึก', `ปิดวัน: ${r.made.join(', ')}`);
+                        }
+                        if (r.failed.length) {
+                            console.error('[LogArchive] มีวันที่ปิดไม่สำเร็จ:', r.failed.join(' | '));
+                            db.addLog('System Auto', 'สร้างไฟล์ log ปิดผนึกไม่สำเร็จ', r.failed.join(' | '));
                         }
                     }).catch((e) => console.error('[LogArchive] ปิดวันไม่สำเร็จ:', e.message));
                 } else {
@@ -4225,9 +4260,9 @@ setInterval(async () => {
 let lastStorageCheckDate = '';
 setInterval(async () => {
     try {
-        const bkkTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-        const currentHHMM = String(bkkTime.getHours()).padStart(2, '0') + ':' + String(bkkTime.getMinutes()).padStart(2, '0');
-        const todayDateStr = bkkTime.toISOString().slice(0, 10);
+        const bkk = bangkokNow();
+        const currentHHMM = bkk.hhmm;
+        const todayDateStr = bkk.dateStr;
         if (currentHHMM !== '08:00' || lastStorageCheckDate === todayDateStr) return;
         lastStorageCheckDate = todayDateStr;
 

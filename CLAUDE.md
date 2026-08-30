@@ -447,6 +447,46 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-30 (2)** — DNS collection switched off on the operator's instruction, and a
+  full production audit that found the nightly seal had been closing the wrong day.
+  - **DNS logging turned off on all 4 sites** (`admin`, recorded in the activity log with
+    the reason). Real numbers at the time: 710,234 rows, ~171 MB of a 500 MB quota, growing
+    **~91 MB/day — 3 days from full**. The earlier 9-day estimate was taken from a 5 a.m.
+    sample; the daytime rate is 382,061 rows/day, close to double it, exactly the direction
+    the caveat warned about. Existing rows age out under the normal 90-day purge, so with
+    collection stopped there is no cliff to manage.
+  - **Nightly seal was closing the wrong day.** The audit expected an archive for 29 Aug and
+    found none; the logs showed the 02:00 job on 30 Aug ran fine and sealed **28 Aug**.
+    - `bangkokToday()` did `new Date(now.toLocaleString('en-US', {timeZone:'Asia/Bangkok'}))`
+      then `.toISOString().slice(0,10)`. The first step renders Bangkok wall-clock, the
+      second re-parses it in the *server's* zone, and `toISOString()` converts back to UTC —
+      a net −7 h. The result is the **UTC** date, which is the day before whenever Bangkok
+      time is earlier than 07:00. The nightly job runs at 02:00.
+    - So "yesterday" resolved to two days back, and the guard `dateStr >= bangkokToday()`
+      simultaneously rejected sealing the day that was actually due. The seal was therefore
+      permanently one day behind and could not catch up on its own.
+    - Same pattern in three more places: `bangkokNow()` in `server.js` (LINE digest) and the
+      `todayDateStr` in both the 02:00 backup and 08:00 storage timers. Those happen to run
+      at hours where UTC and Bangkok share a date, so only the log line's date was wrong —
+      but a schedule moved before 07:00 would have broken them too.
+    - Replaced with `Intl.DateTimeFormat(...).formatToParts()` in `bangkokNow()` and
+      `toLocaleDateString('en-CA', {timeZone})` in `bangkokToday()`; both are correct
+      regardless of the server's own timezone. Verified under `TZ=UTC` across 02:00, 06:59,
+      08:00, midnight, and the New Year boundary.
+  - **The nightly seal now fills gaps instead of doing exactly one day.** `runNightly()`
+    walks back 7 days and seals anything missing; days already done are skipped by the
+    existing check, so a normal night costs nothing extra. A night that is missed — power
+    loss, a failed run, or a date bug like this one — no longer leaves a permanent hole in
+    a มาตรา 26 record, which is not something that can be filled in after the fact.
+    Failures are now logged to the activity log too, rather than only to stdout.
+  - Audit results otherwise clean: all 4 routers reachable (A4 up 8 weeks), both retention
+    purges running (DNS oldest 52/90 days, Hotspot 68/90), 57 sealed files all present on
+    R2 with a spot-checked hash passing on both copies, nightly backup current, Telegram
+    ops alerts armed, no secrets tracked in git.
+  - Still open and deliberately untouched: LINE is configured for A4-Residence only (the
+    other three have no token of their own); `activeSessions` and `wgRegistrationTokens`
+    remain in-memory so every deploy logs users out; there is still no test suite.
+
 - **2026-08-30** — On/off switch for DNS visit logging, growth forecasting, and a parity
   checker that was only looking at one file.
   - **Why**: the previous entry established that DNS logging alone will exceed the 500 MB
