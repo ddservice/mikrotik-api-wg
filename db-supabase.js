@@ -331,39 +331,8 @@ async function addLog(username, action, details) {
 var HOTSPOT_LOG_RETENTION_DAYS = 90;
 
 
-// ==========================================================================
-// ช่วงวันที่ของตัวกรอง log — ตีความเป็น "วันตามปฏิทินไทย" ไม่ใช่ UTC
-//
-// บั๊กเดิม: `new Date('2026-08-27').toISOString()` ได้ '2026-08-27T00:00:00Z'
-// พอเอาไปใช้กับ lte จึงตัดทั้งวันที่ 27 ทิ้ง เหลือเฉพาะแถวที่ตรงเที่ยงคืนพอดี
-// ผลคือกรอง "ตั้งแต่ 27 ถึง 27" ได้ 0 แถวเสมอ และช่วงวันใด ๆ จะขาดวันสุดท้ายไป
-//
-// อีกชั้นหนึ่ง: log เก็บเป็น UTC แต่ผู้ใช้คิดเป็นเวลาไทย (UTC+7 ไม่มี DST)
-// วันที่ 27 ตามเวลาไทย = 2026-08-26T17:00:00Z ถึง 2026-08-27T16:59:59.999Z
-// สำคัญกับ พรบ. ม.26 เพราะไฟล์ปิดผนึกรายวันต้องตรงกับวันตามปฏิทินจริง
-// ==========================================================================
-const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-function dayStartUtc(dateStr) {
-    // ต้นวันตามเวลาไทย -> UTC
-    return new Date(new Date(dateStr + 'T00:00:00.000Z').getTime() - BANGKOK_OFFSET_MS);
-}
-
-function dayEndUtc(dateStr) {
-    // ปลายวันตามเวลาไทย -> UTC
-    return new Date(new Date(dateStr + 'T23:59:59.999Z').getTime() - BANGKOK_OFFSET_MS);
-}
-
-// รับได้ทั้ง 'YYYY-MM-DD' และ timestamp เต็ม — ถ้าเป็น timestamp เต็มให้ใช้ตามที่ส่งมา
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
-function rangeStart(v) {
-    return DATE_ONLY.test(String(v)) ? dayStartUtc(v) : new Date(v);
-}
-
-function rangeEnd(v) {
-    return DATE_ONLY.test(String(v)) ? dayEndUtc(v) : new Date(v);
-}
+// ตรรกะช่วงวันที่ย้ายไป lib/time.js แล้ว — ห้ามคัดลอกกลับมา
+const { rangeStart, rangeEnd } = require('./lib/time');
 
 function _mapHotspotRow(l) {
     return { id: l.id, loginTime: l.login_time, logoutTime: l.logout_time,

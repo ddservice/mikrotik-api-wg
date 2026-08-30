@@ -11,10 +11,6 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
     plugins: [vue()],
     base: '/v2/',
-    // ปิดการค้นหา postcss config ขึ้นไปข้างบน — repo root มี postcss.config.js /
-    // tailwind.config.js ตกค้างจากการทดลอง Next.js ที่เลิกใช้แล้ว (src/DO_NOT_DEPLOY.md)
-    // ถ้าไม่ปิด Vite จะไปหยิบมาใช้และเตือนเรื่อง Tailwind content ทุกครั้งที่ build
-    css: { postcss: {} },
     build: {
         outDir: fileURLToPath(new URL('../public/v2', import.meta.url)),
         emptyOutDir: true,

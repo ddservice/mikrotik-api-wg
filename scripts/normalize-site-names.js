@@ -27,17 +27,8 @@ const path = require('path');
 
 const APPLY = process.argv.includes('--apply');
 
-function loadEnv() {
-    if (process.env.SUPABASE_URL && !String(process.env.SUPABASE_URL).includes('YOUR_')) return;
-    try {
-        const eco = require(path.join(__dirname, '..', 'ecosystem.config.js'));
-        const env = (eco.apps && eco.apps[0] && eco.apps[0].env) || {};
-        Object.keys(env).forEach((k) => {
-            if (/^SUPABASE_/.test(k) && !String(env[k]).includes('YOUR_')) process.env[k] = env[k];
-        });
-    } catch (_) {}
-}
-loadEnv();
+const { loadScriptEnv } = require(path.join(__dirname, '..', 'lib', 'script-env'));
+loadScriptEnv();
 
 if (!process.env.SUPABASE_URL) {
     console.error('สคริปต์นี้ใช้กับ Supabase เท่านั้น (ไม่พบ SUPABASE_URL)');

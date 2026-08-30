@@ -24,17 +24,8 @@ const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 
-function loadEnv() {
-    if (process.env.SUPABASE_URL && !String(process.env.SUPABASE_URL).includes('YOUR_')) return;
-    try {
-        const eco = require(path.join(ROOT, 'ecosystem.config.js'));
-        const env = (eco.apps && eco.apps[0] && eco.apps[0].env) || {};
-        Object.keys(env).forEach((k) => {
-            if (/^SUPABASE_|^R2_/.test(k) && !String(env[k]).includes('YOUR_')) process.env[k] = env[k];
-        });
-    } catch (_) {}
-}
-loadEnv();
+const { loadScriptEnv } = require(path.join(__dirname, '..', 'lib', 'script-env'));
+loadScriptEnv();
 
 const db = require(path.join(ROOT, process.env.SUPABASE_URL ? 'db-supabase.js' : 'db.js'));
 const RouterOS = require(path.join(ROOT, 'routeros.js'));

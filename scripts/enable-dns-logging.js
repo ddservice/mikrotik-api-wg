@@ -40,18 +40,8 @@ const ACTION_NAME = 'dnsmem';
 const ACTION_LINES = '3000';
 const RULE_TOPICS = 'dns,!packet';
 
-// อ่านคีย์จาก ecosystem.config.js ถ้ายังไม่มีใน env (เหมือนสคริปต์ตัวอื่นในโฟลเดอร์นี้)
-function loadEnv() {
-    if (process.env.SUPABASE_URL && !String(process.env.SUPABASE_URL).includes('YOUR_')) return;
-    try {
-        const eco = require(path.join(__dirname, '..', 'ecosystem.config.js'));
-        const env = (eco.apps && eco.apps[0] && eco.apps[0].env) || {};
-        Object.keys(env).forEach((k) => {
-            if (/^SUPABASE_|^R2_/.test(k) && !String(env[k]).includes('YOUR_')) process.env[k] = env[k];
-        });
-    } catch (_) {}
-}
-loadEnv();
+const { loadScriptEnv } = require(path.join(__dirname, '..', 'lib', 'script-env'));
+loadScriptEnv();
 
 const db = require(path.join(__dirname, '..', process.env.SUPABASE_URL ? 'db-supabase.js' : 'db.js'));
 const RouterOSClient = require(path.join(__dirname, '..', 'routeros.js'));
