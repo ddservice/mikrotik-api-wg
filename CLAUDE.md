@@ -447,6 +447,65 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-30** — On/off switch for DNS visit logging, growth forecasting, and a parity
+  checker that was only looking at one file.
+  - **Why**: the previous entry established that DNS logging alone will exceed the 500 MB
+    Supabase free tier in about a week, and that no amount of dedupe tuning fixes it
+    (collapsing to one row per ip+domain per *hour* still projects 2.5 GB at 90 days —
+    the volume comes from distinct ip+domain pairs, not from repeat queries). Rather than
+    pick between paying for a bigger plan and changing what a legal record contains, the
+    operator asked for a switch so collection can be paused until storage is sorted.
+  - `GET/POST /api/mikrotik/dns-logging` (admin). POST takes `{ enabled }` for every site
+    or `{ enabled, siteId }` for one. The per-site `dnsLoggingEnabled` field already
+    existed but was a checkbox buried in the site-edit modal, with no way to change every
+    site at once — which is the shape the problem actually has, since running out of space
+    is a whole-system condition, not a per-site one.
+  - **Turning it off is recorded in the activity log every time**, including who did it and
+    which sites changed. Stopping a มาตรา 26 record must be answerable later; it must not
+    just quietly stop. Sites already at the requested value are skipped, and that is logged
+    too rather than reported as a change that did not happen.
+  - Disabling stops only the app side — the poller stops reading `/log/print`, which is the
+    part that grows the database. The router keeps writing to its own fixed-size memory
+    buffer, which costs nothing because it wraps, and means re-enabling is instant with no
+    router reconfiguration.
+  - UI: the switch lives in the Storage tab next to the numbers that justify pressing it,
+    not in a settings page somewhere else. Master switch plus per-site switches, each
+    showing current state. Turning **off** asks for confirmation and states plainly that
+    the gap is permanent; turning on does not ask. The storage report raises a warning
+    every day while any site is off, so "pause for now" cannot quietly become "off for
+    months" — the exact failure mode of the 50-day outage found on 2026-08-29.
+  - **Forecast, not just current usage.** `rowsLast24h` and `projectedBytes` added to
+    `getStorageStats()` in both DB layers, so the report can say "growing ~11 MB/day, full
+    in ~42 days" instead of only "9% used". A table at 9% that fills in a week is the case
+    that matters, and a percentage alone hides it. Warns at 30 days out, critical at 7.
+  - **Bug found in the new code by its own test**: `db.getSites().then(...)` inside
+    `buildReport` — `getSites` is async on the Supabase layer but **sync** on the JSON
+    layer, so the whole storage report threw in JSON mode. This is precisely the failure
+    `scripts/check-db-parity.js` was written for after 2026-08-13 (6), and it missed it
+    because it only scanned `server.js` while the call now lives in `lib/`.
+  - `check-db-parity.js` now scans `lib/` and `scripts/` as well, and matches across line
+    breaks. The first attempt at that reported **12 findings, all false** — a non-greedy
+    `\(([\s\S]*?)\)` skips past the real closing paren and latches onto a `.catch(` further
+    down the file, so any `db.addLog(...)` followed by unrelated promise code looked like a
+    bug. Replaced with real paren matching (string-aware, so parens inside Thai text don't
+    throw off the count) and restricted to functions that are genuinely sync in `db.js` —
+    `getStorageStats` is async in both layers, so chaining `.catch()` on it is fine.
+    Result: 12 false positives → 1 real finding, and it still catches the injected bug.
+  - That one real finding: `scripts/fix-and-sync-sites.js` chained `.catch()` on
+    `db.updateSite()`. It sits under `if (useSupabase)` so it has never actually thrown,
+    but it was waiting for the day someone runs that path in JSON mode.
+  - Verified against a locally-run server in JSON mode (router hosts neutralised first,
+    restored after): toggle all off → 0/2, pressing off again changes nothing, re-enabling
+    one site → 1/2, the report shows the right count and raises the "1 site off" warning,
+    all-off raises the "every site off" warning, `401` without a token, non-boolean and
+    unknown `siteId` both rejected with clear messages, and every action appears in the
+    activity log attributed to the user. Left the system at 2/2 enabled.
+  - Could not click through the new UI in a real browser this session — the Chrome
+    extension was not connected. Verified instead that the Vue build succeeds (it refuses
+    unbalanced markup, which is why this project moved to Vue), that every new string,
+    endpoint and CSS class is present in the emitted bundle, and that `index.html`
+    references the current hashed filenames with no stale assets left behind.
+
 - **2026-08-29 (3)** — DNS logs were being stored roughly twice, with the wrong timestamps.
   Found by the Storage Monitor added in (2), within an hour of it going live.
   - **How it surfaced**: the new per-table stats showed `dns_query_logs` growing at

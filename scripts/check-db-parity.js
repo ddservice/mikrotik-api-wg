@@ -124,22 +124,81 @@ if (asyncMismatch && asyncMismatch !== shared.length) {
 // เช็คบั๊กแบบ 2026-08-13 (6): เรียก .then/.catch/.finally ตรง ๆ บน db.xxx()
 // ใน Supabase mode ได้ Promise จริงเลยผ่าน แต่ใน Local JSON ได้ object ธรรมดา
 // -> "db.getPppoeUsageLogs(...).catch is not a function"
-const serverPath = path.join(ROOT, 'server.js');
-if (fs.existsSync(serverPath)) {
-    const serverSrc = fs.readFileSync(serverPath, 'utf8');
-    const lines = serverSrc.split('\n');
-    lines.forEach((line, i) => {
-        const m = /(?<!Promise\.resolve\()\bdb\.([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\.\s*(then|catch|finally)\b/.exec(line);
-        if (!m) return;
-        // ถ้าบรรทัดนั้นมี Promise.resolve( ครอบอยู่แล้วก็ปลอดภัย
-        if (/Promise\.resolve\s*\(\s*db\./.test(line)) return;
-        errors.push(
-            `server.js:${i + 1} — เรียก .${m[2]}() ตรง ๆ บน db.${m[1]}() ` +
-            `ซึ่งใน db.js (Local JSON) เป็น sync คืนค่าธรรมดา ไม่ใช่ Promise ` +
-            `ให้ครอบด้วย Promise.resolve(db.${m[1]}(...)) หรือใช้ await`
-        );
-    });
+// ตรวจทุกไฟล์ที่เรียกใช้ชั้น DB ไม่ใช่แค่ server.js — โมดูลใน lib/ ก็เรียก db เหมือนกัน
+// (พลาดมาแล้วเมื่อ 2026-08-30: lib/storage-monitor.js เขียน db.getSites().then(...)
+//  ตัวตรวจไม่เห็นเพราะสแกนแค่ server.js จึงผ่านฉลุยแล้วไปพังตอนรันโหมด JSON)
+const scanTargets = [path.join(ROOT, 'server.js')];
+for (const dir of ['lib', 'scripts']) {
+    const d = path.join(ROOT, dir);
+    if (!fs.existsSync(d)) continue;
+    fs.readdirSync(d)
+        .filter((f) => f.endsWith('.js') && f !== 'check-db-parity.js')
+        .forEach((f) => scanTargets.push(path.join(d, f)));
 }
+
+/**
+ * หาตำแหน่งวงเล็บปิดที่คู่กันจริง ๆ
+ *
+ * ตอนแรกใช้ regex `\(([\s\S]*?)\)` แบบ non-greedy ซึ่งข้ามวงเล็บปิดตัวแรกไปจับ
+ * ตัวถัดไปได้ ทำให้ `db.addLog(...)` ที่ตามด้วยคำสั่งอื่นซึ่งมี .catch( ถูกรายงาน
+ * เป็นบั๊กทั้งที่ไม่ใช่ — เจอ false positive 12 รายการรวดเดียวเมื่อ 2026-08-30
+ * การนับวงเล็บให้สมดุลจึงจำเป็น ไม่ใช่ทางเลือก
+ */
+function matchingParen(src, openIdx) {
+    let depth = 0;
+    for (let i = openIdx; i < src.length; i++) {
+        const c = src[i];
+        if (c === '(') depth++;
+        else if (c === ')') {
+            depth--;
+            if (depth === 0) return i;
+        } else if (c === '"' || c === "'" || c === '`') {
+            // ข้ามทั้งสตริง ไม่งั้นวงเล็บที่อยู่ในข้อความจะทำให้นับเพี้ยน
+            const quote = c;
+            i++;
+            while (i < src.length && src[i] !== quote) {
+                if (src[i] === '\\') i++;
+                i++;
+            }
+        }
+    }
+    return -1;
+}
+
+const DB_CALL = /\bdb\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
+scanTargets.forEach((file) => {
+    const src = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+    let m;
+    DB_CALL.lastIndex = 0;
+    while ((m = DB_CALL.exec(src)) !== null) {
+        const fn = m[1];
+
+        // สนใจเฉพาะฟังก์ชันที่ db.js (Local JSON) เป็น sync จริง ๆ
+        // ตัวที่เป็น async ทั้งสองชั้น (เช่น getStorageStats) ต่อ .catch() ได้ปลอดภัย
+        const sig = jsonSigs.get(fn);
+        if (!sig || sig.async) continue;
+
+        const close = matchingParen(src, m.index + m[0].length - 1);
+        if (close < 0) continue;
+
+        // ต่อท้ายด้วย .then/.catch/.finally ทันที (ยอมให้ขึ้นบรรทัดใหม่ได้)
+        const after = src.slice(close + 1, close + 40);
+        const chained = /^\s*\.\s*(then|catch|finally)\b/.exec(after);
+        if (!chained) continue;
+
+        const before = src.slice(Math.max(0, m.index - 40), m.index);
+        if (/Promise\.resolve\s*\(\s*$/.test(before)) continue;   // ครอบไว้แล้ว = ปลอดภัย
+
+        const line = src.slice(0, m.index).split('\n').length;
+        errors.push(
+            `${rel}:${line} — เรียก .${chained[1]}() ตรง ๆ บน db.${fn}() ` +
+            `ซึ่งใน db.js (Local JSON) เป็น sync คืนค่าธรรมดา ไม่ใช่ Promise ` +
+            `ให้ครอบด้วย Promise.resolve(db.${fn}(...)) หรือใช้ await`
+        );
+    }
+});
 
 console.log(
     `db.js: ${jsonExports.size} exports | db-supabase.js: ${supaExports.size} exports | ` +

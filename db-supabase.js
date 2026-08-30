@@ -1122,13 +1122,18 @@ async function getStorageStats() {
 
     var tables = await Promise.all(STORAGE_TABLES.map(async function(def) {
         try {
+            // นับ 24 ชม.ล่าสุดด้วย เพื่อรู้ "อัตราโตต่อวัน" ซึ่งเป็นตัวเลขที่ใช้ตัดสินใจได้จริง
+            // การรู้ว่าตอนนี้มีกี่แถวไม่บอกอะไรเลยถ้าไม่รู้ว่าโตเร็วแค่ไหน
+            var dayAgo = new Date(Date.now() - 86400000).toISOString();
             var parts = await Promise.all([
                 countRows(def.table),
                 edgeTime(def.table, def.timeField, true),
                 edgeTime(def.table, def.timeField, false),
-                supabase.from(def.table).select('*').limit(STORAGE_SAMPLE_ROWS)
+                supabase.from(def.table).select('*').limit(STORAGE_SAMPLE_ROWS),
+                supabase.from(def.table).select('id', { count: 'exact', head: true }).gte(def.timeField, dayAgo)
             ]);
             var rows = parts[0], oldest = parts[1], newest = parts[2], sample = parts[3];
+            var rowsLast24h = (parts[4] && parts[4].count) || 0;
 
             var avgBytes = 0;
             if (sample.data && sample.data.length) {
@@ -1166,6 +1171,9 @@ async function getStorageStats() {
                 rows: rows, oldest: oldest, newest: newest, oldestAgeDays: oldestAgeDays,
                 retentionDays: def.retentionDays, retentionOk: retentionOk,
                 avgRowBytes: avgBytes, estimatedBytes: avgBytes * rows,
+                rowsLast24h: rowsLast24h,
+                // ถ้าอัตรานี้คงที่ จะใช้พื้นที่เท่าไรเมื่อเก็บครบตามระยะที่กำหนด
+                projectedBytes: def.retentionDays ? rowsLast24h * def.retentionDays * avgBytes : null,
                 bySite: bySite
             };
         } catch (e) {

@@ -1205,6 +1205,10 @@ async function getStorageStats() {
             const oldest = times.length ? new Date(Math.min(...times)).toISOString() : null;
             const newest = times.length ? new Date(Math.max(...times)).toISOString() : null;
 
+            // อัตราโตต่อวัน — ตัวเลขที่ใช้ตัดสินใจได้จริง ต่างจากยอดรวมที่บอกแค่ปัจจุบัน
+            const dayAgoMs = Date.now() - 86400000;
+            const rowsLast24h = times.filter((t) => t >= dayAgoMs).length;
+
             const oldestAgeDays = oldest
                 ? Math.floor((Date.now() - new Date(oldest).getTime()) / 86400000)
                 : null;
@@ -1239,6 +1243,10 @@ async function getStorageStats() {
                 avgRowBytes: rows.length ? Math.round(fileBytes / rows.length) : 0,
                 estimatedBytes: fileBytes,
                 exactSize: true,
+                rowsLast24h,
+                projectedBytes: def.retentionDays && rows.length
+                    ? rowsLast24h * def.retentionDays * Math.round(fileBytes / rows.length)
+                    : null,
                 bySite
             };
         } catch (e) {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { apiFetch, activeSiteId, setActiveSiteId } from '../api.js';
 import { toast } from '../toast.js';
 import SiteModal from './SiteModal.vue';
@@ -218,6 +218,65 @@ function shortDate(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     return isNaN(d) ? '—' : d.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
+}
+
+// แถวของ DNS ในตาราง — ใช้โชว์อัตราโตข้าง ๆ สวิตช์ ให้เห็นผลของการกดทันที
+const dnsTable = computed(() =>
+    (st.value?.database?.tables || []).find((t) => t.table === 'dns_query_logs') || null
+);
+
+async function setDnsLogging(enabled, siteId) {
+    stBusy.value = 'dns';
+    try {
+        const body = siteId ? { enabled, siteId } : { enabled };
+        const r = await apiFetch('/api/mikrotik/dns-logging', {
+            method: 'POST',
+            body: JSON.stringify(body)
+        });
+        // อัปเดตเฉพาะส่วนสถานะ ไม่ต้องสแกนพื้นที่ใหม่ทั้งหมดซึ่งใช้เวลาหลายวินาที
+        if (st.value) {
+            st.value.dnsLogging = {
+                sites: r.sites,
+                enabledCount: r.sites.filter((x) => x.enabled).length,
+                totalCount: r.sites.length
+            };
+        }
+        if (!r.changed.length) toast.info('ค่าเดิมตรงอยู่แล้ว ไม่มีอะไรเปลี่ยน');
+        else if (enabled) toast.success('เปิดการเก็บประวัติเข้าเว็บแล้ว: ' + r.changed.join(', '));
+        else toast.success('ปิดการเก็บประวัติเข้าเว็บแล้ว: ' + r.changed.join(', '));
+    } catch (err) {
+        toast.error('เปลี่ยนค่าไม่สำเร็จ: ' + err.message);
+        loadStorage();   // ดึงสถานะจริงกลับมา กันหน้าจอค้างที่ค่าที่ยังไม่ได้บันทึก
+    } finally {
+        stBusy.value = '';
+    }
+}
+
+// ปิดคือการหยุดเก็บบันทึกตามกฎหมาย จึงถามยืนยันเสมอ ส่วนการเปิดไม่ต้องถาม
+function toggleDnsAll(enabled) {
+    if (!enabled && !window.confirm([
+        'ปิดการเก็บประวัติเข้าเว็บ (DNS) ทุกสาขา?',
+        '',
+        'พรบ. คอมพิวเตอร์ ม.26 กำหนดให้เก็บย้อนหลัง 90 วัน',
+        'ช่วงเวลาที่ปิดไว้จะไม่มีบันทึก และย้อนกลับไปเก็บไม่ได้',
+        '',
+        'ระบบจะเตือนทุกวันจนกว่าจะเปิดกลับ'
+    ].join('\n'))) {
+        loadStorage();   // คืนสวิตช์กลับสถานะจริง เพราะ checkbox ขยับไปแล้วตอนกด
+        return;
+    }
+    setDnsLogging(enabled);
+}
+
+function toggleDnsSite(site, enabled) {
+    if (!enabled && !window.confirm(
+        `ปิดการเก็บประวัติเข้าเว็บของสาขา "${site.name}"?\n\n` +
+        'ช่วงที่ปิดจะไม่มีบันทึกตาม ม.26 และย้อนกลับไปเก็บไม่ได้'
+    )) {
+        loadStorage();
+        return;
+    }
+    setDnsLogging(enabled, site.id);
 }
 
 async function loadStorage() {
@@ -575,6 +634,65 @@ onMounted(async () => {
                 </div>
             </div>
 
+            <!-- สวิตช์เก็บประวัติเข้าเว็บ — วางไว้ติดกับตัวเลขที่ใช้ตัดสินใจ -->
+            <div v-if="st.dnsLogging && st.dnsLogging.totalCount" class="panel">
+                <div class="ptitle"><i class="fa-solid fa-globe"></i> การเก็บประวัติเข้าเว็บ (DNS)</div>
+
+                <div class="v2-callout warn">
+                    <i class="fa-solid fa-scale-balanced"></i>
+                    <span>
+                        <strong>พรบ. คอมพิวเตอร์ ม.26 กำหนดให้เก็บย้อนหลัง 90 วัน</strong> —
+                        ช่วงเวลาที่ปิดไว้จะไม่มีบันทึกเลย และ<strong>ย้อนกลับไปเก็บไม่ได้</strong>
+                        ปิดเฉพาะเมื่อจำเป็น เช่น รอจัดการเรื่องพื้นที่ แล้วเปิดกลับทันทีที่พร้อม
+                    </span>
+                </div>
+
+                <div class="switchrow">
+                    <div>
+                        <div class="strong">
+                            เปิดใช้งานทุกสาขา
+                            <span class="badge" :class="st.dnsLogging.enabledCount ? 'ok' : 'bad'">
+                                เปิดอยู่ {{ st.dnsLogging.enabledCount }}/{{ st.dnsLogging.totalCount }}
+                            </span>
+                        </div>
+                        <div class="sub">
+                            <template v-if="dnsTable">
+                                ตอนนี้เก็บวันละ ~{{ (dnsTable.rowsLast24h || 0).toLocaleString() }} แถว
+                                <template v-if="dnsTable.projectedBytes">
+                                    · ครบ {{ dnsTable.retentionDays }} วันจะใช้ ~{{ fmtBytes(dnsTable.projectedBytes) }}
+                                </template>
+                            </template>
+                            <template v-else>ปิดแล้วฐานข้อมูลจะหยุดโตจากส่วนนี้ทันที</template>
+                        </div>
+                    </div>
+                    <label class="sw">
+                        <input
+                            type="checkbox"
+                            :checked="st.dnsLogging.enabledCount === st.dnsLogging.totalCount"
+                            :disabled="stBusy === 'dns'"
+                            @change="toggleDnsAll($event.target.checked)"
+                        >
+                        <span></span>
+                    </label>
+                </div>
+
+                <div class="dirs">
+                    <div v-for="s in st.dnsLogging.sites" :key="s.id" class="dirrow dnsrow">
+                        <span>
+                            {{ s.name }}
+                            <span class="badge" :class="s.enabled ? 'ok' : 'bad'">{{ s.enabled ? 'เก็บอยู่' : 'ปิดอยู่' }}</span>
+                        </span>
+                        <label class="sw sm">
+                            <input
+                                type="checkbox" :checked="s.enabled" :disabled="stBusy === 'dns'"
+                                @change="toggleDnsSite(s, $event.target.checked)"
+                            >
+                            <span></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <!-- ฐานข้อมูล -->
             <div class="panel">
                 <div class="ptitle">
@@ -591,11 +709,23 @@ onMounted(async () => {
                     <template v-else>{{ st.database.human }} (ขนาดไฟล์จริง)</template>
                 </div>
 
+                <!-- อัตราโต: ตัวเลขที่บอกว่าต้องรีบแค่ไหน ต่างจากยอดรวมที่บอกแค่ปัจจุบัน -->
+                <div v-if="st.database.growthBytesPerDay > 0" class="growth"
+                     :class="st.database.daysUntilFull !== null && st.database.daysUntilFull <= 30 ? 'urgent' : ''">
+                    <i class="fa-solid fa-arrow-trend-up"></i>
+                    โตวันละ ~{{ st.database.growthHuman }}
+                    <template v-if="st.database.daysUntilFull !== null && st.database.backend === 'supabase'">
+                        · <strong>{{ st.database.daysUntilFull <= 0
+                            ? 'เกินโควตาแล้ว'
+                            : 'จะเต็มในอีกประมาณ ' + st.database.daysUntilFull + ' วัน' }}</strong>
+                    </template>
+                </div>
+
                 <div class="tablewrap">
                     <table>
                         <thead>
                             <tr>
-                                <th>ข้อมูล</th><th class="r">จำนวนแถว</th><th class="r">ขนาด</th>
+                                <th>ข้อมูล</th><th class="r">จำนวนแถว</th><th class="r">ต่อวัน</th><th class="r">ขนาด</th>
                                 <th>เก่าสุด</th><th>ใหม่สุด</th><th>การลบตามกำหนด</th>
                             </tr>
                         </thead>
@@ -606,6 +736,7 @@ onMounted(async () => {
                                     <span v-if="t.law" class="badge law">{{ t.law }}</span>
                                 </td>
                                 <td class="r mono">{{ (t.rows || 0).toLocaleString() }}</td>
+                                <td class="r mono sub">{{ (t.rowsLast24h || 0).toLocaleString() }}</td>
                                 <td class="r mono">{{ fmtBytes(t.estimatedBytes) }}</td>
                                 <td class="mono sub">{{ shortDate(t.oldest) }}</td>
                                 <td class="mono sub">{{ shortDate(t.newest) }}</td>
@@ -645,6 +776,10 @@ onMounted(async () => {
 
 <style scoped>
 /* ---- พื้นที่เก็บข้อมูล ---- */
+.growth { margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: .82rem;
+          background: var(--v2-primary-soft); color: var(--v2-primary); display: flex; align-items: center; gap: 8px; }
+.growth.urgent { background: var(--v2-warn-soft); color: var(--v2-warn); }
+.dnsrow { align-items: center; padding: 6px 0; }
 .ptitle { font-weight: 600; font-size: .9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .bignum { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
 .bignum.warn { color: var(--v2-warn); }
@@ -748,6 +883,12 @@ tbody tr:last-child td { border-bottom: none; }
 /* input ถูกซ่อนด้วย opacity:0 ขนาด 0x0 ผู้ใช้คีย์บอร์ดจึงไม่เห็นว่าโฟกัสอยู่ที่ไหน
    ย้ายวงโฟกัสไปไว้ที่ track ที่มองเห็นจริงแทน */
 .sw input:focus-visible + span { outline: 2px solid var(--v2-primary); outline-offset: 2px; }
+
+/* สวิตช์ขนาดเล็กสำหรับรายสาขา — คำนวณให้ thumb อยู่กึ่งกลางเท่ากันทุกด้าน
+   track 36x20, thumb 14, ขอบ 3 -> ระยะเลื่อน = 36 - 14 - 3*2 = 16 */
+.sw.sm { width: 36px; height: 20px; }
+.sw.sm span::before { width: 14px; height: 14px; left: 3px; top: 3px; }
+.sw.sm input:checked + span::before { transform: translateX(16px); }
 
 .inline { display: flex; gap: 8px; }
 .inline .v2-input { flex: 1; }

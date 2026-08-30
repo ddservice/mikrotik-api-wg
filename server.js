@@ -3775,6 +3775,73 @@ app.post('/api/mikrotik/storage/check-now', requireAuth(['admin']), async (req, 
     }
 });
 
+// ==========================================
+// สวิตช์เปิด/ปิดการเก็บประวัติเข้าเว็บ (DNS)
+//
+// มีอยู่เป็นช่องติ๊กในหน้าแก้ไขสาขามาแต่เดิม แต่ซ่อนลึกเกินกว่าจะใช้ตัดสินใจเร็ว ๆ
+// และไม่มีทางปิดทุกสาขาพร้อมกัน ทั้งที่เหตุผลที่อยากปิดมักเป็นเรื่องพื้นที่เต็ม
+// ซึ่งเป็นปัญหาระดับทั้งระบบ ไม่ใช่ระดับสาขา
+//
+// การปิดที่นี่หยุดเฉพาะฝั่งแอป (poller เลิกอ่าน /log/print) ซึ่งเป็นจุดที่ทำให้
+// ฐานข้อมูลโต ส่วนเราท์เตอร์ยังเขียน log ลงบัฟเฟอร์ในหน่วยความจำของตัวเองต่อไป
+// ซึ่งไม่กินพื้นที่เพิ่มเพราะเป็นบัฟเฟอร์วนทับตัวเอง และทำให้เปิดกลับมาได้ทันที
+// โดยไม่ต้องไปตั้งค่าเราท์เตอร์ใหม่
+// ==========================================
+
+app.get('/api/mikrotik/dns-logging', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { sites } = await db.getSites();
+        res.json({
+            sites: sites.map((s) => ({
+                id: s.id,
+                name: s.name,
+                enabled: s.dnsLoggingEnabled !== false
+            })),
+            enabledCount: sites.filter((s) => s.dnsLoggingEnabled !== false).length,
+            totalCount: sites.length
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/mikrotik/dns-logging', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { enabled, siteId } = req.body || {};
+        if (typeof enabled !== 'boolean') {
+            return res.status(400).json({ error: 'ต้องระบุ enabled เป็น true หรือ false' });
+        }
+
+        const { sites } = await db.getSites();
+        const targets = siteId ? sites.filter((s) => s.id === siteId) : sites;
+        if (!targets.length) return res.status(404).json({ error: 'ไม่พบสาขาที่ระบุ' });
+
+        const changed = [];
+        for (const s of targets) {
+            if ((s.dnsLoggingEnabled !== false) === enabled) continue;   // ไม่ต้องเขียนถ้าค่าเดิมตรงอยู่แล้ว
+            await db.updateSite(s.id, { dnsLoggingEnabled: enabled });
+            changed.push(s.name);
+        }
+
+        // บันทึกไว้ในประวัติการใช้งานระบบเสมอ — การหยุดเก็บบันทึกตาม ม.26
+        // ต้องตอบได้ว่าใครสั่งและเมื่อไร ไม่ใช่หายไปเฉย ๆ แล้วไม่มีใครรู้ที่มา
+        db.addLog(req.user.username,
+            enabled ? 'เปิดการเก็บประวัติเข้าเว็บ (DNS)' : 'ปิดการเก็บประวัติเข้าเว็บ (DNS)',
+            changed.length
+                ? `${siteId ? 'สาขา' : 'ทุกสาขา'}: ${changed.join(', ')}`
+                : 'ไม่มีการเปลี่ยนแปลง (ค่าเดิมตรงอยู่แล้ว)');
+
+        const after = await db.getSites();
+        res.json({
+            success: true,
+            changed,
+            sites: after.sites.map((s) => ({ id: s.id, name: s.name, enabled: s.dnsLoggingEnabled !== false }))
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.headers['x-site-id'];
     res.json(await db.getLineDigestConfig(siteId));

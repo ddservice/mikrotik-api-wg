@@ -201,7 +201,9 @@ async function main() {
     if (useSupabase) {
         try {
             for (const s of repairedSites) {
-                await db.updateSite(s.id, s).catch(async () => {
+                // ครอบ Promise.resolve เพราะ updateSite ของชั้น JSON เป็น sync ไม่มี .catch
+                // ตรงนี้อยู่ใต้ if (useSupabase) จึงยังไม่เคยพังจริง แต่ปล่อยไว้ก็รอวันพัง
+                await Promise.resolve(db.updateSite(s.id, s)).catch(async () => {
                     await db.addSite(s);
                 });
             }
