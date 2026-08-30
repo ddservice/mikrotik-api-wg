@@ -667,7 +667,7 @@ async function queryDnsLogs(opts) {
     if (!oldestFileDay) return db.getDnsQueryLogs(opts);
 
     // ช่วงที่ขอเริ่มตั้งแต่วันแรกที่มีไฟล์เป็นต้นไป -> ข้อมูลทั้งช่วงอยู่ในไฟล์หมดแล้ว
-    if (fromDay && fromDay >= oldestFileDay) return dnsStore.query(opts);
+    if (fromDay && fromDay >= oldestFileDay) return await dnsStore.query(opts);
 
     const dbResult = await db.getDnsQueryLogs(opts);
 
@@ -675,7 +675,7 @@ async function queryDnsLogs(opts) {
     if (!inRange.length) return dbResult;
 
     // คาบเกี่ยวทั้งสองยุค: ให้ไฟล์ (ข้อมูลใหม่กว่า) มาก่อน แล้วต่อด้วยของเก่าจากฐานข้อมูล
-    const fileResult = dnsStore.query(Object.assign({}, opts, { page: 1, limit: 99999 }));
+    const fileResult = await dnsStore.query(Object.assign({}, opts, { page: 1, limit: 99999 }));
     const merged = fileResult.logs.concat(dbResult.logs || []);
     const limit = parseInt(opts.limit) || 100;
     const page = parseInt(opts.page) || 1;

@@ -116,42 +116,42 @@ describe('lib/dns-log-store — เขียนแล้วอ่านกลั
 describe('lib/dns-log-store — ค้นหา', () => {
     const DAY = '2019-01-02';
 
-    it('ค้นด้วยชื่อผู้ใช้', () => {
-        const r = store.query({ from: DAY, to: DAY, search: 'rm101' });
+    it('ค้นด้วยชื่อผู้ใช้', async () => {
+        const r = await store.query({ from: DAY, to: DAY, search: 'rm101' });
         assert.strictEqual(r.total, 1);
         assert.strictEqual(r.logs[0].username, 'rm101');
     });
 
-    it('ค้นด้วยโดเมน', () => {
-        const r = store.query({ from: DAY, to: DAY, search: 'google' });
+    it('ค้นด้วยโดเมน', async () => {
+        const r = await store.query({ from: DAY, to: DAY, search: 'google' });
         assert.strictEqual(r.total, 1);
     });
 
-    it('ค้นด้วย IP', () => {
-        const r = store.query({ from: DAY, to: DAY, search: '172.16.1.5' });
+    it('ค้นด้วย IP', async () => {
+        const r = await store.query({ from: DAY, to: DAY, search: '172.16.1.5' });
         assert.strictEqual(r.total, 1);
     });
 
-    it('กรองตามสาขา', () => {
-        const r = store.query({ from: DAY, to: DAY, siteName: 'A4-Residence' });
+    it('กรองตามสาขา', async () => {
+        const r = await store.query({ from: DAY, to: DAY, siteName: 'A4-Residence' });
         assert.strictEqual(r.total, 3);   // rm101, rm102, rm103
     });
 
-    it('กรองตาม username แบบตรงตัว', () => {
-        const r = store.query({ from: DAY, to: DAY, username: 'rm102' });
+    it('กรองตาม username แบบตรงตัว', async () => {
+        const r = await store.query({ from: DAY, to: DAY, username: 'rm102' });
         assert.strictEqual(r.total, 1);
     });
 
-    it('ผลลัพธ์เรียงใหม่ไปเก่า', () => {
-        const r = store.query({ from: DAY, to: DAY, limit: 100 });
+    it('ผลลัพธ์เรียงใหม่ไปเก่า', async () => {
+        const r = await store.query({ from: DAY, to: DAY, limit: 100 });
         const times = r.logs.map((x) => x.queryTime);
         const sorted = [...times].sort().reverse();
         assert.deepStrictEqual(times, sorted);
     });
 
-    it('แบ่งหน้าถูกต้องและไม่ซ้ำกัน', () => {
-        const p1 = store.query({ from: DAY, to: DAY, page: 1, limit: 2 });
-        const p2 = store.query({ from: DAY, to: DAY, page: 2, limit: 2 });
+    it('แบ่งหน้าถูกต้องและไม่ซ้ำกัน', async () => {
+        const p1 = await store.query({ from: DAY, to: DAY, page: 1, limit: 2 });
+        const p2 = await store.query({ from: DAY, to: DAY, page: 2, limit: 2 });
         assert.strictEqual(p1.logs.length, 2);
         assert.strictEqual(p1.total, p2.total);
         const ids1 = p1.logs.map((x) => x.id);
@@ -159,14 +159,14 @@ describe('lib/dns-log-store — ค้นหา', () => {
         assert.ok(!ids1.some((id) => ids2.includes(id)), 'หน้า 1 กับ 2 ต้องไม่มีรายการซ้ำกัน');
     });
 
-    it('ค้นไม่เจอ คืนศูนย์ ไม่โยน error', () => {
-        const r = store.query({ from: DAY, to: DAY, search: 'ไม่มีทางเจอแน่นอน' });
+    it('ค้นไม่เจอ คืนศูนย์ ไม่โยน error', async () => {
+        const r = await store.query({ from: DAY, to: DAY, search: 'ไม่มีทางเจอแน่นอน' });
         assert.strictEqual(r.total, 0);
         assert.deepStrictEqual(r.logs, []);
     });
 
-    it('คืนรูปแบบเดียวกับ db.getDnsQueryLogs', () => {
-        const r = store.query({ from: DAY, to: DAY });
+    it('คืนรูปแบบเดียวกับ db.getDnsQueryLogs', async () => {
+        const r = await store.query({ from: DAY, to: DAY });
         ['logs', 'total', 'page', 'limit', 'pages'].forEach((k) => {
             assert.ok(k in r, 'ต้องมีฟิลด์ ' + k);
         });
