@@ -42,7 +42,8 @@ const FILES = [
     'pppoe-iface.test.js',
     'session-store.test.js',
     'dns-log-store.test.js',
-    'site-diagnostics.test.js'
+    'site-diagnostics.test.js',
+    'routeros-errors.test.js'
 ];
 
 console.log('=== ชุดทดสอบ MikroTik Dashboard ===');

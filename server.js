@@ -15,6 +15,7 @@ const {
 const { parseDnsLogMessage } = require('./lib/dns-log');
 const sessionStore = require('./lib/session-store');
 const siteDiagnostics = require('./lib/site-diagnostics');
+const rosErrors = require('./lib/routeros-errors');
 const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
@@ -1819,7 +1820,12 @@ app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (r
         db.addLog(req.user.username, 'อัปเดต RouterOS (Auto-Backup)', 'สร้างไฟล์สำรองอัตโนมัติและสั่งติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
         res.json({ success: true, message: 'สำรองคอนฟิกอัตโนมัติและสั่งดาวน์โหลด/ติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตใน 1-2 นาที' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1834,7 +1840,12 @@ app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async 
         db.addLog(req.user.username, 'อัปเกรด RouterBOARD Firmware', 'สั่งอัปเกรด Firmware สำเร็จ (ต้องการรีบูตเพื่อให้มีผล)');
         res.json({ success: true, message: 'อัปเกรด RouterBOARD Firmware เรียบร้อยแล้ว กรุณารีบูตเราท์เตอร์เพื่อให้ Firmware ใหม่เริ่มทำงาน', routerboard: result });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1857,7 +1868,12 @@ app.post('/api/mikrotik/system/full-upgrade-stage2', requireAuth(['admin']), asy
         db.addLog(req.user.username, 'อัปเกรด Firmware อัตโนมัติ (Stage 2)', 'สั่งอัปเกรด RouterBOARD Firmware พร้อมรีบูตอัตโนมัติ');
         res.json({ success: true, message: 'สั่งอัปเกรด RouterBOARD Firmware พร้อมสั่งรีบูตเรียบร้อยแล้ว', routerboard: result });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1870,7 +1886,12 @@ app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res)
         db.addLog(req.user.username, 'รีบูตเราท์เตอร์', 'สั่ง Reboot เราท์เตอร์ผ่านแดชบอร์ด');
         res.json({ success: true, message: 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว ระบบกำลังเริ่มต้นใหม่ใน 30-60 วินาที' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'reboot', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1912,7 +1933,12 @@ app.post('/api/mikrotik/system/backup', requireAuth(['admin']), async (req, res)
         db.addLog(req.user.username, 'สำรองคอนฟิกเราท์เตอร์', `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์สำเร็จ`);
         res.json({ success: true, message: `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์เรียบร้อยแล้ว` });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'backup', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 

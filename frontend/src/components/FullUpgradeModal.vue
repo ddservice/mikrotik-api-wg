@@ -193,7 +193,12 @@ async function start() {
 
                     <div v-if="failure" class="v2-failure">
                         <i class="fa-solid fa-triangle-exclamation"></i>
-                        เกิดข้อผิดพลาดระหว่างการอัปเกรด: {{ failure }}
+                        <div class="msg">
+                            <div class="head">อัปเกรดไม่สำเร็จ</div>
+                            <!-- ข้อความจาก server อาจมีหลายบรรทัด (คำอธิบาย + วิธีแก้ + ข้อความดิบ)
+                                 ถ้าไม่คง newline ไว้จะติดกันเป็นพืดจนอ่านไม่รู้เรื่อง -->
+                            <div class="detail">{{ failure }}</div>
+                        </div>
                     </div>
                     <div v-else-if="finished" class="v2-success">
                         🎉 {{ isFirmwareOnly ? 'อัปเกรด Firmware สำเร็จเรียบร้อยแล้วครับ' : 'อัปเกรดสำเร็จสมบูรณ์ทั้ง RouterOS และ Firmware เรียบร้อยแล้วครับ' }}
@@ -319,6 +324,9 @@ async function start() {
 .v2-step.is-active { background: #eff6ff; border-color: #93c5fd; }
 .v2-step.is-done { background: #f0fdf4; border-color: #86efac; }
 .v2-step.is-error { background: #fef2f2; border-color: #fca5a5; }
+.v2-failure .msg { min-width: 0; }
+.v2-failure .head { font-weight: 700; margin-bottom: 4px; }
+.v2-failure .detail { white-space: pre-line; line-height: 1.6; font-weight: 400; }
 
 .v2-step-icon {
     width: 28px;
@@ -345,6 +353,7 @@ async function start() {
 }
 
 .v2-step-desc {
+    white-space: pre-line;
     font-size: 0.8rem;
     color: #64748b;
 }
@@ -361,7 +370,11 @@ async function start() {
     background: #fef2f2;
     border: 1px solid #fecaca;
     color: #b91c1c;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
 }
+.v2-failure > i { margin-top: 3px; flex-shrink: 0; }
 
 .v2-success {
     background: #f0fdf4;
