@@ -118,14 +118,22 @@ function tcpProbe(host, port, timeoutMs = 8000) {
                 if (stale) problems.push('WireGuard handshake เก่า');
             }
 
-            const ping = sh(`ping -c 5 -i 0.2 -W 2 ${cfg.host} 2>&1`);
+            // ยิง 20 ครั้งเพื่อให้ตัวเลขมีความหมาย และเตือนเมื่อหายเกิน 30% เท่านั้น
+            //
+            // เดิมยิง 5 ครั้งแล้วเตือนทันทีที่หาย > 0% ซึ่งแพ็กเก็ตหายใบเดียวก็ขึ้น 20%
+            // แล้วรายงานว่า "มีปัญหา" ทั้งที่ API ยังต่อได้ปกติใน 410 ms
+            // ลิงก์อินเทอร์เน็ตบ้านทั่วไปหายบ้างเป็นเรื่องปกติ เครื่องมือที่เตือนทุกครั้ง
+            // ที่หายใบเดียวจะถูกเมิน แล้วตอนมีปัญหาจริงก็ไม่มีใครอ่าน
+            const ping = sh(`ping -c 20 -i 0.2 -W 2 ${cfg.host} 2>&1`);
             const loss = (/(\d+)% packet loss/.exec(ping) || [])[1];
             const rtt = (/rtt [^=]*= [\d.]+\/([\d.]+)\//.exec(ping) || [])[1];
             if (loss === undefined) {
                 console.log('   Ping        : ใช้คำสั่ง ping ไม่ได้ — ข้าม');
             } else {
-                console.log(`   Ping        : loss ${loss}%` + (rtt ? `   avg ${rtt} ms` : ''));
-                if (parseInt(loss) > 0) problems.push(`ping สูญหาย ${loss}%`);
+                const pct = parseInt(loss);
+                console.log(`   Ping        : loss ${loss}% (จาก 20 ครั้ง)` + (rtt ? `   avg ${rtt} ms` : '') +
+                            (pct > 0 && pct <= 30 ? '   — หายประปรายถือว่าปกติ' : ''));
+                if (pct > 30) problems.push(`ping สูญหาย ${loss}%`);
             }
         }
 
