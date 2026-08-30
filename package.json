@@ -17,7 +17,9 @@
     "rotate-api-password": "node scripts/rotate-mikrotik-api-password.js",
     "verify-pppoe-bytes": "node scripts/verify-pppoe-bytes.js",
     "test": "node test/run.js",
-    "check": "npm run test && npm run validate-html && npm run check-db-parity"
+    "check": "npm run test && npm run validate-html && npm run check-db-parity",
+    "normalize-site-names": "node scripts/normalize-site-names.js",
+    "check-sites": "node scripts/check-sites.js"
   },
   "engines": {
     "node": ">=20"

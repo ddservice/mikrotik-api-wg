@@ -28,6 +28,8 @@ Handoff model for future developers:
 - Frontend (new, at `/v2/`): `frontend/` → builds to `public/v2/` (see `frontend/README.md`)
 - DB: `db-supabase.js` (prod) / `db.js` (local JSON) — keep signatures in sync
 - Sessions: `db/sessions.json` (gitignored, mode 0600, SHA-256 keyed) — survives `pm2 reload`
+- WireGuard setup tokens: `db/wg-registration-tokens.json` (gitignored, mode 0600) — also survives a restart
+- Health check: `npm run check-sites` — per-layer connectivity for every site (registration → WireGuard → ping → TCP → RouterOS API), read-only
 - Process: PM2 `ecosystem.config.js` → `script: 'server.js'`, `PORT: 3001`, `exec_mode: 'fork'`
 - Backup before risky work: `scripts/backup-pre-rewrite.sh`
 
@@ -96,9 +98,11 @@ Known issues a framework does *not* fix (server-side):
   **fixed 2026-08-30** — persisted to `db/sessions.json`, keyed by SHA-256 of the token
   (`lib/session-store.js`)
 - ~~no test suite~~ **fixed 2026-08-30** — `npm test`, 99 tests over `lib/`
-- `wgRegistrationTokens` is in-memory → a WireGuard registration in flight dies
-  on restart. Still open, and low impact: the flow is a one-off during site setup,
-  the token lives 30 minutes, and re-running the generator issues a new one.
+- ~~`wgRegistrationTokens` is in-memory → a WireGuard registration in flight dies
+  on restart~~ **fixed 2026-08-30** — persisted to `db/wg-registration-tokens.json`
+
+All three long-standing server-side issues listed here are now closed. Anything new
+belongs in the change log, not here, unless it stays open across sessions.
 
 ## VPS port ownership (do not steal ports from other apps)
 
@@ -461,6 +465,60 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-30 (5)** — Legacy site names normalised in the logs, WireGuard registration
+  tokens persisted, and a per-layer connectivity checker.
+  - **1,120 log rows still carried old site names**, so filtering or exporting by the
+    current name silently missed them. For a มาตรา 26 export that is worse than having no
+    file: it looks complete and is not. Renamed with `scripts/normalize-site-names.js`
+    (`npm run normalize-site-names`, dry-run by default):
+    | old name | rows | now |
+    |---|---|---|
+    | `CCR2004` | 691 (656 hotspot + 33 pppoe + 2 archived) | `A4-Residence` |
+    | `สาขาหลัก (Main Site)` | 284 hotspot | `Auioun@WiFi` |
+    | `TingTing@WiFi` | 145 hotspot | `TingTing` |
+    - The mapping was **read off the data, not assumed**: usernames and IP ranges overlap
+      across the old and new names (`a028`/`a014` appear under both `สาขาหลัก (Main Site)`
+      and `Auioun@WiFi`; `tt201`/`tt205` under both `TingTing@WiFi` and `TingTing`;
+      `rm319` under both `CCR2004` and `A4-Residence`).
+    - **It renames, it never deletes.** The script counts every table before and after and
+      **fails if any total changed** — proving no row was lost rather than trusting that
+      `UPDATE` does not delete. All four totals matched.
+    - Rows were dumped to `~/backups/site-name-rename-2026-08-30.json` (id + previous name)
+      before applying, so it is reversible.
+    - **The sealed archives keep the original names** — verified that the 2026-08-25 file
+      still contains `CCR2004=12` inside. So the immutable evidence records what was stored
+      at the time, and this change only affects the live tables used for search and export.
+      That is what made it safe to do at all.
+    - `dns_query_logs` needed no changes (657,938 rows, all current names).
+  - **Duplicate DNS rows: much smaller than first reported.** The earlier "15.3%" came from
+    sampling only pre-fix batches. Measured across the whole of 2026-08-29: 1,987 duplicate
+    rows out of 342,109 (**0.6%**, ~0.5 MB). Deliberately left alone — reclaiming 0.5 MB is
+    not worth editing a compliance record.
+  - **`wgRegistrationTokens` now persisted** to `db/wg-registration-tokens.json` (gitignored,
+    mode 0600, temp-file + rename), same pattern as sessions. Written immediately on
+    creation (the router can call back within seconds) and immediately on use, so a
+    single-use token stays used across a restart. Expired entries are dropped on load, and
+    a corrupt file only means generating the script again — it can never stop the server.
+    - Previously a restart between generating the setup script and the router's callback
+      lost the token, and the router got a 401. The window is 30 minutes and the fix was to
+      press the button again — but it lands exactly when someone is standing at a new site,
+      which is the most expensive moment to lose time.
+    - Verified the load/expiry/corruption logic standalone. **Not** exercised end to end
+      through a real router callback: that path calls `sudo wg set wg0 peer …` and would add
+      a real peer to production WireGuard. The restore itself was confirmed on the VPS by
+      planting a short-lived token file, reloading, and checking the `[WG] กู้คืน` line.
+  - **`scripts/check-sites.js`** (`npm run check-sites`) — checks every site layer by layer:
+    registration → WireGuard peer and handshake age → ping loss/latency → TCP port →
+    RouterOS API login → reading real data. When a site is down the first question is always
+    *which layer*, because site internet, the tunnel, a blocked port and wrong API
+    credentials are four different problems with four different owners. Read-only.
+    - Its first version reported "no WireGuard peer" for all three VPN sites — a false alarm,
+      because `wg show` needs root and returned nothing. It now distinguishes "cannot read"
+      from "not present"; a monitoring tool that cries wolf is worse than none.
+    - Current result: **all 4 sites healthy at every layer** — 0% ping loss, 10–14 ms over
+      the tunnel, API logins 207–441 ms, and live counts (18/17/29/15 Hotspot users, 4 PPPoE
+      rooms on A4).
 
 - **2026-08-30 (4)** — Sessions now survive a restart, so deploying no longer logs everyone
   out. Last of the long-standing "known issues" in this file's Product direction section.

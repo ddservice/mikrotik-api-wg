@@ -208,6 +208,7 @@ function persistSessionsNow() {
 ['SIGINT', 'SIGTERM'].forEach((sig) => {
     process.on(sig, () => {
         persistSessionsNow();
+        persistWgTokens();
         process.exit(0);
     });
 });
@@ -226,13 +227,62 @@ setInterval(() => {
         }
     }
     persistSessionsNow();
+    persistWgTokens();
 }, 15 * 60 * 1000);
 
 // Single-use tokens for the RouterOS auto-callback registration flow
 // (token -> { wireguardIp, siteId, expiresAt }) — see /api/wireguard/generate-script
 // and /api/wireguard/callback-register
+//
+// เก็บลงไฟล์ด้วยเหตุผลเดียวกับ session: ถ้า server รีสตาร์ตระหว่างที่แอดมิน
+// กำลังเอาสคริปต์ไปวางใน WinBox token จะหายไป เราท์เตอร์โทรกลับมาแล้วได้ 401
+// การลงทะเบียนอัตโนมัติล้มเหลว ต้องกดสร้างสคริปต์ใหม่แล้ววางซ้ำ
+//
+// ช่องนี้แคบ (30 นาที) และแก้ได้ด้วยการกดปุ่มซ้ำ แต่เกิดตอน "ติดตั้งสาขาใหม่"
+// ซึ่งเป็นจังหวะที่คนกำลังยืนอยู่หน้างานและเสียเวลาแพงที่สุด การกันไว้จึงคุ้ม
+// โดยเฉพาะเมื่อโครงสร้างการเก็บมีอยู่แล้วจากงาน session
 const wgRegistrationTokens = new Map();
 const WG_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min, single-use
+const WG_TOKEN_FILE = path.join(__dirname, 'db', 'wg-registration-tokens.json');
+
+try {
+    if (fs.existsSync(WG_TOKEN_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(WG_TOKEN_FILE, 'utf8'));
+        const list = (raw && Array.isArray(raw.tokens)) ? raw.tokens : [];
+        const now = Date.now();
+        let restored = 0;
+        for (const t of list) {
+            if (!t || typeof t.token !== 'string') continue;
+            if (typeof t.expiresAt !== 'number' || t.expiresAt <= now) continue;
+            wgRegistrationTokens.set(t.token, {
+                wireguardIp: t.wireguardIp, siteId: t.siteId || null, expiresAt: t.expiresAt
+            });
+            restored++;
+        }
+        if (restored) console.log(`[WG] กู้คืน ${restored} token ลงทะเบียนที่ยังไม่หมดอายุ`);
+    }
+} catch (e) {
+    // เหมือน session: อ่านไม่ได้ก็แค่ต้องกดสร้างสคริปต์ใหม่ ห้ามทำให้ server ไม่ขึ้น
+    console.warn('[WG] อ่านไฟล์ token ลงทะเบียนเดิมไม่ได้:', e.message);
+}
+
+function persistWgTokens() {
+    try {
+        const dir = path.dirname(WG_TOKEN_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const now = Date.now();
+        const tokens = [];
+        for (const [token, r] of wgRegistrationTokens.entries()) {
+            if (!r || typeof r.expiresAt !== 'number' || r.expiresAt <= now) continue;
+            tokens.push({ token, wireguardIp: r.wireguardIp, siteId: r.siteId || null, expiresAt: r.expiresAt });
+        }
+        const tmp = WG_TOKEN_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify({ version: 1, tokens }), { mode: 0o600 });
+        fs.renameSync(tmp, WG_TOKEN_FILE);
+    } catch (e) {
+        console.warn('[WG] บันทึก token ลงทะเบียนไม่สำเร็จ:', e.message);
+    }
+}
 
 // Middleware: Authentication
 function requireAuth(allowedRoles = []) {
@@ -1200,6 +1250,7 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
     if (process.env.PUBLIC_APP_URL) {
         const token = crypto.randomBytes(24).toString('hex');
         wgRegistrationTokens.set(token, { wireguardIp: targetIp, siteId: siteId || null, expiresAt: Date.now() + WG_TOKEN_TTL_MS });
+        persistWgTokens();   // ต้องเขียนทันที — เราท์เตอร์อาจโทรกลับมาภายในไม่กี่วินาที
         callbackScriptBlock = `
 # 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
 # Sent as a plain HTTP header, not a JSON body (avoids any string-escaping
@@ -1299,6 +1350,7 @@ app.post('/api/wireguard/callback-register', async (req, res) => {
         return res.status(401).json({ error: 'Token invalid or expired' });
     }
     wgRegistrationTokens.delete(token); // single-use
+    persistWgTokens();   // ใช้ไปแล้วต้องใช้ซ้ำไม่ได้ แม้ server จะรีสตาร์ต
     try {
         registerVpsPeer(entry.wireguardIp, publicKey);
         if (entry.siteId) {
