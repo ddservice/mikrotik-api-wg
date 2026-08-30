@@ -43,7 +43,8 @@ const FILES = [
     'dns-log.test.js',
     'storage-monitor.test.js',
     'pppoe-iface.test.js',
-    'session-store.test.js'
+    'session-store.test.js',
+    'dns-log-store.test.js'
 ];
 
 console.log('=== ชุดทดสอบ MikroTik Dashboard ===');

@@ -248,8 +248,12 @@ Do **not** repeat these failures:
   remove [find]`, `/ip/address/remove [find comment="..."]`) — RouterOS does
   not cascade-delete children when a parent interface is removed, causing
   orphaned entries to accumulate.
-- **มาตรา 26 retention**: `hotspot_logs` and `dns_query_logs` have a 90-day
-  auto-cleanup (compliance minimum). `pppoe_usage_logs` (billing data) is
+- **มาตรา 26 retention**: `hotspot_logs` (Postgres) and the DNS day files
+  (`dns-logs/` + `archives/`) have a 90-day auto-cleanup (compliance minimum).
+  **DNS visit logs no longer live in Postgres** — since 2026-08-31 they are written to
+  `dns-logs/YYYY-MM-DD.jsonl` and sealed nightly (`lib/dns-log-store.js`); the same data
+  costs 85 MB/day as rows but 5.8 MB/day as gzipped files. Legacy rows still in
+  `dns_query_logs` are read alongside the files by `queryDnsLogs()` until they age out. `pppoe_usage_logs` (billing data) is
   kept indefinitely by design — do not add auto-purge to it without asking.
 - **Menu/role visibility toggles are UI-only**, not API-level enforcement —
   the actual API routes keep their own fixed `requireAuth([...])` role
@@ -479,6 +483,49 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-31** — DNS visit logs moved out of Postgres into daily files. The Supabase quota
+  problem is now structurally gone rather than deferred.
+  - **The measurement that decided it**: the same 342,109 rows cost **~85 MB/day** as Postgres
+    rows but **5.8 MB/day** as gzipped JSONL — 15× smaller. Ninety days for all four sites is
+    **~0.5 GB**, which fits in the VPS disk (93 GB free) and R2's free 10 GB tier with room to
+    spare. The problem was never the volume of data, it was storing write-once,
+    read-by-date-range data in a table that has to index every row.
+  - Concretely, on the free 500 MB tier: keeping DNS in Postgres allowed **5 days** before
+    hitting the quota. Keeping it in files, Postgres stays at a flat **16 MB** no matter how
+    much traffic grows.
+  - `lib/dns-log-store.js` (new) — `dns-logs/YYYY-MM-DD.jsonl` appended while the day is open,
+    sealed to `archives/YYYY-MM-DD-dns.jsonl.gz` at 02:00 by the existing archive job, with a
+    small `index.json` holding per-day counts so "how many rows" needs no file read.
+    - Days are cut on **Bangkok** time, and each row goes to the file for the day its own
+      `queryTime` falls in — so a batch spanning midnight splits correctly instead of landing
+      wherever the poller happened to be.
+    - A corrupt line is skipped, not fatal: one bad line must not cost the rest of the day.
+  - **Bug the tests caught before it shipped**: `query()` reversed the file's append order and
+    called that "newest first". Append order is *not* time order — the router's buffer gets
+    re-read, so a late-arriving row is appended after newer ones. Now each day is sorted by
+    `queryTime` and days are walked newest-first, which keeps the global order right while
+    still only holding one day in memory.
+  - **Nothing is lost in the switch.** The 657,938 rows already in Postgres stay where they
+    are and age out under the normal 90-day purge. `queryDnsLogs()` in `server.js` splits by
+    date with no overlap — days that have a file are read from the file, days that do not are
+    read from the database — so there is no double counting and no window where old data
+    disappears from search.
+  - Retention now covers both: `purgeOldDnsQueryLogs()` for the legacy rows and
+    `dnsStore.purgeOld(90)` for the files, keyed on the date in the filename.
+  - Verified end to end against a running server with 1,000 seeded rows across two days:
+    date filtering (1000 / 500 / 0 out of range), search by domain (334), by username (144),
+    by site (500), pagination with no overlap between pages, results genuinely ordered newest
+    first, CSV export returning every row, sealing straight from the file (500 rows → 6,962
+    bytes, live file removed, still readable through the sealed archive), and the retention
+    cutoff keeping days that are still inside the window. 21 new unit tests (120 total).
+  - **Why not a NAS at each site, which was the original question**: a NAS is not needed for
+    capacity — the busiest site produces ~270 MB per 90 days, and R2's free tier alone is
+    10 GB. What a NAS is genuinely good for is a third copy that lives on the operator's own
+    premises. The sealed-archive design already makes that safe: the file can sit on a NAS the
+    customer controls while its SHA-256 stays in the central database, so the copy is
+    verifiable by anyone without having to trust whoever holds it. `nas-backup.sh` already
+    uses the right shape for this — the NAS reaches out, the VPS never depends on it.
 
 - **2026-08-30 (7)** — `/v2/` now covers every daily-use feature the old UI has. Nothing in
   `public/` or `server.js` was touched: v1 is still byte-identical and stays the primary UI.

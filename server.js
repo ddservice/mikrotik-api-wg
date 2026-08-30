@@ -14,6 +14,7 @@ const {
 } = require('./lib/time');
 const { parseDnsLogMessage } = require('./lib/dns-log');
 const sessionStore = require('./lib/session-store');
+const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -644,19 +645,64 @@ app.get('/api/hotspot-logs/export-csv', requireAuth(['admin', 'co-admin']), asyn
     res.send(csvLines.join('\r\n'));
 });
 
+/**
+ * อ่าน DNS log จากสองแหล่งรวมกัน
+ *
+ * ตั้งแต่ 2026-08-30 ข้อมูลใหม่ถูกเขียนลงไฟล์รายวัน (lib/dns-log-store.js)
+ * ส่วนแถวเก่าที่เคยเขียนลง Postgres ยังอยู่จนกว่าจะครบ 90 วันแล้วถูกลบตามกำหนด
+ * ระหว่างนี้จึงต้องอ่านทั้งสองที่ ไม่งั้นข้อมูลเก่าจะหายไปจากหน้าค้นหาทันที
+ *
+ * แบ่งตามวันที่ไม่ทับกัน: วันไหนมีไฟล์ก็อ่านจากไฟล์ วันที่ไม่มีไฟล์จึงไปถามฐานข้อมูล
+ * จึงไม่มีทางนับซ้ำ และไม่ต้องรวมผลลัพธ์ที่แบ่งหน้ามาแล้วเข้าด้วยกัน
+ */
+async function queryDnsLogs(opts) {
+    const fileDays = dnsStore.listDays();
+    const fromDay = opts.from ? String(opts.from).slice(0, 10) : null;
+    const toDay = opts.to ? String(opts.to).slice(0, 10) : null;
+
+    const inRange = fileDays.filter((d) => (!fromDay || d >= fromDay) && (!toDay || d <= toDay));
+    const oldestFileDay = fileDays.length ? fileDays[0] : null;
+
+    // ยังไม่มีไฟล์เลย (เพิ่งเปลี่ยนระบบ) -> ฐานข้อมูลล้วน
+    if (!oldestFileDay) return db.getDnsQueryLogs(opts);
+
+    // ช่วงที่ขอเริ่มตั้งแต่วันแรกที่มีไฟล์เป็นต้นไป -> ข้อมูลทั้งช่วงอยู่ในไฟล์หมดแล้ว
+    if (fromDay && fromDay >= oldestFileDay) return dnsStore.query(opts);
+
+    const dbResult = await db.getDnsQueryLogs(opts);
+
+    // ช่วงที่ขอไม่แตะวันที่มีไฟล์เลย -> ฐานข้อมูลล้วน
+    if (!inRange.length) return dbResult;
+
+    // คาบเกี่ยวทั้งสองยุค: ให้ไฟล์ (ข้อมูลใหม่กว่า) มาก่อน แล้วต่อด้วยของเก่าจากฐานข้อมูล
+    const fileResult = dnsStore.query(Object.assign({}, opts, { page: 1, limit: 99999 }));
+    const merged = fileResult.logs.concat(dbResult.logs || []);
+    const limit = parseInt(opts.limit) || 100;
+    const page = parseInt(opts.page) || 1;
+    const total = fileResult.total + (dbResult.total || 0);
+
+    return {
+        logs: merged.slice((page - 1) * limit, page * limit),
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit) || 0,
+        source: 'file+db'
+    };
+}
+
 // GET DNS query (domain visit history) logs with search/filter/pagination
 app.get('/api/dns-logs', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, page, limit, site } = req.query;
     const siteName = await resolveForcedSiteName(req, site);
-    const result = await db.getDnsQueryLogs({ search, from, to, username, page, limit, siteName });
-    res.json(result);
+    res.json(await queryDnsLogs({ search, from, to, username, page, limit, siteName }));
 });
 
 // Export DNS query (domain visit history) logs as CSV
 app.get('/api/dns-logs/export-csv', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const { search, from, to, username, site } = req.query;
     const siteName = await resolveForcedSiteName(req, site);
-    const result = await db.getDnsQueryLogs({ search, from, to, username, siteName, page: 1, limit: 99999 });
+    const result = await queryDnsLogs({ search, from, to, username, siteName, page: 1, limit: 99999 });
     const rows = result.logs;
 
     const headers = ['เวลา', 'ชื่อผู้ใช้', 'IP Address', 'MAC Address', 'โดเมนที่เข้าชม', 'ไซต์งาน'];
@@ -5022,9 +5068,12 @@ async function snapshotSiteSessions(site) {
 
             if (newRows.length > 0) {
                 try {
-                    await db.addDnsQueryLogsBulk(newRows);
+                    // เขียนลงไฟล์รายวันแทนตารางใน Postgres — ข้อมูลชุดเดียวกันกินที่
+                    // 85 MB/วันในฐานข้อมูล แต่เหลือ 5.8 MB/วันเมื่อเป็นไฟล์ที่บีบอัด
+                    // และไม่ต้องพึ่งการเชื่อมต่อออกนอกเครื่องด้วย
+                    dnsStore.appendRows(newRows);
                 } catch (e) {
-                    // Silent — same failure posture as the rest of this function
+                    console.error('[DnsStore] เขียน DNS log ไม่สำเร็จ:', e.message);
                 }
             }
         }
@@ -5082,9 +5131,19 @@ setInterval(async () => {
     if (purged > 0) {
         db.addLog('System Auto', 'Purge Log เก่า', `ลบ hotspot log เก่าเกิน 90 วัน จำนวน ${purged} รายการ`);
     }
+    // ลบทั้งสองที่: แถวเก่าที่ยังค้างใน Postgres และไฟล์รายวันที่เกินกำหนด
     const purgedDns = await db.purgeOldDnsQueryLogs();
     if (purgedDns > 0) {
         db.addLog('System Auto', 'Purge DNS Log เก่า', `ลบ DNS query log เก่าเกิน 90 วัน จำนวน ${purgedDns} รายการ`);
+    }
+    try {
+        const f = dnsStore.purgeOld(90);
+        if (f.removedFiles > 0) {
+            db.addLog('System Auto', 'Purge DNS Log เก่า (ไฟล์)',
+                `ลบไฟล์ DNS ก่อนวันที่ ${f.cutoff} จำนวน ${f.removedFiles} ไฟล์ คืนพื้นที่ ${Math.round(f.freedBytes / 1048576)} MB`);
+        }
+    } catch (e) {
+        console.error('[DnsStore] ลบไฟล์เก่าไม่สำเร็จ:', e.message);
     }
 }, 24 * 60 * 60 * 1000);
 
