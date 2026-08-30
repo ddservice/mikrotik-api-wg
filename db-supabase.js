@@ -1058,7 +1058,7 @@ async function saveLogArchive(rec) {
 // ต้องใช้อ่านแนวโน้มว่าตารางไหนโตเร็ว ไม่ใช่ใช้อ้างอิงโควตาแบบเป๊ะ ๆ
 // ==========================================================================
 var STORAGE_TABLES = [
-    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', timeField: 'query_time', siteField: 'site_name', retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', timeField: 'query_time', siteField: 'site_name', retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26', legacy: true },
     { table: 'hotspot_logs', label: 'ประวัติใช้งาน Hotspot', timeField: 'login_time', siteField: 'site_name', retentionDays: HOTSPOT_LOG_RETENTION_DAYS, law: 'ม.26' },
     { table: 'pppoe_usage_logs', label: 'ประวัติใช้งาน PPPoE (บิล)', timeField: 'login_time', siteField: 'site_name', retentionDays: null, law: null },
     { table: 'archived_hotspot_users', label: 'ผู้ใช้ Hotspot ที่ถูกลบ', timeField: 'deleted_at', siteField: 'site_name', retentionDays: null, law: null },
@@ -1141,8 +1141,11 @@ async function getStorageStats() {
                 retentionDays: def.retentionDays, retentionOk: retentionOk,
                 avgRowBytes: avgBytes, estimatedBytes: avgBytes * rows,
                 rowsLast24h: rowsLast24h,
-                // ถ้าอัตรานี้คงที่ จะใช้พื้นที่เท่าไรเมื่อเก็บครบตามระยะที่กำหนด
-                projectedBytes: def.retentionDays ? rowsLast24h * def.retentionDays * avgBytes : null,
+                // ตารางที่หยุดเขียนแล้ว (legacy) ไม่ต้องคาดการณ์การเติบโต — DNS ย้ายไป
+                // เก็บเป็นไฟล์ตั้งแต่ 2026-08-31 แถวที่เหลือรอหมดอายุตามกำหนดเท่านั้น
+                // ถ้ายังคาดการณ์อยู่จะเตือนว่า "จะเกินโควตา" ทุกวันทั้งที่ไม่โตแล้ว
+                legacy: !!def.legacy,
+                projectedBytes: (def.retentionDays && !def.legacy) ? rowsLast24h * def.retentionDays * avgBytes : null,
                 bySite: bySite
             };
         } catch (e) {

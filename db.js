@@ -1136,7 +1136,7 @@ function saveLogArchive(rec) {
 // ที่เป็น snake_case จึงรับได้หลายชื่อ เพื่อให้ผลลัพธ์ออกมาหน้าตาเดียวกัน
 // ==========================================================================
 const STORAGE_TABLES = [
-    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', file: DNS_LOGS_FILE, timeFields: ['queryTime', 'query_time'], retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26' },
+    { table: 'dns_query_logs', label: 'ประวัติเข้าเว็บ (DNS)', file: DNS_LOGS_FILE, timeFields: ['queryTime', 'query_time'], retentionDays: DNS_LOG_RETENTION_DAYS, law: 'ม.26', legacy: true },
     { table: 'hotspot_logs', label: 'ประวัติใช้งาน Hotspot', file: HOTSPOT_LOGS_FILE, timeFields: ['loginTime', 'login_time'], retentionDays: HOTSPOT_LOG_RETENTION_DAYS, law: 'ม.26' },
     { table: 'pppoe_usage_logs', label: 'ประวัติใช้งาน PPPoE (บิล)', file: PPPOE_LOGS_FILE, timeFields: ['loginTime', 'login_time'], retentionDays: null, law: null },
     { table: 'archived_hotspot_users', label: 'ผู้ใช้ Hotspot ที่ถูกลบ', file: ARCHIVED_HOTSPOT_USERS_FILE, timeFields: ['deletedAt', 'deleted_at'], retentionDays: null, law: null },
@@ -1213,7 +1213,9 @@ async function getStorageStats() {
                 estimatedBytes: fileBytes,
                 exactSize: true,
                 rowsLast24h,
-                projectedBytes: def.retentionDays && rows.length
+                // ตารางที่หยุดเขียนแล้วไม่ต้องคาดการณ์การเติบโต (ดูคำอธิบายใน db-supabase.js)
+                legacy: !!def.legacy,
+                projectedBytes: (def.retentionDays && !def.legacy && rows.length)
                     ? rowsLast24h * def.retentionDays * Math.round(fileBytes / rows.length)
                     : null,
                 bySite
