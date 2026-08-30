@@ -88,13 +88,18 @@ now covers the legacy page for as long as it exists.
 3. **One page at a time.** `/` keeps serving the old UI until every page has a
    working replacement. Both share the same `localStorage` token, so an
    operator can be logged into both simultaneously during the transition.
-   As of 2026-08-30 `/v2/` covers every daily-use feature (54 of the 74 endpoints
-   `public/app.js` calls). What is left in v1 only: Multi-WAN, the WireGuard
-   setup-script generator, the 5-step diagnostic, the hardened-firewall preset,
-   and bulk voucher generation/printing — all install-day tools, not daily work.
-   **Neither UI is redundant yet**: v1 owns those generators, and v2 alone has the
-   sealed-archive browser, the storage monitor and the DNS on/off switch.
-   Customers and staff are still used to v1, so `/` stays the default.
+   As of 2026-08-31 `/v2/` covers the whole site lifecycle on its own — open a site
+   (including the WireGuard setup script), run it, troubleshoot it (the 5-step
+   diagnostic), and close it. What is left in v1 only: Multi-WAN, the
+   hardened-firewall preset, and bulk voucher generation/printing.
+   **The rule for deciding what must move is the lifecycle, not usage frequency.**
+   "Used once per site" was the reason the WireGuard generator and the diagnostic
+   were left behind, and it was wrong: the generator is the step that *creates* the
+   connection, and the diagnostic is wanted precisely when a branch is down. Missing
+   either one means v2 cannot replace v1 however rarely it is used.
+   **Neither UI is redundant yet**: v1 still owns Multi-WAN and the voucher tools,
+   and v2 alone has the sealed-archive browser, the storage monitor and the DNS
+   on/off switch. Customers and staff are still used to v1, so `/` stays the default.
 4. **Never delete `public/app.js` / `public/index.html`** until all pages are
    migrated *and* clicked through by hand. There is no test suite.
 5. If `frontend/src` changed, run `npm run build:frontend` **before** commit —
@@ -483,6 +488,50 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-31 (3)** — `/v2/` can now onboard a new site and troubleshoot a broken one on
+  its own. Diagnostic logic that existed in three places is now one module.
+  - **Correcting my own earlier reasoning.** I had classified both the 5-step diagnostic and
+    the WireGuard script generator as "install-day tools, used once per site" and left them
+    in v1. That was right for one of them and wrong for the other:
+    - The diagnostic is a **troubleshooting** tool. It is wanted at 2 a.m. when a branch is
+      down — which is the worst possible moment to send someone to a different UI.
+    - The generator is genuinely once-per-site, but it is the step that *creates the
+      connection*. Without it v2 could add a site row but never reach the router, and
+      **3 of the 4 live sites connect over WireGuard**.
+  - A better rule than "how often is it used": **v2 must cover the whole site lifecycle on
+    its own — open a site → run it → fix it → close it.** Miss one stage and v2 cannot
+    replace v1 no matter how rarely that stage happens. Two of the four were missing.
+  - `lib/site-diagnostics.js` (new) — `parseWgDump`, `describeWgPeer`, `tcpProbe`,
+    `resolveHost`, `usesWireguard`, `diagnose()`. This logic previously existed in three
+    separate hand-written copies (the endpoint, `scripts/check-sites.js`, and part of
+    `diagnose-vps-status.js`) which had already drifted apart — the staleness threshold for a
+    WireGuard handshake differed between them. The web UI and the CLI now answer identically.
+    `check-sites.js` lost its own `tcpProbe` and dump parser.
+  - **"Cannot read wg" is now clearly separated from "no peer exists."** Different problems,
+    different fixes; reporting them as the same thing caused a false alarm earlier in this
+    session.
+  - `SiteDiagnosticsModal.vue` shows the layers in order so you can see how far it got before
+    it stopped, and renders layers that were **never reached** distinctly from pass and fail.
+    It starts the check on open — whoever opens it already knows something is wrong.
+  - `WireguardSetupModal.vue` generates the script, suggests the next free `10.10.88.x`,
+    states plainly that the script tears down and recreates the interface (so a router
+    reached *through* that tunnel will drop briefly), and offers a button to check whether
+    the router has called back yet. Deliberately does **not** push config to the router: the
+    operator sees the script before it runs, and is at the console when it does.
+  - **Found by running it against the real routers**: `Auioun@WiFi` connects directly over
+    DDNS but still carries a leftover `wireguardIp` of `10.10.88.1` — which is the VPS's own
+    tunnel address, never a peer. The old rule treated any stored `wireguardIp` as "uses
+    WireGuard", so that site was checked for a tunnel it does not use and reported `fail` on
+    layer 3 while the overall verdict said "all layers passed". A tool that contradicts
+    itself stops being believed. `usesWireguard()` now decides from the host actually used to
+    reach the router, and an explicit `connectionType: 'direct'` always wins.
+  - 22 new tests (142 total) covering every early-stop layer, the `WG_STALE_SECONDS`
+    boundary, the unreadable-`wg` case, and the leftover-`wireguardIp` case above.
+  - `/api/mikrotik/diagnose-site` still returns exactly `{ success, site, steps }` with
+    `step/status/detail`, so v1 is unchanged. Verified no password appears in the response.
+  - Verified on the real VPS after deploy: all four sites pass every layer, and
+    `Auioun@WiFi` now correctly runs **4** layers instead of 5.
 
 - **2026-08-31 (2)** — Two problems in the new DNS file store, both found by measuring on the
   real machine rather than trusting that it worked.
