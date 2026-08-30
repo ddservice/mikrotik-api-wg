@@ -13,6 +13,7 @@ const {
     parseUptimeToMs, parseRouterOsLogTime
 } = require('./lib/time');
 const { parseDnsLogMessage } = require('./lib/dns-log');
+const sessionStore = require('./lib/session-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -156,9 +157,60 @@ app.use(express.static(path.join(__dirname, 'public'), {
     }
 }));
 
-// In-memory sessions store (token -> { user, expires })
+// Session store — คีย์เป็น "แฮชของ token" ไม่ใช่ token ตรง ๆ (ดู lib/session-store.js)
+//
+// เดิมอยู่ในหน่วยความจำล้วน ทุกครั้งที่ deploy ผู้ใช้หลุดออกจากระบบหมด
+// ตอนนี้เขียนลงไฟล์และโหลดกลับตอนบูต พฤติกรรมอื่นเหมือนเดิมทุกอย่าง
+// (ต่ออายุเมื่อใช้งาน, logout แล้วใช้ต่อไม่ได้, แก้/ลบบัญชีแล้วเตะออก)
 const activeSessions = new Map();
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_FILE = path.join(__dirname, 'db', 'sessions.json');
+
+try {
+    if (fs.existsSync(SESSION_FILE)) {
+        const restored = sessionStore.deserialize(fs.readFileSync(SESSION_FILE, 'utf8'));
+        for (const [k, v] of restored.entries()) activeSessions.set(k, v);
+        if (restored.size) console.log(`[Session] กู้คืน ${restored.size} session ที่ยังไม่หมดอายุ`);
+    }
+} catch (e) {
+    // อ่านไม่ได้ = ทุกคนต้องล็อกอินใหม่ ซึ่งยอมรับได้
+    // แต่ห้ามทำให้ server สตาร์ตไม่ขึ้นเด็ดขาด
+    console.warn('[Session] อ่านไฟล์ session เดิมไม่ได้:', e.message);
+}
+
+// เขียนลงไฟล์แบบหน่วงเวลา — expires ถูกต่ออายุทุก request การเขียนทุกครั้ง
+// จะกลายเป็น disk write ต่อ request ซึ่งไม่คุ้ม หน่วงไว้แล้วเขียนรวดเดียวพอ
+let sessionSaveTimer = null;
+function persistSessionsSoon() {
+    if (sessionSaveTimer) return;
+    sessionSaveTimer = setTimeout(() => {
+        sessionSaveTimer = null;
+        persistSessionsNow();
+    }, 30000);
+    if (sessionSaveTimer.unref) sessionSaveTimer.unref();
+}
+
+function persistSessionsNow() {
+    try {
+        const dir = path.dirname(SESSION_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        // เขียนไฟล์ชั่วคราวแล้วค่อย rename — กันไฟล์พังครึ่ง ๆ ถ้าดับกลางคัน
+        const tmp = SESSION_FILE + '.tmp';
+        fs.writeFileSync(tmp, sessionStore.serialize(activeSessions), { mode: 0o600 });
+        fs.renameSync(tmp, SESSION_FILE);
+    } catch (e) {
+        console.warn('[Session] บันทึก session ไม่สำเร็จ:', e.message);
+    }
+}
+
+// PM2 reload ส่ง SIGINT มาก่อน — บันทึกให้ทันก่อนปิด ไม่งั้นการ deploy
+// ยังทำให้คนหลุดอยู่ดี ซึ่งคือปัญหาที่ตั้งใจแก้ตั้งแต่แรก
+['SIGINT', 'SIGTERM'].forEach((sig) => {
+    process.on(sig, () => {
+        persistSessionsNow();
+        process.exit(0);
+    });
+});
 
 // Garbage collector for expired sessions and single-use registration tokens (every 15 min)
 setInterval(() => {
@@ -173,6 +225,7 @@ setInterval(() => {
             wgRegistrationTokens.delete(token);
         }
     }
+    persistSessionsNow();
 }, 15 * 60 * 1000);
 
 // Single-use tokens for the RouterOS auto-callback registration flow
@@ -189,20 +242,21 @@ function requireAuth(allowedRoles = []) {
             return res.status(401).json({ error: 'Unauthorized: Missing token' });
         }
         
-        const token = authHeader.substring(7);
-        const session = activeSessions.get(token);
-        
+        const tokenKey = sessionStore.hashToken(authHeader.substring(7));
+        const session = activeSessions.get(tokenKey);
+
         if (!session) {
             return res.status(401).json({ error: 'Unauthorized: Invalid token' });
         }
-        
+
         if (session.expires < Date.now()) {
-            activeSessions.delete(token);
+            activeSessions.delete(tokenKey);
             return res.status(401).json({ error: 'Unauthorized: Token expired' });
         }
-        
+
         // Refresh session expiry
         session.expires = Date.now() + SESSION_EXPIRY_MS;
+        persistSessionsSoon();
         req.user = session.user;
         
         // Role check
@@ -412,10 +466,12 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
     
     const token = crypto.randomBytes(32).toString('hex');
-    activeSessions.set(token, {
+    // เก็บด้วยแฮชของ token ไม่ใช่ token จริง — ไฟล์ที่เขียนลงดิสก์จึงใช้ล็อกอินต่อไม่ได้
+    activeSessions.set(sessionStore.hashToken(token), {
         user,
         expires: Date.now() + SESSION_EXPIRY_MS
     });
+    persistSessionsSoon();
     
     db.addLog(user.username, 'เข้าสู่ระบบ', 'ล็อกอินเข้าสู่หน้าจัดการสำเร็จ');
     res.json({ token, user });
@@ -424,8 +480,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 app.post('/api/auth/logout', requireAuth(), (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        activeSessions.delete(token);
+        activeSessions.delete(sessionStore.hashToken(authHeader.substring(7)));
+        persistSessionsNow();   // ออกจากระบบต้องมีผลทันที ไม่รอรอบหน่วงเวลา
     }
     res.json({ success: true });
 });
@@ -675,6 +731,7 @@ app.put('/api/users/:id', requireAuth(['admin']), async (req, res) => {
             }
         }
         
+        persistSessionsNow();   // เตะ session ออกแล้วต้องมีผลข้ามการรีสตาร์ตด้วย
         db.addLog(req.user.username, 'แก้ไขบัญชีระบบ', 'แก้ไขบัญชี ID ' + req.params.id + ' (ชื่อ: ' + (name || '') + ')');
         res.json(updated);
     } catch (e) {
@@ -691,6 +748,7 @@ app.delete('/api/users/:id', requireAuth(['admin']), async (req, res) => {
                 activeSessions.delete(token);
             }
         }
+        persistSessionsNow();
         db.addLog(req.user.username, 'ลบบัญชีระบบ', 'ลบบัญชี ID ' + req.params.id);
         res.json({ success: true });
     } catch (e) {

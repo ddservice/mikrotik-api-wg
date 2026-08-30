@@ -27,6 +27,7 @@ Handoff model for future developers:
   (bump `?v=` on every JS change)
 - Frontend (new, at `/v2/`): `frontend/` → builds to `public/v2/` (see `frontend/README.md`)
 - DB: `db-supabase.js` (prod) / `db.js` (local JSON) — keep signatures in sync
+- Sessions: `db/sessions.json` (gitignored, mode 0600, SHA-256 keyed) — survives `pm2 reload`
 - Process: PM2 `ecosystem.config.js` → `script: 'server.js'`, `PORT: 3001`, `exec_mode: 'fork'`
 - Backup before risky work: `scripts/backup-pre-rewrite.sh`
 
@@ -90,11 +91,14 @@ now covers the legacy page for as long as it exists.
 5. If `frontend/src` changed, run `npm run build:frontend` **before** commit —
    otherwise the deployed `/v2/` is stale.
 
-Known issues a framework does *not* fix (server-side, still open):
-- `activeSessions` is an in-memory `Map` → every `pm2 reload` logs out all users
+Known issues a framework does *not* fix (server-side):
+- ~~`activeSessions` is an in-memory `Map` → every `pm2 reload` logs out all users~~
+  **fixed 2026-08-30** — persisted to `db/sessions.json`, keyed by SHA-256 of the token
+  (`lib/session-store.js`)
+- ~~no test suite~~ **fixed 2026-08-30** — `npm test`, 99 tests over `lib/`
 - `wgRegistrationTokens` is in-memory → a WireGuard registration in flight dies
-  on restart
-- no test suite
+  on restart. Still open, and low impact: the flow is a one-off during site setup,
+  the token lives 30 minutes, and re-running the generator issues a new one.
 
 ## VPS port ownership (do not steal ports from other apps)
 
@@ -457,6 +461,42 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-30 (4)** — Sessions now survive a restart, so deploying no longer logs everyone
+  out. Last of the long-standing "known issues" in this file's Product direction section.
+  - **The problem**: `activeSessions` was a plain in-memory `Map`, so every `pm2 reload`
+    signed out every operator at once. It has been listed as a known issue since the Vue
+    migration started, and it is the reason deploying during working hours was avoided.
+  - **Why persisting the Map rather than switching to signed/stateless tokens**: the
+    existing behaviour has parts that are easy to lose and hard to notice missing — sliding
+    expiry on each request, logout invalidating a token immediately, and editing or deleting
+    a user kicking that user's sessions. A stateless token cannot do the last two without a
+    new database column and a per-request lookup. Writing the same `Map` to disk keeps every
+    one of those semantics byte-for-byte and changes only what happens across a restart.
+    When touching authentication, the smallest change that solves the problem is the right
+    one.
+  - **Keyed by SHA-256 of the token, never the token itself.** The file sits next to
+    `db/config.json`, which already holds router passwords, but a leaked session file must
+    not be usable to log in. Verified in the test that the raw token does not appear
+    anywhere in the written file.
+  - `lib/session-store.js` (new) — `hashToken`, `serialize`, `deserialize`, `prune`, all
+    pure and unit-tested. Writes go through a temp file plus `rename` so a crash mid-write
+    cannot leave a half-written file, and the file is created mode `0600`.
+  - Saves are debounced to 30 s because sliding expiry updates the session on **every**
+    request, and writing per request would mean a disk write per API call. Logout and
+    user edit/delete call the immediate save instead — those must not be lost. `SIGINT`
+    and `SIGTERM` also flush, which is what `pm2 reload` sends.
+  - **Deserialize never throws.** A corrupt file means everyone logs in again, which is an
+    inconvenience; a server that will not start because of a corrupt cache file is an
+    outage. Tested against empty, truncated, wrong-shaped and non-JSON input.
+  - `db/sessions.json` is covered by the existing `db/**` ignore rule — checked with
+    `git check-ignore` rather than assumed, given this repo's history of secret files that
+    matched a gitignore pattern but were still tracked.
+  - 17 new tests (99 total). Verified end to end against a locally-run server, with the
+    process **force-killed** rather than signalled — so the restore is proven not to depend
+    on the shutdown handler running at all: token still valid after restart, forged token
+    and missing header both 401, logout effective immediately *and* after a restart, and a
+    deliberately corrupted file still allows a clean start and login.
 
 - **2026-08-30 (3)** — First test suite (`npm test`), and time handling consolidated into
   one module.
