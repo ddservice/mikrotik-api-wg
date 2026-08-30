@@ -6,6 +6,13 @@ const fs = require('fs');
 const https = require('https');
 const logArchive = require('./lib/log-archive');
 const storageMonitor = require('./lib/storage-monitor');
+// ตรรกะเวลาทั้งหมดอยู่ที่ lib/time.js ที่เดียว — บั๊กเกือบทุกตัวช่วง 28-30 ส.ค.
+// เป็นเรื่องเวลา และเกิดจากการเขียนตรรกะเดียวกันซ้ำหลายที่คนละแบบ
+const {
+    bangkokNow, bangkokToday, parseHHMMToMinutes,
+    parseUptimeToMs, parseRouterOsLogTime
+} = require('./lib/time');
+const { parseDnsLogMessage } = require('./lib/dns-log');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
 // Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
@@ -3986,39 +3993,6 @@ const LINE_DIGEST_CATCHUP_MINUTES = 180;
  *
  * ใช้ Intl แยกส่วนออกมาตรง ๆ แทน ได้ค่าที่ถูกไม่ว่าเครื่องจะตั้งเขตเวลาอะไรไว้
  */
-const BANGKOK_TZ = 'Asia/Bangkok';
-
-function bangkokNow(at) {
-    const now = at || new Date();
-    const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: BANGKOK_TZ,
-        hour12: false,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit'
-    }).formatToParts(now).reduce((acc, p) => {
-        if (p.type !== 'literal') acc[p.type] = p.value;
-        return acc;
-    }, {});
-
-    // en-GB กับ hour12:false ให้ชั่วโมงเป็น 00-23 แต่บาง runtime คืน "24" ตอนเที่ยงคืน
-    const hour = parts.hour === '24' ? '00' : parts.hour;
-    const dateStr = `${parts.year}-${parts.month}-${parts.day}`;
-    const hh = parseInt(hour, 10);
-    const mm = parseInt(parts.minute, 10);
-
-    return {
-        date: new Date(now),
-        hhmm: hour.padStart(2, '0') + ':' + String(mm).padStart(2, '0'),
-        minutes: hh * 60 + mm,
-        dateStr
-    };
-}
-
-function parseHHMMToMinutes(hhmm) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
-    if (!m) return null;
-    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-}
 
 // ตัดสินว่าสาขานี้ควรส่งสรุปตอนนี้หรือยัง — แยกออกมาเป็นฟังก์ชันเพื่อให้
 // endpoint วินิจฉัย (/api/mikrotik/line-digest/status) ใช้ตรรกะชุดเดียวกันได้
@@ -4731,75 +4705,6 @@ let recentDnsFingerprintsBySite = new Map(); // siteId -> Set(fingerprint)
 // so 2,000 was cutting it far too close.
 const MAX_DNS_FINGERPRINTS = 20000;
 
-// Bangkok is UTC+7 year-round (no DST), and CLAUDE.md records the routers as being
-// set to Asia/Bangkok and NTP-synced.
-const ROUTER_TZ_OFFSET_MIN = Number(process.env.ROUTER_TZ_OFFSET_MIN || 420);
-
-const LOG_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-                     jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
-
-/**
- * Turns a RouterOS `/log/print` `time` field into an ISO timestamp.
- *
- * This is what ends up in dns_query_logs.query_time, which is the field that has
- * to stand up as a มาตรา 26 record — so it must be when the query actually
- * happened, not when the poller got round to reading it. Previously every row in
- * a batch was stamped `new Date()`, making them all identical to the millisecond
- * and up to 5 minutes late.
- *
- * Observed format on ROS 7.24.1 is "2026-08-29 04:51:51"; older builds use
- * "aug/29 04:51:51" or bare "04:51:51" for today, so all three are handled.
- * Returns null when the value can't be trusted, so the caller can fall back.
- */
-function parseRouterOsLogTime(raw, now = new Date()) {
-    const s = String(raw || '').trim();
-    if (!s) return null;
-
-    let y, mo, d, hh, mm, ss;
-    let m;
-
-    if ((m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s))) {
-        [, y, mo, d, hh, mm, ss] = m.map(Number);
-        mo -= 1;
-    } else if ((m = /^([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/i.exec(s))) {
-        mo = LOG_MONTHS[m[1].toLowerCase()];
-        if (mo === undefined) return null;   // month abbreviation we don't know
-        d = +m[2]; y = +m[3]; hh = +m[4]; mm = +m[5]; ss = +m[6];
-    } else if ((m = /^([a-z]{3})\/(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})$/i.exec(s))) {
-        mo = LOG_MONTHS[m[1].toLowerCase()];
-        if (mo === undefined) return null;
-        d = +m[2]; hh = +m[3]; mm = +m[4]; ss = +m[5];
-        y = null;   // year inferred below
-    } else if ((m = /^(\d{2}):(\d{2}):(\d{2})$/.exec(s))) {
-        hh = +m[1]; mm = +m[2]; ss = +m[3];
-        y = mo = d = null;   // "today" on the router — filled in below
-    } else {
-        return null;
-    }
-
-    // Fill in the parts RouterOS omitted, using the router's own local "today"
-    const nowLocal = new Date(now.getTime() + ROUTER_TZ_OFFSET_MIN * 60000);
-    if (y === null || d === null) {
-        if (d === null) { mo = nowLocal.getUTCMonth(); d = nowLocal.getUTCDate(); }
-        y = nowLocal.getUTCFullYear();
-        // A date that lands in the future means the entry is from last year
-        // (RouterOS drops the year, so late-December logs read in January).
-        if (Date.UTC(y, mo, d, hh, mm, ss) > nowLocal.getTime() + 86400000) y -= 1;
-    }
-
-    const localMs = Date.UTC(y, mo, d, hh, mm, ss);
-    if (isNaN(localMs)) return null;
-    const utcMs = localMs - ROUTER_TZ_OFFSET_MIN * 60000;
-
-    // Sanity gate: a router with a wrong clock or timezone would otherwise write
-    // confidently-wrong timestamps into a legal record. Anything more than 2 hours
-    // ahead or 7 days behind is rejected so the caller falls back to server time.
-    const drift = utcMs - now.getTime();
-    if (drift > 2 * 3600000 || drift < -7 * 86400000) return null;
-
-    return new Date(utcMs).toISOString();
-}
-
 function getDnsFingerprintSet(siteId) {
     let set = recentDnsFingerprintsBySite.get(siteId);
     if (!set) {
@@ -5032,46 +4937,8 @@ async function snapshotSiteSessions(site) {
     }
 }
 
-// Parses a RouterOS `/log/print` message (topics containing "dns") into
-// { sourceIp, domain }, or null if the line doesn't match a recognized
-// DNS-query pattern. RouterOS's exact wording for DNS query log entries
-// varies by RouterOS version — this is a best-effort permissive parser.
-// Calibrate against real output: enable DEBUG_DNS_LOG=1 and check `pm2 logs`
-// for "[DEBUG_DNS_LOG] unmatched:" lines, then adjust the patterns below.
-function parseDnsLogMessage(msg) {
-    if (!msg) return null;
-
-    // Pattern A: "query from 172.16.1.247: #3 example.com. A"
-    // Note: the "dns" prefix visible on-screen (WinBox/terminal) is actually
-    // the separate `topics` field concatenated for display — the API's raw
-    // `message` field does NOT include it, confirmed against live router output.
-    let m = msg.match(/query from (\d{1,3}(?:\.\d{1,3}){3}).*?\s([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s/i);
-    if (m) return { sourceIp: m[1], domain: m[2].toLowerCase() };
-
-    // Pattern B: "resolving example.com from 172.16.1.247"
-    m = msg.match(/resolving\s+([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\.?\s+from\s+(\d{1,3}(?:\.\d{1,3}){3})/i);
-    if (m) return { sourceIp: m[2], domain: m[1].toLowerCase() };
-
-    return null;
-}
 
 // แปลง RouterOS uptime string เป็น milliseconds
-function parseUptimeToMs(uptime) {
-    if (!uptime || uptime === 'Unlimited' || uptime === '00:00:00') return 0;
-    let ms = 0;
-    const wMatch = uptime.match(/(\d+)w/); if (wMatch) ms += parseInt(wMatch[1]) * 7 * 24 * 3600000;
-    const dMatch = uptime.match(/(\d+)d/); if (dMatch) ms += parseInt(dMatch[1]) * 24 * 3600000;
-    const hMatch = uptime.match(/(\d+)h/); if (hMatch) ms += parseInt(hMatch[1]) * 3600000;
-    const mMatch = uptime.match(/(\d+)m/); if (mMatch) ms += parseInt(mMatch[1]) * 60000;
-    const sMatch = uptime.match(/(\d+)s/); if (sMatch) ms += parseInt(sMatch[1]) * 1000;
-    if (ms === 0 && uptime.includes(':')) {
-        const parts = uptime.split(':').map(Number);
-        if (parts.length === 3 && !parts.some(isNaN)) {
-            ms = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-        }
-    }
-    return ms;
-}
 
 // Snapshot ทุก 5 นาที
 setInterval(snapshotHotspotSessions, 5 * 60 * 1000);

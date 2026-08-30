@@ -357,11 +357,22 @@ before pushing. (This specific binary path is a workaround for *this*
 sandbox having no system Node install — on a normal dev machine, just use
 your own `node -c <file>` or `node --check <file>`.)
 
-Two structural guards were added 2026-08-28 — run both before committing:
+Since 2026-08-30 there is a test suite. Run everything with one command before committing:
 ```
+npm run check              # = npm test + validate-html + check-db-parity
+```
+Individually:
+```
+npm test                   # 82 unit tests over lib/time.js, lib/dns-log.js,
+                           # lib/storage-monitor.js, lib/pppoe-iface.js
 npm run validate-html      # public/index.html: unclosed tags, dup ids, nested forms/modals
-npm run check-db-parity    # db.js vs db-supabase.js exports + arg counts + .catch() on sync db calls
+npm run check-db-parity    # db.js vs db-supabase.js exports + arg counts + .catch() on sync
+                           # db calls (scans server.js, lib/ and scripts/)
 ```
+**Pure logic belongs in `lib/`, not in `server.js`** — anything inside `server.js` cannot be
+unit-tested, because requiring it starts a listener. Date/time handling in particular must go
+through `lib/time.js`; duplicating it across files is what caused the 2026-08-30 wrong-day
+bug, where the fix landed in one copy and the nightly seal kept using the other.
 `validate-html` exists because three unclosed `<div>`s silently nested 8 modals
 inside hidden parents and killed the 1-Click upgrade, coupon renewal, Ctrl+K
 search and 5 other features — with no console error and no visible symptom
@@ -446,6 +457,41 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-30 (3)** — First test suite (`npm test`), and time handling consolidated into
+  one module.
+  - **Why now**: this project has never had tests, and every bug found in the last three
+    days was in a pure function that a test would have caught in seconds — the date-range
+    filter dropping its end day, `query_time` storing insertion time, the DNS dedupe key,
+    `bangkokToday()` returning the previous day. All of them were instead found by reading
+    production data, days or weeks after the damage started.
+  - `lib/time.js` (new) — `bangkokNow`, `bangkokToday`, `shiftDate`, `parseHHMMToMinutes`,
+    `parseUptimeToMs`, `parseRouterOsLogTime`. These existed in `server.js` and
+    `lib/log-archive.js` as separate, subtly different implementations, which is exactly
+    how the seal ended up closing the wrong day while everything else looked fine: the fix
+    went into one copy. Both files now import from here, so there is one definition to get
+    right. `lib/dns-log.js` (new) holds `parseDnsLogMessage` for the same reason — it could
+    not be tested while it lived inside a file that starts a listener on require.
+  - `test/` with a ~40-line zero-dependency runner on `node:assert`. Deliberately no
+    jest/vitest: the root `package.json` is what the VPS installs from, and the standing
+    rule is that it never gains a build dependency. **82 tests**, all derived from bugs that
+    actually happened rather than invented cases — 02:00 and 06:59 Bangkok (the window
+    where the old date logic broke), the December-to-January rollover, `done query:` lines
+    that must not be counted as new queries, a 4 TB disk at 95% that must *not* alert, and
+    PPPoE interface names in every form the routers have produced.
+  - `npm test` and `npm run check` (test + validate-html + check-db-parity) added.
+  - **Verified the suite fails when it should**: re-introducing the original
+    `bangkokToday()` breaks 2 tests, and breaking the DNS parser breaks 3. A suite that
+    only ever passes proves nothing.
+  - After the extraction, confirmed the server still starts clean and 8 endpoints
+    (`/api/sites`, `/api/mikrotik/storage`, `/dns-logging`, `/api/logs`,
+    `/telegram-alert/config`, `/log-archives`, `/line-digest/status`,
+    `/settings/menu-permissions`) all return 200 with no `ReferenceError` in the log.
+  - Sealed the archive the date bug had skipped: **2026-08-29 — 342,109 DNS records and
+    2,213 Hotspot records**, on both VPS and R2 (59 files total). It is also the only full
+    day of DNS data there will be for a while.
+  - Confirmed DNS collection is genuinely stopped: **0 new rows in 8 minutes**, against
+    ~264/minute before.
 
 - **2026-08-30 (2)** — DNS collection switched off on the operator's instruction, and a
   full production audit that found the nightly seal had been closing the wrong day.
