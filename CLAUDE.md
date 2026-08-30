@@ -229,6 +229,13 @@ Do **not** repeat these failures:
   `/interface/wireguard/get ...` result to a `:local` variable can silently
   produce an empty value. Build values inline in the command instead of via
   intermediate `:local` variables when generating RouterOS scripts.
+- **Never remove a WireGuard peer just to re-add it.** `wg set wg0 peer <key>
+  allowed-ips <ip>/32` updates an existing peer in place; removing it first discards
+  its endpoint and handshake, and since the site routers are behind NAT and initiate
+  the connection, the tunnel stays down until the router's next keepalive (minutes).
+  `cleanupVpsPeerByIp(ip, keepPubKey)` therefore skips a peer whose key already
+  matches. This ran on every server start and silently cut A4-Residence on each
+  deploy — see 2026-08-30 (6).
 - **RouterOS script re-runs**: scripts that recreate an interface must
   explicitly remove old peers/addresses first (`/interface/wireguard/peers/
   remove [find]`, `/ip/address/remove [find comment="..."]`) — RouterOS does
@@ -465,6 +472,39 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-30 (6)** — **Every deploy had been cutting A4-Residence's WireGuard tunnel.**
+  Found by the connectivity checker added an hour earlier, on its first real run after a
+  deploy.
+  - **Symptom**: right after a `pm2 reload`, `check-sites` reported A4 as `EHOSTUNREACH`
+    with 100% ping loss, and its `wg0` peer had **no endpoint, no handshake, no transfer**
+    at all. The other two tunnel sites were untouched.
+  - **Cause**: `registerVpsPeer()` always called `cleanupVpsPeerByIp()` first, which removes
+    whatever peer holds that tunnel IP — including the live, working one — and then re-added
+    it. Removing a peer discards its endpoint and handshake state. The routers sit behind
+    NAT and are the side that initiates, so the VPS cannot reach back until the router sends
+    its next keepalive, which took **two to three minutes**.
+  - `syncAllWireguardPeersOnStartup()` runs this on **every** server start, but only for
+    sites that have a `wireguardPublicKey` stored — and **A4-Residence is the only one**.
+    That explains precisely why A4, and only A4, produced repeated "Offline → back online
+    after 1 min" alerts (28 Aug ×2, 30 Aug) while its router uptime ran unbroken for eight
+    weeks. Every one of those alerts was one of our own deploys. The monitor was right; we
+    were the outage.
+  - **Fix**: `wg set wg0 peer <key> allowed-ips <ip>/32` on an existing peer updates it in
+    place and does not touch the endpoint, so there was never a need to remove it first.
+    `cleanupVpsPeerByIp(ip, keepPubKey)` now skips the peer whose key already matches.
+    `/api/wireguard/remove-peer`, which is meant to delete, still calls it without a keep key.
+  - **Verified on production**: captured A4's peer before and after a `pm2 reload` — same
+    endpoint, handshake counter continuing (26 s → 36 s rather than resetting), transfer
+    counters increasing rather than starting from zero, and ping 0% immediately after.
+    Before the fix the same reload left the peer with no endpoint at all.
+  - Also fixed a false alarm in `check-sites.js` itself: it pinged 5 times and flagged any
+    loss above 0%, so a single dropped packet read as "20% loss — มีปัญหา" while the API was
+    answering fine in 410 ms. Now 20 packets, and it only reports a problem above 30%. This
+    is the second false-alarm class removed from this script in an hour; a checker that
+    cries wolf gets ignored, and then the real outage goes unread.
+  - Final state: **all 4 sites healthy at every layer** — 0% loss over 20 packets,
+    10.5–13.4 ms through the tunnels, API logins 207–538 ms.
 
 - **2026-08-30 (5)** — Legacy site names normalised in the logs, WireGuard registration
   tokens persisted, and a per-layer connectivity checker.
