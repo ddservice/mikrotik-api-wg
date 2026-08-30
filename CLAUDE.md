@@ -88,6 +88,13 @@ now covers the legacy page for as long as it exists.
 3. **One page at a time.** `/` keeps serving the old UI until every page has a
    working replacement. Both share the same `localStorage` token, so an
    operator can be logged into both simultaneously during the transition.
+   As of 2026-08-30 `/v2/` covers every daily-use feature (54 of the 74 endpoints
+   `public/app.js` calls). What is left in v1 only: Multi-WAN, the WireGuard
+   setup-script generator, the 5-step diagnostic, the hardened-firewall preset,
+   and bulk voucher generation/printing — all install-day tools, not daily work.
+   **Neither UI is redundant yet**: v1 owns those generators, and v2 alone has the
+   sealed-archive browser, the storage monitor and the DNS on/off switch.
+   Customers and staff are still used to v1, so `/` stays the default.
 4. **Never delete `public/app.js` / `public/index.html`** until all pages are
    migrated *and* clicked through by hand. There is no test suite.
 5. If `frontend/src` changed, run `npm run build:frontend` **before** commit —
@@ -472,6 +479,50 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-30 (7)** — `/v2/` now covers every daily-use feature the old UI has. Nothing in
+  `public/` or `server.js` was touched: v1 is still byte-identical and stays the primary UI.
+  - **How the gap was measured**: extracted every `/api/...` string from `public/app.js` and
+    from `frontend/src/**`, then diffed. The old UI called **74** endpoints, v2 called **39**.
+    Recalling from memory would have missed most of this — several features looked present
+    because a page with the right name existed while the actions inside it did not.
+  - Added, all as new components so nothing existing had to be restructured:
+    - **`RouterOpsPanel.vue`** — a fifth Settings tab. Reboot, config backup, flush DNS, ping
+      test, link-quality test, RouterOS update check, and 1-Click upgrade (reusing
+      `FullUpgradeModal`). Split into "ตรวจสอบ (ไม่กระทบผู้ใช้)" and "คำสั่งที่กระทบผู้ใช้งาน",
+      because a reboot drops every customer in the branch for 1–3 minutes and that must not sit
+      one click away from a read-only ping test.
+    - **`HotspotArchivePanel.vue`** — a third Hotspot tab: deleted/expired coupons with
+      one-click restore back into the router, plus the auto-cleanup switch and the manual
+      "delete expired now" button. The switch lives here on purpose: it is what puts rows in
+      this table, so whoever is asking "why did that coupon disappear" sees both together.
+    - **`ProfileModal.vue`** — create/edit/delete for Hotspot profiles and PPPoE packages,
+      shared by both since the fields largely overlap. v2 could previously only *list* them,
+      so launching a new package meant going back to v1. **This one was missed in my own gap
+      analysis** — the endpoint diff folded it into a group of false positives, and it only
+      surfaced when I checked which HTTP methods v2 actually used against those paths.
+      Worth remembering: "the URL appears somewhere in the code" is not the same as "the
+      feature works".
+    - **`GlobalSearch.vue`** — Ctrl+K / Cmd+K across every site at once, with keyboard
+      navigation and 350 ms debounce (each search opens connections to every branch router,
+      so firing per keystroke is not an option). Selecting a result switches the active site
+      and jumps to the right page.
+    - PPPoE **keepalive-timeout** editing, and LINE **send-now** for both the expiry digest
+      and the multi-site health report. Both send real messages to real customers, so they
+      confirm first and say plainly that this is not a test message.
+  - Result: **74 → 54 endpoints covered**. The 20 still only in v1 are the deliberate
+    install-day tools (Multi-WAN, WireGuard script generation, the 5-step diagnostic, the
+    hardened-firewall preset, bulk voucher generation and printing) plus `/api/sites/switch`,
+    which v2 replaces with the `X-Site-Id` header by design.
+  - Verified against a locally-run server: both `/` and `/v2/` serve, every new route answers
+    (200 where it is database-backed, 500 where it needs a real router — never 404), every one
+    rejects an unauthenticated POST with 401, the v1 endpoints still behave exactly as before,
+    and the server boots with no `ReferenceError`. Router hosts were pointed at `127.0.0.1`
+    for the run and restored afterwards.
+  - **The two UIs have diverged in both directions** and neither can be dropped yet: v1 still
+    owns the install-day generators, while v2 alone has the sealed-archive browser, the
+    storage monitor and the DNS on/off switch. Worth closing that gap before anyone assumes
+    one of them is redundant.
 
 - **2026-08-30 (6)** — **Every deploy had been cutting A4-Residence's WireGuard tunnel.**
   Found by the connectivity checker added an hour earlier, on its first real run after a

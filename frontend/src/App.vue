@@ -14,6 +14,7 @@ import FirewallPage from './components/FirewallPage.vue';
 import AdminsPage from './components/AdminsPage.vue';
 import FullUpgradeModal from './components/FullUpgradeModal.vue';
 import ToastHost from './components/ToastHost.vue';
+import GlobalSearch from './components/GlobalSearch.vue';
 
 const sites = ref([]);
 const upgradeOpen = ref(false);
@@ -21,6 +22,7 @@ const upgradeMode = ref('full');
 const overviewRef = ref(null);
 const loadError = ref('');
 const sidebarOpen = ref(false);
+const searchRef = ref(null);
 
 const loggedIn = computed(() => !!token.value && !!currentUser.value);
 
@@ -84,6 +86,7 @@ const activeSiteName = computed(() => {
 
 <template>
     <ToastHost />
+    <GlobalSearch v-if="loggedIn" ref="searchRef" />
 
     <LoginPage v-if="!loggedIn" @logged-in="onLoggedIn" />
 
@@ -108,6 +111,12 @@ const activeSiteName = computed(() => {
                 </div>
 
                 <div class="spacer"></div>
+
+                <button type="button" class="ghost search" title="ค้นหาทั่วระบบ (Ctrl+K)" @click="searchRef?.show()">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <span class="klabel">ค้นหา</span>
+                    <kbd>Ctrl K</kbd>
+                </button>
 
                 <span class="user">
                     {{ currentUser?.displayName || currentUser?.username }}
@@ -159,6 +168,13 @@ const activeSiteName = computed(() => {
     min-width: 0;
     display: flex;
     flex-direction: column;
+}
+
+.topbar .search { display: flex; align-items: center; gap: 8px; }
+.topbar .search kbd { border: 1px solid var(--v2-border); border-bottom-width: 2px; border-radius: 4px;
+                      padding: 0 5px; font-size: .7rem; font-family: inherit; color: var(--v2-text-muted); }
+@media (max-width: 720px) {
+    .topbar .search .klabel, .topbar .search kbd { display: none; }
 }
 
 .topbar {

@@ -4,11 +4,41 @@ import { apiFetch, activeSiteId } from '../api.js';
 import { formatBytes, formatUptime, parseUptimeToMs } from '../format.js';
 import { toast } from '../toast.js';
 import HotspotUserModal from './HotspotUserModal.vue';
+import HotspotArchivePanel from './HotspotArchivePanel.vue';
+import ProfileModal from './ProfileModal.vue';
 
 const TABS = [
     { key: 'active', label: 'ผู้ใช้ที่กำลังเชื่อมต่อ', icon: 'fa-solid fa-signal' },
-    { key: 'accounts', label: 'บัญชีผู้ใช้ทั้งหมด', icon: 'fa-solid fa-users' }
+    { key: 'accounts', label: 'บัญชีผู้ใช้ทั้งหมด', icon: 'fa-solid fa-users' },
+    { key: 'profiles', label: 'โปรไฟล์ / แพ็กเกจ', icon: 'fa-solid fa-layer-group' },
+    { key: 'archive', label: 'ผู้ใช้ที่ถูกลบ / กู้คืน', icon: 'fa-solid fa-box-archive' }
 ];
+
+// เพิ่ม/แก้/ลบโปรไฟล์ — ใช้ตอนออกแพ็กเกจใหม่หรือปรับความเร็ว
+const profModalOpen = ref(false);
+const editingProfile = ref(null);
+
+function addProfile() { editingProfile.value = null; profModalOpen.value = true; }
+function editProfile(p) { editingProfile.value = p; profModalOpen.value = true; }
+
+async function deleteProfile(p) {
+    const inUse = users.value.filter((u) => u.profile === p.name).length;
+    const lines = [`ลบโปรไฟล์ "${p.name}"?`, ''];
+    if (inUse) {
+        lines.push(`มีผู้ใช้ ${inUse} คนใช้โปรไฟล์นี้อยู่ และจะใช้งานผิดปกติทันที`);
+        lines.push('ควรย้ายผู้ใช้ไปโปรไฟล์อื่นให้หมดก่อนลบ');
+    } else {
+        lines.push('ยังไม่มีผู้ใช้คนไหนใช้โปรไฟล์นี้');
+    }
+    if (!window.confirm(lines.join('\n'))) return;
+    try {
+        await apiFetch('/api/mikrotik/hotspot/profiles/' + encodeURIComponent(p.id), { method: 'DELETE' });
+        toast.success(`ลบโปรไฟล์ "${p.name}" แล้ว`);
+        load({ quiet: true });
+    } catch (err) {
+        toast.error('ลบไม่สำเร็จ: ' + err.message);
+    }
+}
 
 const tab = ref('active');
 
@@ -219,11 +249,13 @@ function quickRenew(u) {
             @click="tab = t.key"
         >
             <i :class="t.icon"></i> {{ t.label }}
-            <span class="count v2-num">{{ t.key === 'active' ? active.length : users.length }}</span>
+            <span v-if="t.key !== 'archive'" class="count v2-num">
+                {{ t.key === 'active' ? active.length : (t.key === 'profiles' ? profiles.length : users.length) }}
+            </span>
         </button>
     </div>
 
-    <div class="toolbar">
+    <div v-if="tab !== 'archive' && tab !== 'profiles'" class="toolbar">
         <div class="search">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input
@@ -311,7 +343,7 @@ function quickRenew(u) {
     </div>
 
     <!-- ===== บัญชีผู้ใช้ทั้งหมด ===== -->
-    <div v-else class="panel">
+    <div v-else-if="tab === 'accounts'" class="panel">
         <div class="note">
             <i class="fa-solid fa-circle-info"></i>
             พิมพ์คูปอง, สร้างคูปองแบบกลุ่ม และคลังคูปองที่ถูกลบ ยังทำที่
@@ -378,6 +410,58 @@ function quickRenew(u) {
         </div>
     </div>
 
+    <!-- ===== โปรไฟล์ / แพ็กเกจ ===== -->
+    <div v-else-if="tab === 'profiles'" class="panel">
+        <div class="pkgbar">
+            <button type="button" class="v2-btn primary" @click="addProfile">
+                <i class="fa-solid fa-plus"></i> เพิ่มโปรไฟล์
+            </button>
+            <span class="sub">โปรไฟล์คือแพ็กเกจความเร็วและเงื่อนไขที่ผูกกับคูปองแต่ละใบ</span>
+        </div>
+        <div class="tablewrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ชื่อโปรไฟล์</th>
+                        <th>ความเร็ว</th>
+                        <th>ใช้พร้อมกัน</th>
+                        <th>Session Timeout</th>
+                        <th>ใช้อยู่</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-if="!profiles.length">
+                        <td colspan="6" class="sub center">ยังไม่มีโปรไฟล์ในสาขานี้</td>
+                    </tr>
+                    <tr v-for="p in profiles" :key="p.id">
+                        <td class="strong">{{ p.name }}</td>
+                        <td class="v2-num">{{ p.rateLimit === 'Unlimited' || !p.rateLimit ? 'ไม่จำกัด' : p.rateLimit }}</td>
+                        <td class="v2-num">{{ p.sharedUsers || 1 }}</td>
+                        <td class="v2-num">{{ p.sessionTimeout || '—' }}</td>
+                        <td class="v2-num sub">{{ users.filter((u) => u.profile === p.name).length }} คน</td>
+                        <td class="rowact">
+                            <button type="button" class="v2-btn ghost sm" title="แก้ไข" @click="editProfile(p)">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <button type="button" class="v2-btn danger sm" title="ลบ" @click="deleteProfile(p)">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ===== ผู้ใช้ที่ถูกลบ / กู้คืน ===== -->
+    <HotspotArchivePanel v-else />
+
+    <ProfileModal
+        :open="profModalOpen" kind="hotspot" :profile="editingProfile"
+        @close="profModalOpen = false" @saved="load({ quiet: true })"
+    />
+
     <HotspotUserModal
         :open="editorOpen"
         :user="editing"
@@ -388,6 +472,10 @@ function quickRenew(u) {
 </template>
 
 <style scoped>
+.pkgbar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.rowact { display: flex; gap: 6px; }
+.center { text-align: center; }
+
 .head {
     display: flex;
     justify-content: space-between;

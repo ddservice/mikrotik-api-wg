@@ -3,12 +3,14 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { apiFetch, activeSiteId, setActiveSiteId } from '../api.js';
 import { toast } from '../toast.js';
 import SiteModal from './SiteModal.vue';
+import RouterOpsPanel from './RouterOpsPanel.vue';
 
 const TABS = [
     { key: 'sites', label: 'สาขา / เราท์เตอร์', icon: 'fa-solid fa-network-wired' },
     { key: 'telegram', label: 'แจ้งเตือนแอดมิน (Telegram)', icon: 'fa-brands fa-telegram' },
     { key: 'line', label: 'แจ้งเตือนลูกค้า (LINE OA)', icon: 'fa-brands fa-line' },
-    { key: 'storage', label: 'พื้นที่เก็บข้อมูล', icon: 'fa-solid fa-hard-drive' }
+    { key: 'storage', label: 'พื้นที่เก็บข้อมูล', icon: 'fa-solid fa-hard-drive' },
+    { key: 'ops', label: 'จัดการเราท์เตอร์', icon: 'fa-solid fa-screwdriver-wrench' }
 ];
 
 const tab = ref('sites');
@@ -179,6 +181,39 @@ async function saveLine() {
             })
         });
         toast.success('บันทึกการตั้งค่า LINE ของสาขานี้แล้ว');
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        lineBusy.value = '';
+    }
+}
+
+// ส่งของจริงออกไปหาลูกค้า ไม่ใช่ข้อความทดสอบ จึงถามยืนยันก่อน
+async function runDigestNow() {
+    const sid = lineSiteId.value || activeSiteId.value;
+    const site = sites.value.find((s) => s.id === sid);
+    if (!window.confirm(
+        `ส่งสรุปวันหมดอายุของสาขา "${site ? site.name : sid}" เข้า LINE เดี๋ยวนี้?\n\n` +
+        'ข้อความจะไปถึงกลุ่ม/ผู้ใช้ที่ตั้งค่าไว้จริง ไม่ใช่ข้อความทดสอบ'
+    )) return;
+    lineBusy.value = 'digest';
+    try {
+        const r = await apiFetch('/api/mikrotik/line-digest/run-now?siteId=' + encodeURIComponent(sid), { method: 'POST' });
+        toast.success(r.message || 'ส่งสรุปวันหมดอายุแล้ว');
+        loadLine();
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        lineBusy.value = '';
+    }
+}
+
+async function runHealthNow() {
+    if (!window.confirm('ส่งรายงานสุขภาพรวมทุกสาขาเข้า LINE เดี๋ยวนี้?')) return;
+    lineBusy.value = 'health';
+    try {
+        const r = await apiFetch('/api/mikrotik/line-health/run-now', { method: 'POST' });
+        toast.success(r.message || 'ส่งรายงานสุขภาพแล้ว');
     } catch (err) {
         toast.error(err.message);
     } finally {
@@ -555,12 +590,20 @@ onMounted(async () => {
                 <button type="button" class="v2-btn ghost" :disabled="lineBusy === 'test'" @click="testLine">
                     <i class="fa-brands fa-line"></i> ส่งข้อความทดสอบ
                 </button>
+                <button type="button" class="v2-btn ghost" :disabled="lineBusy === 'digest'" @click="runDigestNow">
+                    <i class="fa-solid" :class="lineBusy === 'digest' ? 'fa-spinner fa-spin' : 'fa-paper-plane'"></i>
+                    ส่งสรุปวันหมดอายุทันที
+                </button>
+                <button type="button" class="v2-btn ghost" :disabled="lineBusy === 'health'" @click="runHealthNow">
+                    <i class="fa-solid" :class="lineBusy === 'health' ? 'fa-spinner fa-spin' : 'fa-heart-pulse'"></i>
+                    ส่งรายงานสุขภาพทุกสาขา
+                </button>
             </div>
         </div>
     </template>
 
     <!-- ================= พื้นที่เก็บข้อมูล ================= -->
-    <template v-else>
+    <template v-else-if="tab === 'storage'">
         <div class="bar">
             <button type="button" class="v2-btn ghost" :disabled="stBusy === 'load'" @click="loadStorage">
                 <i class="fa-solid" :class="stBusy === 'load' ? 'fa-spinner fa-spin' : 'fa-rotate'"></i> ตรวจใหม่
@@ -769,6 +812,11 @@ onMounted(async () => {
                 </template>
             </div>
         </template>
+    </template>
+
+    <!-- ================= จัดการเราท์เตอร์ ================= -->
+    <template v-else>
+        <RouterOpsPanel />
     </template>
 
     <SiteModal :open="siteModalOpen" :site="editingSite" @close="siteModalOpen = false" @saved="loadSites" />

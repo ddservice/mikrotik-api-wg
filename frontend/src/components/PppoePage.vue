@@ -2,6 +2,69 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { apiFetch, activeSiteId } from '../api.js';
 import { formatBytes, formatUptime, formatLastSeen } from '../format.js';
+import { toast } from '../toast.js';
+import ProfileModal from './ProfileModal.vue';
+
+// ค่า keepalive ของ PPPoE server — ใช้ตอนห้องไหนไฟดับแล้วตัดไม่สะอาด
+// เซสชันจะค้างอยู่จนกว่าเราท์เตอร์จะตรวจเจอว่าปลายทางตายแล้ว ค่านี้คุมว่านานแค่ไหน
+const srv = ref(null);
+const srvKeepalive = ref('');
+const srvBusy = ref('');
+
+async function loadServerSettings() {
+    srvBusy.value = 'load';
+    try {
+        const r = await apiFetch('/api/mikrotik/pppoe/server-settings');
+        srv.value = r && r.id ? r : null;
+        srvKeepalive.value = (r && r.keepaliveTimeout) || '';
+    } catch (err) {
+        srv.value = null;
+        toast.error('อ่านค่า PPPoE Server ไม่ได้: ' + err.message);
+    } finally {
+        srvBusy.value = '';
+    }
+}
+
+async function saveServerSettings() {
+    const v = String(srvKeepalive.value || '').trim();
+    if (!v) return toast.error('กรุณาระบุค่า Keepalive Timeout');
+    srvBusy.value = 'save';
+    try {
+        await apiFetch('/api/mikrotik/pppoe/server-settings', {
+            method: 'PUT',
+            body: JSON.stringify({ keepaliveTimeout: v })
+        });
+        toast.success('บันทึกค่า Keepalive แล้ว');
+        loadServerSettings();
+    } catch (err) {
+        toast.error(err.message);
+    } finally {
+        srvBusy.value = '';
+    }
+}
+
+// เพิ่ม/แก้/ลบแพ็กเกจ — ใช้ตอนออกแพ็กเกจใหม่หรือปรับความเร็ว
+const pkgModalOpen = ref(false);
+const editingPkg = ref(null);
+
+function addPackage() { editingPkg.value = null; pkgModalOpen.value = true; }
+function editPackage(p) { editingPkg.value = p; pkgModalOpen.value = true; }
+
+async function deletePackage(p) {
+    if (!window.confirm([
+        `ลบแพ็กเกจ "${p.name}"?`,
+        '',
+        'ห้องที่ใช้แพ็กเกจนี้อยู่จะใช้งานผิดปกติทันที',
+        'ควรย้ายห้องไปแพ็กเกจอื่นให้หมดก่อนลบ'
+    ].join('\n'))) return;
+    try {
+        await apiFetch('/api/mikrotik/pppoe/profiles/' + encodeURIComponent(p.id), { method: 'DELETE' });
+        toast.success(`ลบแพ็กเกจ "${p.name}" แล้ว`);
+        load({ quiet: true });
+    } catch (err) {
+        toast.error('ลบไม่สำเร็จ: ' + err.message);
+    }
+}
 
 const TABS = [
     { key: 'active', label: 'สถานะออนไลน์', icon: 'fa-solid fa-signal' },
@@ -282,7 +345,38 @@ async function kick(session) {
     </div>
 
     <!-- ===== แพ็กเกจ ===== -->
-    <div v-else class="panel">
+    <!-- ค่า Keepalive ของ PPPoE Server — วางไว้กับแพ็กเกจเพราะเป็นการตั้งค่าฝั่งเซิร์ฟเวอร์เหมือนกัน -->
+    <div v-else class="panel srvpanel">
+        <div class="ptitle"><i class="fa-solid fa-plug-circle-bolt"></i> การตั้งค่า PPPoE Server</div>
+        <div class="sub">
+            เมื่อห้องไหนไฟดับหรือถอดสายโดยไม่ตัดการเชื่อมต่อให้เรียบร้อย เซสชันจะค้างอยู่
+            จนกว่าเราท์เตอร์จะตรวจเจอว่าปลายทางไม่ตอบแล้ว ค่านี้คือระยะเวลารอนั้น
+            (ค่าที่ใช้กันทั่วไปคือ <code>10</code> วินาที)
+        </div>
+        <div class="srvrow">
+            <button type="button" class="v2-btn ghost" :disabled="srvBusy === 'load'" @click="loadServerSettings">
+                <i class="fa-solid" :class="srvBusy === 'load' ? 'fa-spinner fa-spin' : 'fa-rotate'"></i> อ่านค่าจากเราท์เตอร์
+            </button>
+            <template v-if="srv">
+                <span class="sub">อินเทอร์เฟซ <strong>{{ srv.interfaceName || '—' }}</strong>
+                    · service <strong>{{ srv.serviceName || '—' }}</strong></span>
+                <input v-model="srvKeepalive" class="v2-input ka" placeholder="10">
+                <button type="button" class="v2-btn primary" :disabled="srvBusy === 'save'" @click="saveServerSettings">
+                    <i class="fa-solid" :class="srvBusy === 'save' ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i> บันทึก
+                </button>
+            </template>
+            <span v-else-if="srvBusy !== 'load'" class="sub">
+                กด "อ่านค่าจากเราท์เตอร์" เพื่อดูและแก้ค่า (สาขานี้ต้องตั้ง PPPoE Server ไว้แล้ว)
+            </span>
+        </div>
+    </div>
+
+    <div v-if="tab === 'packages'" class="panel">
+        <div class="pkgbar">
+            <button type="button" class="v2-btn primary" @click="addPackage">
+                <i class="fa-solid fa-plus"></i> เพิ่มแพ็กเกจ
+            </button>
+        </div>
         <div class="tablewrap">
             <table>
                 <thead>
@@ -291,6 +385,7 @@ async function kick(session) {
                         <th>ความเร็ว (Rate Limit)</th>
                         <th>Local Address</th>
                         <th>Remote Address / Pool</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -302,14 +397,34 @@ async function kick(session) {
                         <td class="v2-num">{{ p.rateLimit === 'Unlimited' ? 'ไม่จำกัด' : p.rateLimit }}</td>
                         <td class="v2-num">{{ p.localAddress || '—' }}</td>
                         <td class="v2-num">{{ p.remoteAddress || '—' }}</td>
+                        <td class="rowact">
+                            <button type="button" class="v2-btn ghost sm" title="แก้ไข" @click="editPackage(p)">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <button type="button" class="v2-btn danger sm" title="ลบ" @click="deletePackage(p)">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
                     </tr>
                 </tbody>
             </table>
         </div>
     </div>
+    <ProfileModal
+        :open="pkgModalOpen" kind="pppoe" :profile="editingPkg"
+        @close="pkgModalOpen = false" @saved="load({ quiet: true })"
+    />
 </template>
 
 <style scoped>
+.pkgbar { margin-bottom: 12px; }
+.rowact { display: flex; gap: 6px; }
+.srvpanel { margin-bottom: 16px; }
+.ptitle { font-weight: 600; font-size: .9rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.srvrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.srvrow .ka { max-width: 110px; }
+code { background: var(--v2-primary-soft); padding: 1px 5px; border-radius: 4px; }
+
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .head h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
 .head p { margin: 3px 0 0; font-size: .85rem; color: var(--v2-text-muted); }
