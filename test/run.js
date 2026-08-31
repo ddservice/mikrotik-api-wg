@@ -13,6 +13,7 @@
  * ใช้: npm test
  */
 
+const fs = require('fs');
 const path = require('path');
 
 let passed = 0;
@@ -35,18 +36,23 @@ function it(name, fn) {
 global.describe = describe;
 global.it = it;
 
-const FILES = [
-    'time.test.js',
-    'dns-log.test.js',
-    'storage-monitor.test.js',
-    'pppoe-iface.test.js',
-    'session-store.test.js',
-    'dns-log-store.test.js',
-    'site-diagnostics.test.js',
-    'routeros-errors.test.js'
-];
+// สแกนไฟล์เทสต์เอง ไม่ใช้รายชื่อตายตัว
+//
+// เดิมเป็นรายชื่อ hardcode ผลคือเพิ่มไฟล์เทสต์ใหม่แล้วมันถูกข้ามเงียบ ๆ
+// จำนวนเทสต์ยังขึ้นเท่าเดิม ดูผ่านหมดทุกอย่าง ทั้งที่ของใหม่ไม่ได้ถูกรันเลย —
+// เป็นความล้มเหลวแบบเดียวกับที่เจอมาแล้วหลายรอบในโปรเจกต์นี้ คือสิ่งที่ควรทำงาน
+// แต่ไม่มีใครตรวจว่ามันทำงานจริง
+const FILES = fs.readdirSync(__dirname)
+    .filter((f) => f.endsWith('.test.js'))
+    .sort();
+
+if (FILES.length === 0) {
+    console.error('ไม่พบไฟล์เทสต์เลย — น่าจะผิดปกติ');
+    process.exit(1);
+}
 
 console.log('=== ชุดทดสอบ MikroTik Dashboard ===');
+console.log(`พบไฟล์เทสต์ ${FILES.length} ไฟล์`);
 FILES.forEach((f) => require(path.join(__dirname, f)));
 
 (async () => {

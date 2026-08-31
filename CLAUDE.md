@@ -18,8 +18,9 @@ cannot write to `/root/` or `/var/log/`.
 ## Product direction (stable long-term)
 
 **Backend stays Express (`server.js`) forever. Frontend is migrating to
-Vue 3 + Vite, page by page.** Do **not** cut over production to Next.js
-App Router — that stays dead (`src/DO_NOT_DEPLOY.md`).
+Vue 3 + Vite, page by page.** The Next.js App Router experiment is **gone** —
+`src/` was deleted 2026-08-31 (recoverable from git history at tag
+`pre-rewrite-express-2026-08-13` if anyone ever needs it). Do not resurrect it.
 
 Handoff model for future developers:
 - Backend entry: `server.js` (Express) — 97 JSON REST routes, Bearer-token auth
@@ -488,6 +489,46 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-08-31 (2)** — Deleted the dead Next.js `src/`; made the Multi-WAN Apply button stop lying.
+  - **`src/` removed** (38 tracked files). It was the abandoned 2026-08-12/13 App Router
+    experiment, marked `DO_NOT_DEPLOY.md` and documented as permanently dead. The only
+    remaining reference anywhere in the codebase was a **comment** in `server.js` pointing
+    at `src/lib/db.ts` for the placeholder-Supabase rule; that comment now states the rule
+    itself instead of pointing at a file that no longer exists. Git history keeps the code,
+    so nothing is lost — what is gained is that a reader no longer has to work out which of
+    two full-stack implementations is the real one. `package.json` stopped installing
+    Next/React back on 2026-07-29, so this removes no dependency and changes no runtime path.
+    Verified after deletion: `node -c server.js`, 152 tests, DB parity, and a clean
+    `npm run build:frontend`.
+  - **`POST /api/multiwan/apply` reported `สำเร็จ!` for work it did not do.** It applies four
+    things (routing tables, host-check routes, NAT, connection tracking) but **not PCC
+    (the load balancing itself) and not the failover routes** — the two sections that are the
+    entire point of Multi-WAN. An operator following the UI would believe traffic was being
+    balanced across both lines when nothing was balancing anything.
+    - It now returns `partial: true`, a message naming only what was actually applied, and a
+      `pending` list naming what was not, with the reason: PCC and failover **overwrite
+      existing mangle/route rules**, and getting them wrong takes the whole site off the
+      internet with no way to fix it remotely. Those stay in the generated script, which a
+      human reads before pasting.
+    - **Added a pre-flight check.** Every WAN's interface name is verified against
+      `/interface/print` *before* the first write. RouterOS accepts rules referencing a
+      non-existent interface without complaint, so a typo previously produced a dead route
+      and a success message — the hardest possible thing to diagnose during an outage. On
+      mismatch it returns `400` with `preflight: true`, lists the interfaces that do exist,
+      and **has not touched the router at all**.
+    - Errors now go through `rosErrors.explain()` with a new `multiwan` policy hint
+      (`write`, `policy`), matching what was done for upgrade/ping/backup on 2026-08-31.
+  - **`test/run.js` used a hardcoded file list, so new test files were silently skipped.**
+    `routeros-errors-multiwan.test.js` was added and the suite still reported the same 152
+    passing — everything green, the new tests never run. Now it scans `test/` for
+    `*.test.js` and prints the file count, and exits non-zero if it finds none. This is the
+    same failure shape as the DNS logging that was off for 50 days and the archive table that
+    never existed: something that appears to work because nothing verifies that it does.
+    **154 tests** now (9 files).
+  - Not changed: no site currently uses Multi-WAN (all four are single-WAN, zero PCC rules,
+    config still at placeholder defaults), so none of this alters live behaviour. And v2 still
+    has no Multi-WAN page on purpose — see the migration note below.
 
 - **2026-08-31 (3)** — `/v2/` can now onboard a new site and troubleshoot a broken one on
   its own. Diagnostic logic that existed in three places is now one module.

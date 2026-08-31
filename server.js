@@ -19,7 +19,8 @@ const rosErrors = require('./lib/routeros-errors');
 const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
-// Ignore placeholder Supabase env (YOUR_PROJECT_ID) — same rule as src/lib/db.ts.
+// Ignore placeholder Supabase env (YOUR_PROJECT_ID) — loading them would silently
+// fall back to Local JSON while looking configured (incident 2026-08-13).
 // Uncommented placeholders in ecosystem.config.js must NOT select db-supabase.
 const _supabaseUrl = process.env.SUPABASE_URL || '';
 const _supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
@@ -1057,6 +1058,28 @@ app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, 
         const result = await executeOnRouter(req, async (client) => {
             const logs = [];
 
+            // 0. ตรวจก่อนสั่ง — ชื่อ interface ที่กรอกต้องมีอยู่จริงบนเราท์เตอร์
+            //
+            // ถ้าไม่ตรวจ RouterOS จะรับ mangle/route ที่อ้าง interface ที่ไม่มีอยู่ไว้เฉย ๆ
+            // แล้วเส้นทางนั้นก็ตายเงียบ ๆ โดยที่หน้าจอขึ้นว่าสำเร็จ ซึ่งเป็นอาการที่
+            // หาสาเหตุยากที่สุดเวลาอินเทอร์เน็ตสาขาล่ม
+            const existing = await client.exec('/interface/print');
+            const names = new Set(existing.map((i) => String(i.name || '')).filter(Boolean));
+            const missing = wans
+                .map((w) => w.interface)
+                .filter((n) => n && !names.has(n));
+            if (missing.length > 0) {
+                const err = new Error(
+                    `ไม่มี interface ชื่อ ${missing.join(', ')} บนเราท์เตอร์ตัวนี้ — ` +
+                    `ยังไม่ได้สั่งอะไรลงไปเลย
+` +
+                    `interface ที่มีจริง: ${[...names].join(', ')}`
+                );
+                err.preflight = true;
+                throw err;
+            }
+            logs.push(`ตรวจชื่อ interface ครบ ${wans.length} สาย`);
+
             // 1. Check & Add Routing Tables (RouterOS v7)
             try {
                 const tables = await client.exec('/routing/table/print');
@@ -1126,10 +1149,32 @@ app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, 
             return logs;
         });
 
-        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN อัตโนมัติ', `บังคับใช้การตั้งค่า Multi-WAN (${wans.length} สาย) ลงบนเราท์เตอร์เรียบร้อยแล้ว`);
-        res.json({ success: true, message: `ตั้งค่าและบังคับใช้ Multi-WAN (${wans.length} สาย) ลงบนเราท์เตอร์สำเร็จ!`, logs: result });
+        // ปุ่มนี้ลงให้เฉพาะชั้นเตรียมพื้น ไม่ได้ลง PCC กับ failover ซึ่งเป็นตัวกระจายโหลด
+        // และตัวสลับสายจริง ๆ — ของสองอย่างนั้นเขียนทับ mangle/route ที่มีอยู่เดิม
+        // ถ้าพลาดคือสาขาหลุดเน็ตทั้งสาขาและกู้จากระยะไกลไม่ได้ จึงให้ผ่านสคริปต์
+        // ที่คนดูก่อนวางได้เท่านั้น (ดูหัวข้อ Multi-WAN ใน CLAUDE.md)
+        const pending = [
+            'กระจายโหลด PCC (mangle mark-connection / mark-routing)',
+            'เส้นทางสำรองอัตโนมัติ (failover routes + check-gateway)'
+        ];
+        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN (ชั้นเตรียมพื้น)',
+            `ลงตารางเส้นทาง/NAT/conntrack ให้ ${wans.length} สาย — ยังไม่ได้ลง PCC และ failover`);
+        res.json({
+            success: true,
+            partial: true,
+            message: `ลงชั้นเตรียมพื้นให้ ${wans.length} สายแล้ว (ตารางเส้นทาง, NAT, Connection Tracking)`,
+            pending,
+            pendingNote: 'ยังใช้กระจายโหลดไม่ได้จนกว่าจะรันสคริปต์เต็มจากปุ่ม "สร้างสคริปต์" ' +
+                         'ซึ่งมีทั้ง PCC และเส้นทางสำรอง — จงใจให้คนดูก่อนวางเอง เพราะสองส่วนนี้' +
+                         'เขียนทับกฎเดิม ถ้าผิดคือสาขาหลุดเน็ตและกู้จากระยะไกลไม่ได้',
+            logs: result
+        });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        // ตกม้าตายตอนตรวจ = ยังไม่ได้แตะเราท์เตอร์เลย ต้องบอกให้ชัดว่าปลอดภัย
+        if (e && e.preflight) {
+            return res.status(400).json({ error: e.message, preflight: true });
+        }
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
     }
 });
 
