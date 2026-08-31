@@ -437,6 +437,25 @@ setInterval(() => {
 }, 15000);
 
 // Router connection runner helper — strictly enforces user site permissions with Connection Pooling
+/**
+ * สาขาที่ request นี้กำลังพูดถึง
+ *
+ * แยกออกมาเป็นฟังก์ชันเพราะมีที่อื่นต้องรู้คำตอบเดียวกันกับที่ executeOnRouter ใช้
+ * (เช่นตอนจะเอาชื่อสาขาไปใส่ในข้อความแจ้งเตือน) ถ้าเขียนซ้ำสองที่แล้ววันหนึ่ง
+ * ตรรกะขยับ ข้อความแจ้งเตือนจะระบุสาขาผิดโดยไม่มีอะไรฟ้อง
+ *
+ * ผู้ใช้ที่ถูกล็อกไว้กับสาขาเดียวจะเลือกสาขาอื่นไม่ได้ ไม่ว่าจะส่งอะไรมา
+ */
+function resolveSiteIdFromReq(req, explicitSiteId) {
+    if (!req || typeof req !== 'object') return null;
+    if (req.user && req.user.role !== 'admin' &&
+        req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
+        return req.user.assignedSiteId;
+    }
+    return explicitSiteId || req.query?.siteId || req.body?.siteId ||
+           req.headers?.['x-site-id'] || null;
+}
+
 async function executeOnRouter(arg1, arg2, arg3) {
     let fn;
     let targetSiteId = null;
@@ -452,12 +471,7 @@ async function executeOnRouter(arg1, arg2, arg3) {
             targetSiteId = arg1;
         } else if (arg1 && typeof arg1 === 'object') {
             // Form: executeOnRouter(req, fn, siteIdParam)
-            const req = arg1;
-            if (req.user && req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') {
-                targetSiteId = req.user.assignedSiteId;
-            } else {
-                targetSiteId = arg3 || req.query?.siteId || req.body?.siteId || req.headers?.['x-site-id'] || null;
-            }
+            targetSiteId = resolveSiteIdFromReq(arg1, arg3);
         }
     } else {
         fn = arg2 || arg1;
@@ -1188,15 +1202,16 @@ app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, 
 
 /** อ่านสภาพจริงจากเราท์เตอร์ ไม่เขียนอะไรเลย */
 async function readMultiWanState(client) {
-    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat] = await Promise.all([
+    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses] = await Promise.all([
         client.exec('/interface/print'),
         client.exec('/interface/pppoe-client/print').catch(() => []),
         client.exec('/ip/dhcp-client/print').catch(() => []),
         client.exec('/ip/route/print'),
         client.exec('/ip/firewall/mangle/print').catch(() => []),
-        client.exec('/ip/firewall/nat/print').catch(() => [])
+        client.exec('/ip/firewall/nat/print').catch(() => []),
+        client.exec('/ip/address/print').catch(() => [])
     ]);
-    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat };
+    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses };
 }
 
 // 1) วิเคราะห์ — อ่านอย่างเดียว ปลอดภัยเสมอ
@@ -1240,12 +1255,30 @@ app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res
             const state = await readMultiWanState(client);
             const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
             const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts });
-            return mwApply.applyFailover({
+            const r = await mwApply.applyFailover({
                 client, plan,
                 rollbackSeconds: Number(rollbackSeconds) || undefined,
                 skipBackup: !!skipBackup
             });
+            // แนบ plan กับคำแนะนำไปด้วย เพื่อประกอบข้อความแจ้งเตือนข้างล่าง
+            return Object.assign(r, { plan, mode: analysis.recommendation.title });
         });
+
+        // แจ้งทีมแอดมินว่าลงอะไรไปบ้าง พร้อม IP ของทุก line
+        //
+        // IP ฝั่ง WAN คือสิ่งแรกที่ต้องใช้เวลาโทรแจ้ง ISP หรือเวลาต้องเปิด port forward
+        // และเป็นสิ่งที่หาจากระยะไกลยากที่สุดถ้าไม่ได้จดไว้ตอนติดตั้ง
+        if (out.success) {
+            const cfgForName = await Promise.resolve(
+                db.getConfig(resolveSiteIdFromReq(req))
+            ).catch(() => null);
+            sendOpsAlert(mwPlan.buildSuccessAlert({
+                siteName: (cfgForName && cfgForName.name) || '-',
+                plan: out.plan,
+                mode: out.mode,
+                checks: out.checks
+            }), 'multiwan').catch(() => { /* แจ้งเตือนล้มเหลวต้องไม่ทำให้การติดตั้งพัง */ });
+        }
 
         db.addLog(req.user.username,
             out.success ? 'ลง Multi-WAN สำรองอัตโนมัติ' : 'ลง Multi-WAN ไม่สำเร็จ (ถอนคืนแล้ว)',
@@ -1253,6 +1286,7 @@ app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res
                 ? `ลงสำเร็จ ${out.applied} ขั้น สำรองไว้ที่ ${out.backupName || '-'}`
                 : `ล้มเหลว: ${out.error} — ถอนคืน ${out.rolledBack ? 'สำเร็จ' : 'ไม่สำเร็จ'}`);
 
+        delete out.plan;   // หน้าเว็บมีแผนอยู่แล้วจากขั้น preview ไม่ต้องส่งซ้ำ
         res.status(out.success ? 200 : 500).json(out);
     } catch (e) {
         res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
@@ -3188,6 +3222,9 @@ async function sendOpsAlert(text, kind) {
         if (kind === 'offline' && cfg.alertOffline === false) return false;
         if (kind === 'online' && cfg.alertOnline === false) return false;
         if (kind === 'storage' && cfg.alertStorage === false) return false;
+        // multiwan ยังไม่มีสวิตช์ในหน้าตั้งค่า จึงส่งเป็นค่าเริ่มต้น
+        // เขียนเป็น === false ไว้ เพื่อให้เพิ่มสวิตช์ทีหลังได้โดยไม่ต้องแก้ตรงนี้
+        if (kind === 'multiwan' && cfg.alertMultiwan === false) return false;
         await sendTelegramMessage(cfg.botToken, cfg.chatId, text);
         return true;
     } catch (e) {
@@ -4507,6 +4544,68 @@ setInterval(async () => {
         console.error('[Storage] ตรวจพื้นที่ไม่สำเร็จ:', e.message || e);
     }
 }, 60000);
+
+// ===================== เฝ้าดูว่าสาขาไหนกำลังวิ่งบน backup line =====================
+//
+// failover ที่ทำงานถูกต้องจะสลับเงียบ ๆ ซึ่งเป็นเรื่องดีตอนเกิดเหตุ แต่แปลว่า
+// สาขาจะวิ่งบน line ที่ช้ากว่าได้เป็นสัปดาห์โดยไม่มีใครรู้ จนลูกค้าบ่นหรือบิลมา
+// ตัวนี้จึงเป็นส่วนที่ทำให้ failover "รู้ตัวได้" ไม่ใช่แค่ "ทำงานได้"
+//
+// 5 นาทีก็พอ — เป็นเรื่องที่ต้องรู้ภายในหลักนาที ไม่ใช่หลักวินาที และการอ่าน
+// route ทุกสาขาถี่กว่านี้เปลืองการเชื่อมต่อโดยไม่ได้ประโยชน์เพิ่ม
+const multiwanState = new Map();   // siteId -> ชื่อ interface ที่ใช้อยู่ครั้งก่อน
+
+setInterval(async () => {
+    try {
+        const sitesData = await db.getSites();
+        const sites = (sitesData && sitesData.sites) || [];
+        for (const site of sites) {
+            if (!site.host || !site.username) continue;
+            try {
+                const active = await executeOnRouter(site.id, async (client) => {
+                    const routes = await client.exec('/ip/route/print');
+                    return mwAnalyze.activeFailoverWan(routes);
+                });
+                if (!active) { multiwanState.delete(site.id); continue; }   // สาขานี้ไม่ได้ลง failover
+
+                const prev = multiwanState.get(site.id);
+                multiwanState.set(site.id, active.interface);
+                if (prev === undefined || prev === active.interface) continue;
+
+                if (!active.isPrimary) {
+                    await sendOpsAlert(
+                        `⚠️ Multi-WAN failover ทำงาน
+` +
+                        `สาขา: ${site.name}
+` +
+                        `สลับจาก ${prev} → ${active.interface} (distance ${active.distance})
+
+` +
+                        `ตอนนี้กำลังใช้ backup line อยู่ ซึ่งมักช้ากว่า line หลัก
+` +
+                        `ควรตรวจว่า line หลักเกิดอะไรขึ้น`, 'multiwan');
+                    db.addLog('system', 'Multi-WAN failover',
+                        `${site.name}: ${prev} → ${active.interface}`);
+                } else {
+                    await sendOpsAlert(
+                        `✅ Multi-WAN กลับมาใช้ line หลัก
+` +
+                        `สาขา: ${site.name}
+` +
+                        `สลับจาก ${prev} → ${active.interface}`, 'multiwan');
+                    db.addLog('system', 'Multi-WAN กลับสู่ line หลัก',
+                        `${site.name}: ${prev} → ${active.interface}`);
+                }
+            } catch (_) {
+                // ติดต่อสาขาไม่ได้เป็นหน้าที่ของตัวเฝ้าระวัง offline ที่มีอยู่แล้ว
+                // ตรงนี้ไม่ต้องเตือนซ้ำ
+            }
+        }
+    } catch (err) {
+        console.warn('[Multi-WAN Monitor]', err.message);
+    }
+}, 300000);
+
 
 
 // Bulk Generate Hotspot Users (Vouchers)

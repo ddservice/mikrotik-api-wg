@@ -490,6 +490,58 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (6)** — Multi-WAN: N-line support, a topology recommender, three fixes to the
+  advice already shipped, and the alerting that makes failover observable. The `/v2/` page now
+  uses English network vocabulary throughout, at the operator's request.
+  - **English terms on that one page only.** Thai renderings of route / distance / gateway /
+    mangle read worse than the originals to anyone who works in WinBox, so the page is Thai
+    prose with English technical nouns. Everything else in the app is unchanged.
+  - **3+ WAN lines are handled properly, not merely tolerated.** `recommend()` now ranks by
+    bandwidth and groups lines that are within 4× of each other. With 500/500/50 it recommends
+    **PCC across the two fast lines and backup-only for the third** rather than dragging the slow
+    line into the load-balance group; with 500/100/50 it recommends plain failover across all
+    three. Distances come out 1/2/3 and each line gets its own check host.
+  - **`POST /api/multiwan/apply` was reporting `สำเร็จ!` for a `Bypass FastTrack` toggle that
+    actively broke PCC.** The rule it emitted was `add chain=prerouting action=accept
+    connection-state=new` — placed first, and `accept` in mangle ends the chain, so every PCC
+    marking rule after it never ran. Turning the option on silently disabled the load balancer it
+    was supposed to help. It now disables the `fasttrack-connection` filter rule, which is the
+    thing that actually conflicts, and the generated script says plainly that this costs
+    throughput on hEX / hAP.
+  - **Two real defects found by running the full cycle, not by reading it:**
+    - `disarm()` matched every scheduler carrying the tag, so committing a successful install
+      **deleted the DHCP-gateway sync schedulers it had just created** — the protection lasted
+      until the moment installation finished. Disarm now matches the rollback scheduler by name;
+      `removeAllSchedulers()` is the one that clears everything, used only by the explicit remove.
+    - The apply route referenced an undefined `siteId` when building the alert, returning
+      `siteId is not defined`. Fixed by extracting `resolveSiteIdFromReq()` and having
+      `executeOnRouter` use the same helper, so the alert can never name a different site than
+      the one that was actually configured.
+  - **Closing the gap I flagged in the previous entry**: a DHCP line's host-check route was
+    pinned to the gateway read at install time, so a lease renewal with a new gateway killed the
+    backup line silently — discoverable only when the primary failed. Each DHCP line now gets a
+    1-minute scheduler that reads the current gateway from `/ip/dhcp-client` and corrects the
+    route. PPPoE needs none: it points at the interface.
+  - **`netwatch` on the primary's check host flushes connection tracking on down.** Failover
+    changes the source address, so established connections are dead but sit in conntrack until
+    they time out (TCP established defaults to an hour). Without this the switch works and users
+    still see a hang for minutes. `netwatch` polls at 5s, far faster than `check-gateway`.
+  - **Telegram now reports what was installed and every line's WAN IP** — type, address, gateway,
+    distance, role and check host per line. The WAN address is the first thing needed when
+    calling the ISP or opening a port, and the hardest thing to recover remotely if it was never
+    written down. A separate 5-minute watcher reports when a site starts running on a backup line
+    and when it returns to primary: a silent failover means a branch can sit on the slow line for
+    weeks before anyone notices.
+  - `activeFailoverWan()` reads which line is actually carrying traffic from the tagged default
+    routes (lowest distance still `active`), and the page shows it as a banner before anything
+    else. `analyzeState` also returns each line's IP, resolved from `local-address` for PPPoE,
+    the DHCP client's own lease, then `/ip/address` as a fallback.
+  - `fake-routeros.js` gained a `3wan` scenario plus `/tool/netwatch` and `/ip/address`.
+    Verified end to end against it: analyze finds 3 lines with correct IPs, the plan comes out at
+    **14 steps**, apply succeeds with all three ping checks passing, exactly one scheduler is
+    removed on commit (the rollback) while both sync schedulers survive, and remove returns the
+    router to `distance 1/1/1` with nothing left behind. 27 new tests (**221 total**).
+
 - **2026-08-31 (5)** — After a successful 1-Click upgrade, closing the modal left the version
   card showing the old version until the operator reloaded the page by hand.
   - **The upgrade itself worked** (reported live: the router came up on 7.23.1). Only the

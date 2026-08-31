@@ -18,6 +18,7 @@ const PORT = Number(process.argv[2]) || 8728;
 const scenarioArg = process.argv.find((a) => a.startsWith('--scenario='));
 const SCENARIO = scenarioArg ? scenarioArg.split('=')[1] : 'a4';
 const PING_WORKS = SCENARIO !== 'a4-broken';
+const THREE_WAN = SCENARIO === '3wan';
 
 // ให้กำหนดเวอร์ชันที่รายงานได้จากบรรทัดคำสั่ง (--version=7.23.1)
 // ใช้จำลองสถานะ "อัปเกรดเสร็จแล้ว" เพื่อดูว่าหน้าจออ่านค่าใหม่จริงหรือยังค้างของเก่า
@@ -39,13 +40,17 @@ const db = {
     pppoeClients: [
         { '.id': '*A', name: 'pppoe-out1', interface: 'ether1', running: 'true',
           disabled: 'false', 'add-default-route': 'yes', 'default-route-distance': '1',
-          user: 'a4user' }
+          user: 'a4user', 'local-address': '101.51.20.33' }
     ],
     dhcpClients: [
         { '.id': '*B', interface: 'ether2', status: 'bound', address: '192.168.1.50/24',
           gateway: '192.168.1.1', disabled: 'false', 'add-default-route': 'yes',
           'default-route-distance': '1' }
-    ],
+    ].concat(THREE_WAN ? [
+        { '.id': '*B2', interface: 'ether3', status: 'bound', address: '192.168.8.100/24',
+          gateway: '192.168.8.1', disabled: 'false', 'add-default-route': 'yes',
+          'default-route-distance': '1' }
+    ] : []),
     routes: [
         { '.id': '*C', 'dst-address': '0.0.0.0/0', gateway: 'pppoe-out1',
           distance: '1', dynamic: 'true', active: 'true' },
@@ -64,7 +69,9 @@ const db = {
     routerboard: [{ 'board-name': 'CCR2004-16G-2S+', model: 'CCR2004-16G-2S+',
                     'current-firmware': VERSION, 'upgrade-firmware': VERSION,
                     'firmware-type': 'tile' }],
-    health: [{ temperature: '42', voltage: '24.1' }]
+    health: [{ temperature: '42', voltage: '24.1' }],
+    netwatch: [],
+    addresses: [{ '.id': '*IP1', address: '192.168.88.1/24', interface: 'bridge-lan' }]
 };
 
 // ---- โปรโตคอล API ของ RouterOS ----
@@ -115,6 +122,8 @@ function handle(cmd, attrs) {
     if (c === '/system/scheduler/print') return reply(db.scheduler);
     if (c === '/system/routerboard/print') return reply(db.routerboard);
     if (c === '/system/health/print') return reply(db.health);
+    if (c === '/tool/netwatch/print') return reply(db.netwatch);
+    if (c === '/ip/address/print') return reply(db.addresses);
 
     if (c === '/system/backup/save') {
         return done([`=ret=${attrs.name || 'backup'}`]);
@@ -141,7 +150,9 @@ function handle(cmd, attrs) {
             '/ip/firewall/mangle': db.mangle,
             '/system/scheduler': db.scheduler,
             '/interface/pppoe-client': db.pppoeClients,
-            '/ip/dhcp-client': db.dhcpClients
+            '/ip/dhcp-client': db.dhcpClients,
+            '/tool/netwatch': db.netwatch,
+            '/ip/address': db.addresses
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 

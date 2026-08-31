@@ -88,17 +88,21 @@ describe('multiwan-apply — ลำดับความปลอดภัย', 
     it('ตัวถอนที่ฝากไว้มีสคริปต์คืนค่าจริง ไม่ใช่ที่ว่างเปล่า', async () => {
         const c = fakeClient();
         await apply.applyFailover({ client: c, plan: makePlan() });
-        const arm = only(c, '/system/scheduler/add')[0];
+        const arm = only(c, '/system/scheduler/add')
+            .find((x) => String(x.args.name || '').includes('rollback'));
         assert.ok(arm.args['on-event'].includes('/ip route remove'));
         assert.ok(arm.args['on-event'].includes('default-route-distance=1'));
         assert.strictEqual(arm.args.interval, '180s');
     });
 
-    it('ผ่านแล้วต้องปลดตัวถอนออก ไม่ทิ้งไว้ให้ถอนของที่ใช้งานอยู่', async () => {
+    it('ผ่านแล้วต้องปลดตัวถอนออก แต่ scheduler ตัวอื่นต้องอยู่ต่อ', async () => {
         const c = fakeClient();
         const r = await apply.applyFailover({ client: c, plan: makePlan() });
         assert.strictEqual(r.success, true);
-        assert.strictEqual(c.schedulers.length, 0, 'ต้องไม่เหลือตัวถอนค้างไว้');
+        assert.ok(!c.schedulers.some((s) => s.name === mwPlan.ROLLBACK_NAME),
+            'ตัวถอนอัตโนมัติต้องถูกปลดหลัง commit');
+        assert.ok(c.schedulers.some((s) => String(s.name).includes('dhcpsync')),
+            'ตัว sync DHCP gateway ต้องอยู่ถาวร ไม่ใช่ถูกเหมาลบตอน commit');
     });
 
     it('ตรวจด้วย ping จากตัวเราท์เตอร์เอง ครบทุกสาย', async () => {
@@ -113,7 +117,11 @@ describe('multiwan-apply — ลำดับความปลอดภัย', 
         const c = fakeClient();
         await apply.applyFailover({ client: c, plan: makePlan(), skipBackup: true });
         assert.strictEqual(only(c, '/system/backup/save').length, 0);
-        assert.strictEqual(only(c, '/system/scheduler/add').length, 1);
+        // scheduler/add ถูกเรียกหลายครั้ง (ตัว rollback + ตัว sync gateway ของ DHCP)
+        // ที่ต้องมีแน่ ๆ คือตัว rollback
+        const arms = only(c, '/system/scheduler/add')
+            .filter((x) => String(x.args.name || '').includes('rollback'));
+        assert.strictEqual(arms.length, 1);
     });
 });
 

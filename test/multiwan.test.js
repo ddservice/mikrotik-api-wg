@@ -99,7 +99,7 @@ describe('multiwan-analyze — เลือกวิธีให้เอง', (
     it('ไม่รู้ความเร็ว = เลือกสำรอง ไม่เดา PCC', () => {
         const r = an.analyzeState(a4State());
         assert.strictEqual(r.recommendation.mode, an.MODE.FAILOVER);
-        assert.ok(r.recommendation.rejected.because.some((b) => b.includes('ยังไม่รู้ความเร็ว')));
+        assert.ok(r.recommendation.rejected.because.some((b) => b.includes('ยังไม่รู้ bandwidth')));
     });
 
     it('สายสำรองช้ากว่ามาก = ปฏิเสธ PCC พร้อมเหตุผลเป็นตัวเลข', () => {
@@ -205,7 +205,7 @@ describe('multiwan-plan — แผนต้องย้อนกลับได�
 
     it('ทำไม่ได้ก็ต้องไม่ยอมสร้างแผน', () => {
         const bad = an.analyzeState(a4State({ dhcpClients: [] }));
-        assert.throws(() => plan.buildFailoverPlan(bad), /ยังทำสำรองไม่ได้/);
+        assert.throws(() => plan.buildFailoverPlan(bad), /ยังทำ failover ไม่ได้/);
     });
 
     it('ของที่เพิ่มทุกชิ้นติดคอมเมนต์กำกับ เพื่อให้ถอนออกได้ครบ', () => {
