@@ -490,6 +490,30 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (7)** — Multi-WAN refuses to start when the API user cannot run `/ping`, and a
+  correction about Cloudflare.
+  - **Connecting two facts already in this file**: the failover verify step pings from the
+    router, `/ping` requires the RouterOS `test` policy, and **three of the four sites do not
+    have it** (found 2026-08-31 while diagnosing the 1-Click upgrade). So applying failover on
+    those sites would have run all 14 steps, failed verification, and rolled everything back —
+    safe, but it disturbs a branch's internet for no reason and looks like a failure of the
+    feature rather than a missing permission.
+  - `applyFailover()` now pings `127.0.0.1` once **before the backup and before arming**, and
+    aborts with `preflight: true` if that comes back as a permission error. Verified against a
+    fixture with the policy withheld: `applied: 0` and **zero** write commands reached the
+    router — no backup, no scheduler, no route, no NAT, no netwatch, no `set`. The message names
+    the missing policy and where to add it, and states that nothing was touched.
+  - A ping that fails for any *other* reason (a genuinely dead line) is deliberately not treated
+    as a permission problem — that is the verify step's decision to make, not the pre-flight's.
+  - **Correction to the deploy advice given in the previous two entries**: purging the Cloudflare
+    cache is **not needed** for this app, and telling the operator to do it was wrong. Measured
+    on the live site: both `/` and `/v2/` return `Cache-Control: no-cache, no-store,
+    must-revalidate` with `cf-cache-status: DYNAMIC`, because `server.js` sets those headers on
+    HTML explicitly. Cloudflare never caches the entry document, so a deploy is visible on the
+    next request. Assets are cached for 4 h but are safe by construction — `/v2/` filenames are
+    content-hashed, and v1 uses `app.js?v=`, which is part of the cache key. A hard refresh is
+    still worth doing to clear the *browser's* copy; the CDN needs nothing.
+
 - **2026-08-31 (6)** — Multi-WAN: N-line support, a topology recommender, three fixes to the
   advice already shipped, and the alerting that makes failover observable. The `/v2/` page now
   uses English network vocabulary throughout, at the operator's request.

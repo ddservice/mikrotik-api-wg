@@ -18,7 +18,9 @@ const PORT = Number(process.argv[2]) || 8728;
 const scenarioArg = process.argv.find((a) => a.startsWith('--scenario='));
 const SCENARIO = scenarioArg ? scenarioArg.split('=')[1] : 'a4';
 const PING_WORKS = SCENARIO !== 'a4-broken';
-const THREE_WAN = SCENARIO === '3wan';
+const THREE_WAN = SCENARIO === '3wan' || SCENARIO === '3wan-notest';
+// จำลองผู้ใช้ API ที่ไม่มีสิทธิ์ test — สภาพจริงของ 3 ใน 4 สาขาตอนนี้
+const NO_TEST_POLICY = SCENARIO.endsWith('notest');
 
 // ให้กำหนดเวอร์ชันที่รายงานได้จากบรรทัดคำสั่ง (--version=7.23.1)
 // ใช้จำลองสถานะ "อัปเกรดเสร็จแล้ว" เพื่อดูว่าหน้าจออ่านค่าใหม่จริงหรือยังค้างของเก่า
@@ -130,6 +132,7 @@ function handle(cmd, attrs) {
     }
 
     if (c === '/ping') {
+        if (NO_TEST_POLICY) return err('not enough permissions (9)');
         const n = Number(attrs.count) || 4;
         const rows = [];
         for (let i = 0; i < n; i++) {

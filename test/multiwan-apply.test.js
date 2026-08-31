@@ -108,7 +108,9 @@ describe('multiwan-apply — ลำดับความปลอดภัย', 
     it('ตรวจด้วย ping จากตัวเราท์เตอร์เอง ครบทุกสาย', async () => {
         const c = fakeClient();
         const r = await apply.applyFailover({ client: c, plan: makePlan() });
-        assert.strictEqual(only(c, '/ping').length, 2);
+        // ping ไป 127.0.0.1 คือขั้นตรวจสิทธิ์ ไม่ใช่การตรวจสาย
+        const probes = only(c, '/ping').filter((x) => x.args.address !== '127.0.0.1');
+        assert.strictEqual(probes.length, 2);
         assert.strictEqual(r.checks.length, 2);
         assert.ok(r.checks.every((x) => x.ok));
     });
@@ -175,9 +177,13 @@ describe('multiwan-apply — พังแล้วต้องถอนคืน
         const orig = c.exec.bind(c);
         c.exec = async (cmd, args) => {
             if (cmd === '/ping') {
+                c.calls.push({ cmd, args });
+                // ping ตรวจสิทธิ์ต้องผ่านเสมอ ไม่นับเป็นการตรวจสาย
+                if (args.address === '127.0.0.1') {
+                    return [{ received: '1' }];
+                }
                 n++;
                 const rep = n === 1 ? 4 : 0;   // สายหลักผ่าน สายสำรองไม่ผ่าน
-                c.calls.push({ cmd, args });
                 return Array.from({ length: 4 }, (_, i) => ({ received: i < rep ? '1' : '0' }));
             }
             return orig(cmd, args);
@@ -274,5 +280,56 @@ describe('multiwan-apply — ถอนด้วยมือทีหลัง', 
         const removedIds = c.calls.filter((x) => x.cmd === '/ip/route/remove')
             .map((x) => x.args['.id']);
         assert.ok(!removedIds.includes('*R3'), 'ห้ามแตะของที่ไม่ใช่ของเรา');
+    });
+});
+
+describe('multiwan-apply — ตรวจสิทธิ์ก่อนแตะเราท์เตอร์', () => {
+    /**
+     * ขั้น verify ใช้ /ping ซึ่งต้องมีสิทธิ์ test
+     * ถ้าไม่ตรวจก่อน จะลงครบทุกขั้นแล้วไปพังตอน verify แล้วถอนคืน —
+     * ปลอดภัยแต่ทำให้เน็ตสาขาสะดุดโดยไม่จำเป็น
+     */
+    function noTestPolicy() {
+        const calls = [];
+        return {
+            calls,
+            async exec(cmd, args = {}) {
+                calls.push({ cmd, args });
+                if (cmd === '/ping') throw new Error('not enough permissions (9)');
+                if (cmd === '/system/scheduler/print') return [];
+                if (cmd.endsWith('/add')) return [{ '.id': '*X1' }];
+                return [];
+            }
+        };
+    }
+
+    it('ไม่มีสิทธิ์ test = หยุดก่อน ไม่เขียนอะไรลงเราท์เตอร์เลย', async () => {
+        const c = noTestPolicy();
+        const r = await apply.applyFailover({ client: c, plan: makePlan() });
+
+        assert.strictEqual(r.success, false);
+        assert.strictEqual(r.preflight, true);
+        assert.strictEqual(r.applied, 0);
+        assert.strictEqual(r.rolledBack, false, 'ไม่มีอะไรให้ถอน เพราะยังไม่ได้ลง');
+
+        const wrote = c.calls.filter((x) =>
+            x.cmd.includes('/add') || x.cmd.includes('/set') || x.cmd.includes('/remove'));
+        assert.strictEqual(wrote.length, 0, 'ห้ามมีคำสั่งเขียนใด ๆ ถูกส่งไป');
+        assert.strictEqual(c.calls.filter((x) => x.cmd.includes('backup')).length, 0);
+    });
+
+    it('บอกสิทธิ์ที่ขาดและวิธีแก้ ไม่ใช่โยนข้อความดิบ', async () => {
+        const r = await apply.applyFailover({ client: noTestPolicy(), plan: makePlan() });
+        assert.ok(r.error.includes('test'), 'ต้องบอกว่าขาดสิทธิ์ test');
+        assert.ok(r.error.includes('WinBox'), 'ต้องบอกว่าไปแก้ที่ไหน');
+        assert.ok(r.error.includes('ยังไม่ได้แตะเราท์เตอร์'), 'ต้องบอกว่ายังปลอดภัยอยู่');
+    });
+
+    it('ping ไม่ผ่านเพราะสายล่ม (ไม่ใช่เรื่องสิทธิ์) ต้องไปต่อ ไม่หยุดที่ preflight', async () => {
+        // สายล่มเป็นเรื่องที่ขั้น verify ต้องเป็นคนตัดสิน ไม่ใช่ตัวตรวจสิทธิ์
+        const c = fakeClient({ pingReplies: 0 });
+        const r = await apply.applyFailover({ client: c, plan: makePlan() });
+        assert.ok(!r.preflight, 'ไม่ควรถูกตีความว่าเป็นปัญหาสิทธิ์');
+        assert.strictEqual(r.rolledBack, true, 'ต้องลงแล้วถอนคืนตามปกติ');
     });
 });
