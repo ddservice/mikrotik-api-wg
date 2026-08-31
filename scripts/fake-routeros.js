@@ -19,6 +19,11 @@ const scenarioArg = process.argv.find((a) => a.startsWith('--scenario='));
 const SCENARIO = scenarioArg ? scenarioArg.split('=')[1] : 'a4';
 const PING_WORKS = SCENARIO !== 'a4-broken';
 
+// ให้กำหนดเวอร์ชันที่รายงานได้จากบรรทัดคำสั่ง (--version=7.23.1)
+// ใช้จำลองสถานะ "อัปเกรดเสร็จแล้ว" เพื่อดูว่าหน้าจออ่านค่าใหม่จริงหรือยังค้างของเก่า
+const verArg = process.argv.find((a) => a.startsWith('--version='));
+const VERSION = verArg ? verArg.split('=')[1] : '7.24.1';
+
 let idSeq = 100;
 const nextId = () => `*${(++idSeq).toString(16).toUpperCase()}`;
 
@@ -53,9 +58,13 @@ const db = {
           'out-interface': 'pppoe-out1', comment: 'NAT หลัก' }
     ],
     scheduler: [],
-    resource: [{ version: '7.24.1', 'board-name': 'CCR2004-16G-2S+', uptime: '8w1d2h13m12s',
+    resource: [{ version: VERSION, 'board-name': 'CCR2004-16G-2S+', uptime: '8w1d2h13m12s',
                  'cpu-load': '3', 'free-memory': '1500000000' }],
-    identity: [{ name: 'A4-Residence-FAKE' }]
+    identity: [{ name: 'A4-Residence-FAKE' }],
+    routerboard: [{ 'board-name': 'CCR2004-16G-2S+', model: 'CCR2004-16G-2S+',
+                    'current-firmware': VERSION, 'upgrade-firmware': VERSION,
+                    'firmware-type': 'tile' }],
+    health: [{ temperature: '42', voltage: '24.1' }]
 };
 
 // ---- โปรโตคอล API ของ RouterOS ----
@@ -104,6 +113,8 @@ function handle(cmd, attrs) {
     if (c === '/ip/firewall/mangle/print') return reply(db.mangle);
     if (c === '/ip/firewall/nat/print') return reply(db.nat);
     if (c === '/system/scheduler/print') return reply(db.scheduler);
+    if (c === '/system/routerboard/print') return reply(db.routerboard);
+    if (c === '/system/health/print') return reply(db.health);
 
     if (c === '/system/backup/save') {
         return done([`=ret=${attrs.name || 'backup'}`]);

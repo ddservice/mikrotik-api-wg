@@ -61,6 +61,15 @@ async function qualityTest() {
     if (r) qualityResult.value = r;
 }
 
+/**
+ * หลังอัปเกรดเสร็จ ผลตรวจอัปเดตเดิมกลายเป็นข้อมูลเก่าทันที
+ * ถ้าปล่อยไว้จะยังขึ้นว่า "มีเวอร์ชันใหม่" ทั้งที่ลงไปแล้ว
+ */
+async function onUpgradeDone() {
+    updateInfo.value = null;
+    await checkUpdate();
+}
+
 async function checkUpdate() {
     updateInfo.value = null;
     const r = await run('update', () => apiFetch('/api/mikrotik/system/update-check'));
@@ -218,7 +227,8 @@ function pingSummary(rows) {
         </div>
     </div>
 
-    <FullUpgradeModal :open="upgradeOpen" :mode="upgradeMode" @close="upgradeOpen = false" />
+    <FullUpgradeModal :open="upgradeOpen" :mode="upgradeMode"
+        @close="upgradeOpen = false" @done="onUpgradeDone" />
 </template>
 
 <style scoped>

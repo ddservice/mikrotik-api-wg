@@ -10,6 +10,20 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'done']);
 
+/**
+ * ปิดโมดัล และถ้าเพิ่งอัปเกรดสำเร็จ ให้บอกข้างนอกรีเฟรชอีกครั้งด้วย
+ *
+ * เดิม 'done' ยิงครั้งเดียวตอนขั้นตอนจบ ซึ่งเป็นจังหวะที่เราท์เตอร์เพิ่งบูตกลับมา
+ * ค่าที่อ่านได้ตอนนั้นจึงอาจยังเป็นของเก่า พอกดปิดก็ไม่มีอะไรอ่านซ้ำ การ์ดเลยค้าง
+ * เวอร์ชันเดิมจนกว่าคนจะรีเฟรชหน้าเอง — ทั้งที่อัปเกรดสำเร็จไปแล้วจริง
+ *
+ * ตอนนี้จังหวะปิดคือจังหวะอ่านซ้ำ ซึ่งห่างจากการบูตมาพอสมควรแล้วโดยธรรมชาติ
+ */
+function requestClose() {
+    if (finished.value) emit('done');
+    emit('close');
+}
+
 const STEPS_FULL = [
     { key: 'ros-install', title: 'ดาวน์โหลด & ติดตั้ง RouterOS Package', desc: 'รอเริ่มคำสั่ง...' },
     { key: 'ros-reboot', title: 'รอเราท์เตอร์รีสตาร์ทเข้า RouterOS ใหม่', desc: 'รอการเริ่มต้นใหม่...' },
@@ -140,7 +154,7 @@ async function start() {
       เกิดซ้ำไม่ได้อีกในเชิงโครงสร้าง ไม่ใช่แค่ "ระวังตอนเขียน"
     -->
     <Teleport to="body">
-        <div v-if="open" class="v2-modal-backdrop" @click.self="!running && emit('close')">
+        <div v-if="open" class="v2-modal-backdrop" @click.self="!running && requestClose()">
             <div class="v2-modal-card">
                 <div class="v2-modal-header">
                     <h4>
@@ -210,7 +224,7 @@ async function start() {
                         type="button"
                         class="btn btn-secondary"
                         :disabled="running"
-                        @click="emit('close')"
+                        @click="requestClose"
                     >ปิด</button>
                     <button
                         v-if="!finished"

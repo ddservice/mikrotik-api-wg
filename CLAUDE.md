@@ -490,6 +490,31 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (5)** — After a successful 1-Click upgrade, closing the modal left the version
+  card showing the old version until the operator reloaded the page by hand.
+  - **The upgrade itself worked** (reported live: the router came up on 7.23.1). Only the
+    display was stale, which is its own kind of bad: the one screen that answers "did it
+    work?" said it had not.
+  - **Two causes, both needed fixing.** `done` was emitted the instant the upgrade sequence
+    finished — the moment the router has just finished rebooting — and that was the *only*
+    refresh. The ปิด button emitted `close` and nothing else, so the natural "read it again
+    now that it's over" moment did nothing at all.
+    - `FullUpgradeModal` now closes through `requestClose()`, which emits `done` first when the
+      run finished. Closing is a good time to re-read precisely because it happens well after
+      the reboot, unlike the completion instant.
+  - **Launching the upgrade from Settings refreshed nothing anywhere.** `RouterOpsPanel` has its
+    own `FullUpgradeModal` instance and listened only to `@close`, so its `updateInfo` kept
+    reporting "there is a new version" after that version had been installed. It now re-runs the
+    update check on `done`.
+  - Verified that the staleness was only in the UI: with a fixture router reporting 7.22.1, the
+    status endpoint returns 7.22.1; after the router comes back reporting 7.23.1, the very same
+    request returns **7.23.1**. So a re-read was always going to be correct — nothing was asking
+    for one. Confirmed both `onDone` handlers and the `finished && emit("done")` guard are
+    present in the emitted bundle, since these are `.vue` files with no unit-test path.
+  - `scripts/fake-routeros.js` gained `/system/routerboard/print` and `/system/health/print`
+    (without them `/api/mikrotik/status` failed outright against the fixture) and a
+    `--version=` flag, which is what made "before upgrade / after upgrade" reproducible at all.
+
 - **2026-08-31 (4)** — Multi-WAN failover, built the way the previous entry said it had to be
   built: read the router first, back up, stay reversible, then act. `/v2/` now has the page;
   v1 is untouched.
