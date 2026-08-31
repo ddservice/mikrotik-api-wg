@@ -75,6 +75,8 @@ const db = {
     netwatch: [],
     filter: [],
     scripts: [],
+    ifaceLists: [],
+    ifaceListMembers: [],
     dns: [{ servers: '203.113.1.1', 'allow-remote-requests': 'false', 'dynamic-servers': '' }],
     dhcpNetworks: [{ '.id': '*N1', address: '192.168.88.0/24', gateway: '192.168.88.1',
                      'dns-server': '203.113.1.1' }],
@@ -136,6 +138,8 @@ function handle(cmd, attrs) {
     if (c === '/ip/firewall/filter/print') return reply(db.filter);
     if (c === '/ip/dns/set') { Object.assign(db.dns[0], attrs); return done(); }
     if (c === '/system/script/print') return reply(db.scripts);
+    if (c === '/interface/list/print') return reply(db.ifaceLists);
+    if (c === '/interface/list/member/print') return reply(db.ifaceListMembers);
     if (c === '/system/script/run') {
         // รันสคริปต์ที่เก็บไว้จริง ๆ เท่าที่จำเป็นต่อการทดสอบการคืนค่า
         const sc = db.scripts.find((x) => x['.id'] === attrs['.id']);
@@ -184,11 +188,17 @@ function handle(cmd, attrs) {
             '/ip/address': db.addresses,
             '/ip/firewall/filter': db.filter,
             '/ip/dhcp-server/network': db.dhcpNetworks,
-            '/system/script': db.scripts
+            '/system/script': db.scripts,
+            '/interface/list': db.ifaceLists,
+            '/interface/list/member': db.ifaceListMembers
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 
         if (op === 'add') {
+            // เลียนแบบ RouterOS: place-before ที่ชี้ไปยังของที่ไม่มีจะ error
+            if (attrs['place-before'] != null && table.length === 0) {
+                return err('no such item (place-before)');
+            }
             const row = Object.assign({ '.id': nextId(), active: 'true' }, attrs);
             table.push(row);
             return done([`=ret=${row['.id']}`]);

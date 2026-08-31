@@ -46,8 +46,13 @@ function fakeClient(o = {}) {
                 throw new Error('เราท์เตอร์ปฏิเสธคำสั่ง (จำลอง)');
             }
             if (cmd === '/system/scheduler/add') {
-                schedulers.push({ '.id': '*S1', name: args.name, comment: args.comment });
-                return [{ '.id': '*S1' }];
+                // ต้องเก็บ on-event ไว้ด้วย เพราะระบบอ่านกลับมาตรวจว่าสคริปต์ครบจริง
+                schedulers.push({
+                    '.id': '*S' + (schedulers.length + 1),
+                    name: args.name, comment: args.comment,
+                    'on-event': args['on-event']
+                });
+                return [{ '.id': '*S' + schedulers.length }];
             }
             if (cmd === '/system/scheduler/print') return schedulers.slice();
             if (cmd === '/system/scheduler/remove') {

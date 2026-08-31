@@ -1219,7 +1219,7 @@ app.post('/api/multiwan/apply', requireAuth(['admin']), async (req, res) => {
 /** อ่านสภาพจริงจากเราท์เตอร์ ไม่เขียนอะไรเลย */
 async function readMultiWanState(client) {
     const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
-           dns, dhcpNetworks, filter] = await Promise.all([
+           dns, dhcpNetworks, filter, ifaceLists, ifaceListMembers] = await Promise.all([
         client.exec('/interface/print'),
         client.exec('/interface/pppoe-client/print').catch(() => []),
         client.exec('/ip/dhcp-client/print').catch(() => []),
@@ -1232,10 +1232,13 @@ async function readMultiWanState(client) {
         // ลูกค้ายังบอกว่าเน็ตไม่ได้
         client.exec('/ip/dns/print').catch(() => []),
         client.exec('/ip/dhcp-server/network/print').catch(() => []),
-        client.exec('/ip/firewall/filter/print').catch(() => [])
+        client.exec('/ip/firewall/filter/print').catch(() => []),
+        // กฎที่อ้าง in-interface-list=WAN จะไม่ทำงานเลยถ้า list นั้นไม่มีอยู่จริง
+        client.exec('/interface/list/print').catch(() => []),
+        client.exec('/interface/list/member/print').catch(() => [])
     ]);
     return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
-             dns, dhcpNetworks, filter };
+             dns, dhcpNetworks, filter, ifaceLists, ifaceListMembers };
 }
 
 // 1) วิเคราะห์ — อ่านอย่างเดียว ปลอดภัยเสมอ
@@ -1267,12 +1270,31 @@ app.post('/api/multiwan/failover/plan', requireAuth(['admin', 'co-admin']), asyn
         });
         res.json({ success: true, ...out });
     } catch (e) {
+        if (e && e.alreadyInstalled) {
+            return res.status(409).json({ error: e.message, alreadyInstalled: true });
+        }
         res.status(400).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
     }
 });
 
+// สาขาที่กำลังลง Multi-WAN อยู่ตอนนี้
+//
+// ถ้าสองคนกดพร้อมกัน ทั้งคู่จะสำรองค่า ฝากตัวถอนคนละตัว แล้วลงเส้นทางซ้ำกัน
+// ผลคือได้ default route ซ้ำ NAT ซ้ำ และตัวถอนสองตัวที่ทำงานทับกัน —
+// สภาพที่แก้ยากกว่าการห้ามตั้งแต่แรกมาก
+const multiwanApplying = new Set();
+
 // 3) ลงจริง — admin เท่านั้น เพราะพลาดแล้วทั้งสาขาหลุด
 app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res) => {
+    const lockKey = resolveSiteIdFromReq(req) || '__active__';
+    if (multiwanApplying.has(lockKey)) {
+        return res.status(409).json({
+            error: 'สาขานี้กำลังมีการติดตั้ง Multi-WAN อยู่ กรุณารอให้เสร็จก่อน — ' +
+                   'การลงซ้อนกันจะทำให้ได้เส้นทางและตัวถอนซ้ำซ้อน ซึ่งแก้ยากกว่ามาก',
+            busy: true
+        });
+    }
+    multiwanApplying.add(lockKey);
     try {
         const { order, checkHosts, speeds, rollbackSeconds, skipBackup, dnsResilience } = req.body || {};
         const out = await executeOnRouter(req, async (client) => {
@@ -1313,7 +1335,12 @@ app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res
         delete out.plan;   // หน้าเว็บมีแผนอยู่แล้วจากขั้น preview ไม่ต้องส่งซ้ำ
         res.status(out.success ? 200 : 500).json(out);
     } catch (e) {
+        if (e && e.alreadyInstalled) {
+            return res.status(409).json({ error: e.message, alreadyInstalled: true });
+        }
         res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    } finally {
+        multiwanApplying.delete(lockKey);
     }
 });
 
@@ -1379,6 +1406,13 @@ app.post('/api/multiwan/pcc/script', requireAuth(['admin']), async (req, res) =>
 
 // 4) ถอนออกทีหลัง — จับจากคอมเมนต์กำกับ ไม่แตะของที่ไม่ใช่ของระบบนี้
 app.post('/api/multiwan/failover/remove', requireAuth(['admin']), async (req, res) => {
+    const lockKey = resolveSiteIdFromReq(req) || '__active__';
+    if (multiwanApplying.has(lockKey)) {
+        return res.status(409).json({
+            error: 'สาขานี้กำลังติดตั้ง Multi-WAN อยู่ ถอนตอนนี้จะชนกัน กรุณารอให้เสร็จก่อน',
+            busy: true
+        });
+    }
     try {
         const out = await executeOnRouter(req, async (client) => {
             const state = await readMultiWanState(client);

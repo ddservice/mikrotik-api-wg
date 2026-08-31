@@ -490,6 +490,39 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (11)** — Deep review of everything built this session. Six real defects, all
+  found by asking "what if the router is not what we assume" rather than by re-reading the code.
+  - **We armed the rollback and never checked it existed.** Two failure modes were invisible:
+    RouterOS may not accept a multi-line `on-event` over the API (storing an empty script), and a
+    scheduler's firing semantics vary by version. Either one leaves the install proceeding with
+    **no safety net while the screen says there is one** — worse than having none and knowing.
+    The scheduler is now read back and its script content checked; on mismatch it aborts before
+    any write and deletes the incomplete entry rather than leaving litter.
+  - **The DNS block rules referenced `in-interface-list=WAN`, which need not exist.** RouterOS
+    accepts a rule naming a list that does not exist and it simply matches nothing — so the
+    router would have been left as an **open DNS resolver while the UI reported it blocked**.
+    That is worse than not offering the feature. The list is now created and populated first when
+    missing, tagged and undoable.
+  - **`place-before=0` errors on an empty filter list.** A router with no firewall rules would
+    have failed the step outright. It is now sent only when rules exist.
+  - **Applying twice stacked everything.** Found by testing concurrency: a few repeated applies
+    produced **30 routes, 5 netwatch entries and 10 schedulers**, and — worse — the second
+    apply recorded the *already-bumped* distance as the "original", so removal could never restore
+    the true value again. `buildFailoverPlan()` now refuses when a tagged install is already
+    present and says to press Remove first, with the reason.
+  - **Two admins could apply at once.** A per-site in-flight lock returns `409`; proven by firing
+    six concurrent requests and seeing four rejected.
+  - **Remove left the interface list behind.** It now removes members before the list (RouterOS
+    refuses otherwise) and touches only tagged entries.
+  - Final full cycle on the fixture, from a clean router: `distance 1/1/1, no resolver, ISP DNS,
+    no WAN list` → apply 23 steps → `10/11/12, resolver on, DHCP hands out the router, WAN list
+    present, active=pppoe-out1` → repeat apply **409** → remove → **every value back exactly**,
+    with `routes 6, nat 2, filter 2, netwatch 1, scheduler 2, scripts 1, listMembers 3, lists 1,
+    dnsRestored true`. 14 new tests (**273 total**).
+  - Still true and unchanged: **none of this has run against a real RouterOS device.** The
+    fixture and the code share an author, so they can share a misunderstanding. Every check added
+    above exists because that limit is real, not because the fixture caught something.
+
 - **2026-08-31 (10)** — DNS resilience, the last open recommendation. Opt-in, default off,
   because it is the only step in the whole feature that changes what customers receive.
   - **The problem it closes**: clients get the primary line's ISP resolver over DHCP. When that
