@@ -490,6 +490,41 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (9)** — Closed the last coherence gap in Multi-WAN, and **corrected a fix that
+  the previous entry claimed was made but was not**.
+  - **The FastTrack fix in 2026-08-31 (6) never landed.** The patch script used a
+    `replace()` with no assertion, the pattern did not match, and it silently changed nothing —
+    while the commit message and the change-log entry both said it was fixed. The broken rule
+    (`add chain=prerouting action=accept connection-state=new`, first in the chain, which ends
+    mangle processing and therefore kills every PCC rule after it) was still being generated.
+    Now genuinely replaced with `/ip firewall filter disable [find action=fasttrack-connection]`,
+    verified by reading the **generated script**: 0 occurrences of the old accept rule, 21 PCC
+    rules present, and the script correctly returns to `/ip firewall mangle` afterwards.
+    **A patch script that cannot fail is not a patch script** — every replacement in this repo's
+    tooling now asserts, and this class of silent no-op is exactly why.
+  - **The system no longer recommends something it cannot do.** `recommend()` could return "PCC
+    across these two lines" while `/v2/` offered only failover, so the advice dead-ended.
+    `/v2/` now has a PCC section that computes the weights from the measured bandwidth and
+    produces the full script for the operator to paste. **Deliberately no Apply button**: PCC
+    must overwrite mangle and give up FastTrack, and that trade belongs to a person, not a
+    button — unlike failover, which never touches the traffic path.
+  - `lib/pcc-weights.js` (new) — `gcd` and `pccWeights` moved out of `public/app.js`, where they
+    were untestable and unreachable from v2.
+    - **Bug found by running it, not by reading it**: 500/500/50 produced weights of **9:10:1** —
+      two identical lines given different shares — because the old reduction trimmed the largest
+      value one at a time. It now divides every line by the same number, which preserves equality
+      by construction. Same input now yields 10:10:1.
+    - The cap on total weight exists because PCC emits one mangle rule per unit of ratio: 997:31
+      would be 1,028 rules evaluated on every packet. It reduces to 31:1 (ratio 32.2 → 31.0).
+  - **The failover monitor now survives a restart.** Its per-site state was in memory, so a
+    `pm2 reload` landing during a failover meant the next tick treated the backup line as the
+    baseline and never alerted — losing exactly the event the monitor exists to catch. Persisted
+    to `db/multiwan-state.json` (gitignored, mode 0600, temp-file + rename), written only when a
+    site's active line actually changes rather than every 5-minute tick.
+  - 13 new tests (**241 total**). Verified end to end against the 3-WAN fixture through real
+    HTTP: missing bandwidth returns `needSpeeds` instead of guessing, weights come out 10:10:1,
+    and the generated script contains the corrected FastTrack handling.
+
 - **2026-08-31 (8)** — Deployed and verified; then a review of the new code found three things
   worth fixing before anyone runs it on a live branch.
   - **Deploy confirmed from outside**: the bundle hash served by the VPS matches the local build

@@ -19,6 +19,7 @@ const rosErrors = require('./lib/routeros-errors');
 const mwAnalyze = require('./lib/multiwan-analyze');
 const mwPlan = require('./lib/multiwan-plan');
 const mwApply = require('./lib/multiwan-apply');
+const pccWeights = require('./lib/pcc-weights');
 const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
@@ -1008,7 +1009,19 @@ app.post('/api/multiwan/generate-script', requireAuth(['admin', 'co-admin']), as
 
         script += `\n# 4. Mangle: FastTrack Bypass, Sticky HTTPS, PBR, Weighted PCC\n/ip firewall mangle\n`;
         if (cfg.fasttrackBypass) {
-            script += `add chain=prerouting action=accept connection-state=new comment="Bypass FastTrack"\n`;
+            // กฎเดิมคือ `add chain=prerouting action=accept connection-state=new` ซึ่งผิด:
+            // action=accept ใน mangle หยุดประมวลผล chain นั้นทันที กฎที่เหลือทั้งหมด
+            // (Sticky 443, PBR และ PCC) จึงไม่เคยทำงาน = เปิดปุ่มนี้แล้วโหลดบาลานซ์ตาย
+            //
+            // สิ่งที่ต้องทำจริงคือกันไม่ให้ connection ถูก fasttrack ใน chain forward
+            // เพราะแพ็กเก็ตที่ fasttrack แล้วจะข้าม mangle ทำให้ routing mark ไม่ถูกใช้
+            // แลกมาด้วย throughput ที่ลดลงชัดเจนบน hEX / hAP ซึ่งพึ่ง FastTrack มาก
+            script += `/ip firewall filter\n`;
+            script += `# PCC ใช้ร่วมกับ FastTrack ไม่ได้ — แพ็กเก็ตที่ fasttrack แล้วจะข้าม mangle\n`;
+            script += `# ทำให้ routing mark ไม่ถูกใช้ และ traffic รั่วออก main table\n`;
+            script += `# ผลข้างเคียง: throughput ลดลงชัดเจนบน hEX / hAP\n`;
+            script += `disable [find action=fasttrack-connection]\n`;
+            script += `/ip firewall mangle\n`;
         }
         script += `add chain=prerouting protocol=tcp dst-port=443 connection-state=new dst-address-type=!local in-interface-list=!WAN action=mark-connection new-connection-mark=HTTPS_STICKY passthrough=yes comment="Sticky 443"\n\n`;
 
@@ -1292,6 +1305,66 @@ app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res
         delete out.plan;   // หน้าเว็บมีแผนอยู่แล้วจากขั้น preview ไม่ต้องส่งซ้ำ
         res.status(out.success ? 200 : 500).json(out);
     } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+
+// PCC: คำนวณสัดส่วนจาก bandwidth จริง แล้วสร้างสคริปต์ให้คนเอาไปวางเอง
+//
+// จงใจไม่มีปุ่ม apply สำหรับ PCC — ต่างจาก failover ตรงที่ PCC ต้องเขียนทับ mangle
+// และต้องปิดหรือยกเว้น FastTrack ซึ่งลด throughput ลงชัดเจนบนฮาร์ดแวร์ที่ใช้อยู่
+// การตัดสินใจแลกนั้นควรเป็นของคน ไม่ใช่ของปุ่ม
+app.post('/api/multiwan/pcc/script', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { order, speeds } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const names = (Array.isArray(order) && order.length)
+                ? order.filter((n) => analysis.usable.some((w) => w.interface === n))
+                : (analysis.recommendation.order || analysis.usable.map((w) => w.interface));
+
+            const lines = names.map((n) => analysis.usable.find((w) => w.interface === n));
+            const mbps = lines.map((w) => (speeds || {})[w.interface]);
+            const weights = pccWeights.pccWeights(mbps);
+            if (!weights) {
+                const e = new Error(
+                    'ต้องกรอก bandwidth ของทุก line ก่อน จึงจะคำนวณสัดส่วน PCC ได้ — ' +
+                    'ใส่ค่าที่ตรงกับแพ็กเกจจริงของแต่ละ line'
+                );
+                e.needSpeeds = true;
+                throw e;
+            }
+            return { analysis, lines, weights, mbps };
+        });
+
+        // ประกอบ cfg ให้ตรงรูปแบบที่ตัวสร้างสคริปต์เดิมรับอยู่แล้ว
+        // ค่าทุกตัวมาจากที่อ่านได้จริงบนเราท์เตอร์ ไม่ได้ให้คนพิมพ์เอง
+        const cfg = {
+            wans: out.lines.map((w, i) => ({
+                id: 'wan_' + (i + 1),
+                name: 'WAN ' + (i + 1),
+                interface: w.interface,
+                type: w.kind,
+                gateway: w.gatewayIsInterface ? '' : (w.gateway || ''),
+                speed: out.mbps[i],
+                weight: out.weights[i],
+                dnsCheck: mwPlan.DEFAULT_CHECK_HOSTS[i % mwPlan.DEFAULT_CHECK_HOSTS.length]
+            })),
+            fasttrackBypass: true   // PCC ใช้ร่วมกับ FastTrack ไม่ได้
+        };
+
+        res.json({
+            success: true,
+            weights: out.weights,
+            weightsExplained: pccWeights.describeWeights(
+                out.lines.map((w) => w.interface), out.weights),
+            wans: cfg.wans,
+            cfg
+        });
+    } catch (e) {
+        if (e && e.needSpeeds) return res.status(400).json({ error: e.message, needSpeeds: true });
         res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
     }
 });
@@ -4557,6 +4630,43 @@ setInterval(async () => {
 // 5 นาทีก็พอ — เป็นเรื่องที่ต้องรู้ภายในหลักนาที ไม่ใช่หลักวินาที และการอ่าน
 // route ทุกสาขาถี่กว่านี้เปลืองการเชื่อมต่อโดยไม่ได้ประโยชน์เพิ่ม
 const multiwanState = new Map();   // siteId -> ชื่อ interface ที่ใช้อยู่ครั้งก่อน
+const MULTIWAN_STATE_FILE = path.join(__dirname, 'db', 'multiwan-state.json');
+
+/**
+ * จำไว้ว่าแต่ละสาขาวิ่งบน line ไหน ข้ามการ restart
+ *
+ * ถ้าไม่จำ แล้ว pm2 reload ตรงกับจังหวะที่สาขากำลัง failover พอดี รอบแรกหลัง
+ * restart จะถือว่าค่าที่อ่านได้คือค่าตั้งต้น แล้วไม่แจ้งเตือน — สาขาจะวิ่งบน
+ * backup ต่อไปเงียบ ๆ ซึ่งเป็นสิ่งเดียวที่ตัวเฝ้าดูนี้มีไว้ป้องกัน
+ *
+ * ไฟล์เสียหายไม่ใช่เรื่องคอขาดบาดตาย — เสียแค่การแจ้งเตือนหนึ่งรอบ
+ * จึงห้ามทำให้เซิร์ฟเวอร์เริ่มไม่ขึ้นเด็ดขาด
+ */
+function loadMultiwanState() {
+    try {
+        const raw = JSON.parse(fs.readFileSync(MULTIWAN_STATE_FILE, 'utf8'));
+        Object.entries(raw && raw.sites ? raw.sites : {}).forEach(([k, v]) => {
+            if (typeof v === 'string') multiwanState.set(k, v);
+        });
+        if (multiwanState.size > 0) {
+            console.log(`[Multi-WAN] กู้คืนสถานะ ${multiwanState.size} สาขา`);
+        }
+    } catch (_) { /* ไม่มีไฟล์ หรืออ่านไม่ออก = เริ่มใหม่ ไม่ใช่ความผิดพลาด */ }
+}
+
+function saveMultiwanState() {
+    try {
+        const sites = {};
+        multiwanState.forEach((v, k) => { sites[k] = v; });
+        const tmp = MULTIWAN_STATE_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify({ version: 1, sites }), { mode: 0o600 });
+        fs.renameSync(tmp, MULTIWAN_STATE_FILE);
+    } catch (e) {
+        console.warn('[Multi-WAN] บันทึกสถานะไม่สำเร็จ:', e.message);
+    }
+}
+
+loadMultiwanState();
 
 setInterval(async () => {
     try {
@@ -4569,11 +4679,20 @@ setInterval(async () => {
                     const routes = await client.exec('/ip/route/print');
                     return mwAnalyze.activeFailoverWan(routes);
                 });
-                if (!active) { multiwanState.delete(site.id); continue; }   // สาขานี้ไม่ได้ลง failover
+                if (!active) {
+                    // สาขานี้ไม่ได้ลง failover (หรือเพิ่งถอนออก)
+                    if (multiwanState.has(site.id)) {
+                        multiwanState.delete(site.id);
+                        saveMultiwanState();
+                    }
+                    continue;
+                }
 
                 const prev = multiwanState.get(site.id);
+                if (prev === active.interface) continue;   // ไม่เปลี่ยน ไม่ต้องเขียนไฟล์
                 multiwanState.set(site.id, active.interface);
-                if (prev === undefined || prev === active.interface) continue;
+                saveMultiwanState();
+                if (prev === undefined) continue;          // เพิ่งเห็นครั้งแรก ยังไม่มีอะไรให้เทียบ
 
                 if (!active.isPrimary) {
                     await sendOpsAlert(

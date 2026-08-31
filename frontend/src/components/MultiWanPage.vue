@@ -30,6 +30,10 @@ const speeds = ref({});
 const order = ref([]);
 const rollbackSeconds = ref(180);
 
+// PCC — คำนวณสัดส่วนได้ แต่ลงให้ไม่ได้ ต้องให้คนเอาสคริปต์ไปวางเอง
+const pcc = ref(null);
+const pccScript = ref('');
+
 const rec = computed(() => analysis.value && analysis.value.recommendation);
 const wans = computed(() => (analysis.value && analysis.value.usable) || []);
 const activeWan = computed(() => analysis.value && analysis.value.activeWan);
@@ -50,6 +54,8 @@ async function readState() {
             || r.analysis.usable.map((w) => w.interface);
         plan.value = null;
         result.value = null;
+        pcc.value = null;
+        pccScript.value = '';
         stage.value = STAGE.READ;
     } catch (e) {
         toast.error('อ่าน config จากเราท์เตอร์ไม่สำเร็จ: ' + e.message);
@@ -123,6 +129,42 @@ async function removeAll() {
         toast.error(e.message);
     } finally {
         busy.value = '';
+    }
+}
+
+/**
+ * สร้างสคริปต์ PCC จาก bandwidth ที่กรอกไว้
+ *
+ * จงใจไม่มีปุ่ม apply: PCC ต้องเขียนทับ mangle และต้องยอมเสีย FastTrack
+ * ซึ่งเป็นการแลกที่ควรให้คนตัดสิน ไม่ใช่ปุ่ม — ต่างจาก failover ที่ไม่แตะ
+ * path ของ traffic เลย
+ */
+async function buildPccScript() {
+    busy.value = 'pcc';
+    pccScript.value = '';
+    try {
+        const r = await apiFetch('/api/multiwan/pcc/script', {
+            method: 'POST',
+            body: JSON.stringify({ order: order.value, speeds: speeds.value })
+        });
+        pcc.value = r;
+        const s2 = await apiFetch('/api/multiwan/generate-script', {
+            method: 'POST', body: JSON.stringify(r.cfg)
+        });
+        pccScript.value = s2.script || '';
+    } catch (e) {
+        toast.error(e.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
+async function copyPcc() {
+    try {
+        await navigator.clipboard.writeText(pccScript.value);
+        toast.success('คัดลอกแล้ว — ไปวางใน WinBox → New Terminal');
+    } catch (_) {
+        toast.error('คัดลอกอัตโนมัติไม่ได้ — เลือกข้อความแล้วกด Ctrl+C');
     }
 }
 
@@ -241,6 +283,41 @@ function moveUp(i) {
                 <b>ทำไมยังไม่แนะนำ PCC</b>
                 <ul><li v-for="(b, i) in rec.rejected.because" :key="i">{{ b }}</li></ul>
             </div>
+        </section>
+
+        <!-- ============ PCC — แนะนำได้ แต่ต้องลงด้วยมือ ============ -->
+        <section class="card" v-if="rec && rec.mode === 'pcc'">
+            <h3>PCC load balancing</h3>
+            <div class="v2-callout warn">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>
+                    <strong>ส่วนนี้ไม่มีปุ่ม Apply โดยตั้งใจ</strong> — PCC ต้องเขียนทับ
+                    <code>mangle</code> และต้องปิดหรือยกเว้น <code>FastTrack</code>
+                    ซึ่งลด throughput ลงชัดเจนบน hEX / hAP เป็นการแลกที่ควรให้คนตัดสิน
+                    ไม่ใช่ปุ่ม ต่างจาก Failover ที่ไม่แตะ path ของ traffic เลย
+                </span>
+            </div>
+            <p class="note">
+                ระบบคำนวณ PCC weight จาก bandwidth ที่กรอกไว้ให้ แล้วสร้างสคริปต์เต็มให้เอาไปวางใน
+                WinBox → New Terminal · ค่า interface และ gateway ทุกตัวมาจากที่อ่านได้จริงบนเราท์เตอร์
+            </p>
+            <div class="actions">
+                <button class="v2-btn primary" :disabled="busy === 'pcc'" @click="buildPccScript">
+                    <i class="fa-solid" :class="busy === 'pcc' ? 'fa-spinner fa-spin' : 'fa-calculator'"></i>
+                    Generate PCC script
+                </button>
+            </div>
+            <div v-if="pcc" class="v2-callout info">
+                <i class="fa-solid fa-scale-balanced"></i>
+                <span>PCC weight: <strong>{{ pcc.weightsExplained }}</strong></span>
+            </div>
+            <template v-if="pccScript">
+                <div class="scriptbar">
+                    <span class="note" style="margin:0">อ่านก่อนวาง — สคริปต์นี้เขียนทับ mangle ที่มีอยู่</span>
+                    <button class="v2-btn ghost sm" @click="copyPcc"><i class="fa-solid fa-copy"></i> Copy</button>
+                </div>
+                <pre class="script">{{ pccScript }}</pre>
+            </template>
         </section>
 
         <div v-for="(w, i) in analysis.warnings" :key="'w' + i" class="v2-callout warn">
@@ -400,6 +477,12 @@ h2 { margin: 0; font-size: 1.25rem; }
 .line { padding: 3px 0; border-bottom: 1px dashed var(--v2-border); }
 .ph { display: inline-block; min-width: 74px; font-size: .7rem; color: var(--v2-primary); text-transform: uppercase; }
 .checks { display: grid; gap: 6px; margin: 10px 0; }
+.scriptbar { display: flex; align-items: center; justify-content: space-between;
+             gap: 12px; margin-top: 12px; }
+.script { max-height: 340px; overflow: auto; background: var(--v2-bg-soft, #f8fafc);
+          padding: 12px; border-radius: 8px; font-size: .72rem; line-height: 1.6;
+          border: 1px solid var(--v2-border); white-space: pre;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chk { display: flex; align-items: center; gap: 10px; font-size: .84rem; }
 code { background: var(--v2-primary-soft); padding: 1px 5px; border-radius: 4px;
        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
