@@ -490,6 +490,35 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (8)** — Deployed and verified; then a review of the new code found three things
+  worth fixing before anyone runs it on a live branch.
+  - **Deploy confirmed from outside**: the bundle hash served by the VPS matches the local build
+    exactly, `/health` reports `db: supabase` (not the JSON fallback), `/` and `/v2/` both 200,
+    and all four new Multi-WAN routes answer **401** rather than 404 — which is what proves the
+    new `server.js` is the one running.
+  - **The auto-rollback script could strand itself.** A RouterOS script stops at the first command
+    that errors, and the self-removal was the *last* line — so any failure partway through (a
+    permission, a missing id) left the scheduler on the router firing every 180 s forever, with
+    the rollback never completed. Every command is now wrapped in `:do {...} on-error={}`, so the
+    script always reaches its own removal. This matters precisely because the scheduler exists for
+    the case where we have already lost contact and cannot clean up by hand.
+  - **The netwatch conntrack flush was too trigger-happy.** RouterOS netwatch calls a host down
+    after a single missed probe, and the down-script flushed *every* connection on the router — so
+    one lost packet would have dropped every customer in the branch at once, for nothing. It now
+    checks that the primary's own default route has actually been deactivated (i.e.
+    `check-gateway` confirmed the line is dead) before flushing, and probes at 10 s/3 s instead of
+    5 s/2 s.
+  - **`POST /api/multiwan/apply` allowed `co-admin`; `/failover/apply` allows only `admin`.** The
+    older endpoint is the more dangerous of the two — it writes routing tables, NAT and connection
+    tracking with no backup, no armed rollback and no post-check — yet carried the weaker
+    requirement. Now `admin` only. No site uses Multi-WAN, so nothing in production changes.
+  - Re-verified the whole cycle against the 3-WAN fixture after these changes: apply 14 steps,
+    remove returns `routes 6, nat 2, netwatch 1, scheduler 2`, and the router ends at
+    `distance 1/1/1` with `activeWan: null`. **228 tests.**
+  - Confirmed while reviewing, rather than assumed: `routeros.js` pushes a `!done` sentence's
+    attributes into the result array, so `/ip/route/add` really does return `ret` and the precise
+    per-item undo works against a real router — not only against the fixture.
+
 - **2026-08-31 (7)** — Multi-WAN refuses to start when the API user cannot run `/ping`, and a
   correction about Cloudflare.
   - **Connecting two facts already in this file**: the failover verify step pings from the

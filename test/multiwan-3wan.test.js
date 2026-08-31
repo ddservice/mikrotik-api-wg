@@ -11,6 +11,9 @@ const assert = require('assert');
 const an = require('../lib/multiwan-analyze');
 const mwPlan = require('../lib/multiwan-plan');
 
+/** ขึ้นบรรทัดใหม่ — เขียนแบบนี้เพื่อเลี่ยงปัญหา escape ตอนแก้ไฟล์ด้วยสคริปต์ */
+const NEWLINE = String.fromCharCode(10);
+
 /** สาขาที่มี 3 WAN: PPPoE + DHCP อีกสองเส้น */
 function state3(over = {}) {
     return Object.assign({
@@ -143,12 +146,6 @@ describe('multiwan — netwatch ล้าง connection tracking ตอนสล
         assert.ok(nw, 'ต้องมีขั้น netwatch');
         assert.strictEqual(nw.apply.args.host, p.checkHosts['pppoe-out1']);
         assert.ok(nw.apply.args['down-script'].includes('/ip firewall connection remove'));
-    });
-
-    it('netwatch ยิงถี่กว่า check-gateway เพราะเป็นตัวจับจังหวะสลับ', () => {
-        const p = mwPlan.buildFailoverPlan(an.analyzeState(state3()));
-        const nw = p.steps.find((s) => s.id === 'netwatch-flush');
-        assert.strictEqual(nw.apply.args.interval, '5s');
     });
 
     it('rollback script ถอน netwatch ออกด้วย ไม่ทิ้งค้างไว้', () => {
@@ -303,5 +300,53 @@ describe('multiwan — commit ต้องไม่ลบของที่ต�
         assert.strictEqual(r.netwatch, 1, 'ต้องถอนเฉพาะของระบบนี้');
         const removed = c.calls.filter((x) => x.cmd === '/tool/netwatch/remove').map((x) => x.args['.id']);
         assert.deepStrictEqual(removed, ['*N1']);
+    });
+});
+
+describe('multiwan — สคริปต์ที่ฝากไว้บนเราท์เตอร์ต้องเดินจนจบเสมอ', () => {
+    function plan2() {
+        return mwPlan.buildFailoverPlan(an.analyzeState(state3()));
+    }
+
+    it('ทุกคำสั่งใน rollback script ถูกห่อด้วย on-error', () => {
+        // สคริปต์ RouterOS หยุดทันทีที่คำสั่งใดพัง ถ้าไม่ห่อ แล้วคำสั่งกลางทางพัง
+        // สคริปต์จะไปไม่ถึงบรรทัดที่ลบ scheduler ตัวเอง ผลคือมันยิงซ้ำตลอดไป
+        const lines = mwPlan.buildRollbackScript(plan2()).trim().split(NEWLINE);
+        lines.forEach((l) => {
+            assert.ok(l.startsWith(':do {') && l.includes('on-error={}'),
+                'บรรทัดนี้ไม่ได้ห่อ on-error: ' + l);
+        });
+    });
+
+    it('บรรทัดสุดท้ายยังเป็นการลบ scheduler ตัวเอง', () => {
+        const lines = mwPlan.buildRollbackScript(plan2()).trim().split(NEWLINE);
+        assert.ok(lines[lines.length - 1].includes('/system scheduler remove'));
+    });
+
+    it('rollback ยังคืนค่า distance เดิมครบทุก line', () => {
+        const sc = mwPlan.buildRollbackScript(plan2());
+        assert.strictEqual((sc.match(/default-route-distance=1/g) || []).length, 3);
+    });
+});
+
+describe('multiwan — netwatch ต้องไม่ล้าง conntrack เพราะ ping ตกครั้งเดียว', () => {
+    it('ตรวจ routing table ก่อน ไม่ล้างทันทีที่ probe ตก', () => {
+        // netwatch มองว่า down ตั้งแต่ probe ตกครั้งเดียว ถ้าล้างตามนั้นทันที
+        // แพ็กเก็ตหายครั้งเดียวจะทำให้ลูกค้าทั้งสาขาหลุดพร้อมกันโดยไม่มีอะไรเสียจริง
+        const nw = mwPlan.buildFailoverPlan(an.analyzeState(state3()))
+            .steps.find((s) => s.id === 'netwatch-flush');
+        const sc = nw.apply.args['down-script'];
+        assert.ok(sc.includes('/ip route find'), 'ต้องดู route ก่อน');
+        assert.ok(sc.includes('active] = false'), 'ต้องล้างเฉพาะตอน route ถูก deactivate จริง');
+        const flushAt = sc.indexOf('/ip firewall connection remove');
+        const checkAt = sc.indexOf('active] = false');
+        assert.ok(checkAt >= 0 && checkAt < flushAt, 'การตรวจต้องมาก่อนการล้าง');
+    });
+
+    it('probe ไม่ถี่เกินจนอ่อนไหวต่อแพ็กเก็ตหายชั่วคราว', () => {
+        const nw = mwPlan.buildFailoverPlan(an.analyzeState(state3()))
+            .steps.find((s) => s.id === 'netwatch-flush');
+        assert.strictEqual(nw.apply.args.interval, '10s');
+        assert.strictEqual(nw.apply.args.timeout, '3s');
     });
 });

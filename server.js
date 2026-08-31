@@ -1062,7 +1062,10 @@ app.post('/api/multiwan/generate-script', requireAuth(['admin', 'co-admin']), as
 });
 
 // Directly Apply Multi-WAN configuration to MikroTik Router via API (Dynamic N-WAN)
-app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, res) => {
+// admin เท่านั้น — เส้นทางนี้เขียน routing table / NAT / conntrack ลงเราท์เตอร์จริง
+// โดยไม่มีการสำรอง ไม่มีตัวถอนอัตโนมัติ และไม่ตรวจว่าหลังสั่งแล้วยังออกเน็ตได้
+// จึงอันตรายกว่า /failover/apply ที่มีครบทั้งสามอย่าง แต่เดิมกลับให้สิทธิ์หลวมกว่า
+app.post('/api/multiwan/apply', requireAuth(['admin']), async (req, res) => {
     try {
         const cfg = req.body;
         const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
