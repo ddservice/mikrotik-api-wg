@@ -34,6 +34,13 @@ describe('lib/routeros-errors — explain', () => {
     it('อธิบายว่าทำไมงานนี้ถึงต้องใช้สิทธิ์นั้น', () => {
         const msg = e.explain('not enough permissions (9)', { task: 'upgrade' });
         assert.ok(msg.includes('รีบูต'), 'ต้องอธิบายว่าอัปเกรดแล้วเราท์เตอร์รีบูตเอง');
+        assert.ok(msg.includes('test'), 'ต้องบอก test ด้วย — เช็คเวอร์ชันต้องออกเน็ต');
+    });
+
+    it('ทดสอบ Ping/คุณภาพสาย บอกว่าต้องมี test', () => {
+        const msg = e.explain('not enough permissions (9)', { task: 'nettest', username: 'ddserviceapi' });
+        assert.ok(msg.includes('test'));
+        assert.ok(msg.includes('Ping'));
     });
 
     it('งานต่างกันบอกสิทธิ์ต่างกัน', () => {

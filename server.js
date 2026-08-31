@@ -1800,7 +1800,11 @@ app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req,
         });
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1918,7 +1922,11 @@ app.post('/api/mikrotik/system/ping-test', requireAuth(['admin']), async (req, r
         });
         res.json({ success: true, host, count, results: result });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'nettest', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
@@ -1994,7 +2002,11 @@ app.post('/api/mikrotik/system/quality-test', requireAuth(['admin', 'co-admin'])
         });
         res.json({ success: true, ...result });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'nettest', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
     }
 });
 
