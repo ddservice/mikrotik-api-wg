@@ -16,6 +16,9 @@ const { parseDnsLogMessage } = require('./lib/dns-log');
 const sessionStore = require('./lib/session-store');
 const siteDiagnostics = require('./lib/site-diagnostics');
 const rosErrors = require('./lib/routeros-errors');
+const mwAnalyze = require('./lib/multiwan-analyze');
+const mwPlan = require('./lib/multiwan-plan');
+const mwApply = require('./lib/multiwan-apply');
 const dnsStore = require('./lib/dns-log-store');
 
 // Auto-select database: Supabase (if env set) หรือ JSON file (legacy)
@@ -1177,6 +1180,101 @@ app.post('/api/multiwan/apply', requireAuth(['admin', 'co-admin']), async (req, 
         res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
     }
 });
+
+// ===================== Multi-WAN: สำรองอัตโนมัติ (อ่านของจริง → วางแผน → ลง) =====================
+//
+// แยกเป็น 4 เส้นทางโดยตั้งใจ ให้ "อ่าน" กับ "เขียน" ไม่ปนกัน คนกดดูได้ว่าจะเกิดอะไร
+// ก่อนที่จะมีอะไรถูกแตะจริง — เพราะงานนี้พลาดแล้วสาขาหลุดเน็ตและกู้จากระยะไกลไม่ได้
+
+/** อ่านสภาพจริงจากเราท์เตอร์ ไม่เขียนอะไรเลย */
+async function readMultiWanState(client) {
+    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat] = await Promise.all([
+        client.exec('/interface/print'),
+        client.exec('/interface/pppoe-client/print').catch(() => []),
+        client.exec('/ip/dhcp-client/print').catch(() => []),
+        client.exec('/ip/route/print'),
+        client.exec('/ip/firewall/mangle/print').catch(() => []),
+        client.exec('/ip/firewall/nat/print').catch(() => [])
+    ]);
+    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat };
+}
+
+// 1) วิเคราะห์ — อ่านอย่างเดียว ปลอดภัยเสมอ
+app.get('/api/multiwan/analyze', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const speeds = {};
+        if (req.query.speeds) {
+            try { Object.assign(speeds, JSON.parse(req.query.speeds)); } catch (_) { /* ไม่มีก็ไม่เป็นไร */ }
+        }
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            return mwAnalyze.analyzeState(state, { speeds });
+        });
+        res.json({ success: true, analysis: out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 2) ดูแผน — ยังไม่เขียนอะไร แค่บอกว่าจะทำอะไรบ้างและย้อนกลับยังไง
+app.post('/api/multiwan/failover/plan', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const { order, checkHosts, speeds } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts });
+            return { analysis, plan, rollbackScript: mwPlan.buildRollbackScript(plan) };
+        });
+        res.json({ success: true, ...out });
+    } catch (e) {
+        res.status(400).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 3) ลงจริง — admin เท่านั้น เพราะพลาดแล้วทั้งสาขาหลุด
+app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { order, checkHosts, speeds, rollbackSeconds, skipBackup } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts });
+            return mwApply.applyFailover({
+                client, plan,
+                rollbackSeconds: Number(rollbackSeconds) || undefined,
+                skipBackup: !!skipBackup
+            });
+        });
+
+        db.addLog(req.user.username,
+            out.success ? 'ลง Multi-WAN สำรองอัตโนมัติ' : 'ลง Multi-WAN ไม่สำเร็จ (ถอนคืนแล้ว)',
+            out.success
+                ? `ลงสำเร็จ ${out.applied} ขั้น สำรองไว้ที่ ${out.backupName || '-'}`
+                : `ล้มเหลว: ${out.error} — ถอนคืน ${out.rolledBack ? 'สำเร็จ' : 'ไม่สำเร็จ'}`);
+
+        res.status(out.success ? 200 : 500).json(out);
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 4) ถอนออกทีหลัง — จับจากคอมเมนต์กำกับ ไม่แตะของที่ไม่ใช่ของระบบนี้
+app.post('/api/multiwan/failover/remove', requireAuth(['admin']), async (req, res) => {
+    try {
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state);
+            return mwApply.removeAll(client, analysis.usable);
+        });
+        db.addLog(req.user.username, 'ถอน Multi-WAN สำรองอัตโนมัติ',
+            `ถอนเส้นทาง ${out.routes} เส้น NAT ${out.nat} ข้อ`);
+        res.json({ success: true, removed: out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
 
 
 // Helper for VPS WireGuard Peer Management

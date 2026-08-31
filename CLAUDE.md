@@ -490,6 +490,65 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (4)** — Multi-WAN failover, built the way the previous entry said it had to be
+  built: read the router first, back up, stay reversible, then act. `/v2/` now has the page;
+  v1 is untouched.
+  - **Nothing is typed in that the router can tell us.** `lib/multiwan-analyze.js` reads
+    `/interface/pppoe-client`, `/ip/dhcp-client`, `/ip/route`, `/ip/firewall/{mangle,nat}` and
+    derives the WAN lines from what is actually configured. The old form asked an operator to
+    type interface names and gateways, which is exactly how a typo becomes a dead route that
+    RouterOS accepts without complaint.
+    - PPPoE gateways are pinned to the **interface name**, DHCP gateways to the **IP the lease
+      actually handed out**. Getting this backwards is a slow failure: a PPPoE peer address
+      changes on every reconnect, so a remembered IP works until the line flaps.
+  - **The recommendation is rule-based code, not a model call.** It has to give the same answer
+    every time for the same input (so an outage can be traced back), has to work when the
+    site's own internet is down — which is precisely when it is needed — and has to be
+    testable. The inputs are all measurable facts, not matters of interpretation.
+    - PCC is rejected, with the number quoted, when the lines differ by more than **4×**: PCC
+      puts half the connections on the slow line permanently, so "we added load balancing and
+      the internet got worse" is a true report, not a complaint about nothing.
+    - It is also rejected when speeds are unknown, when a line is down, or when conflicting
+      `mangle` already exists. **For A4 as described (PPPoE main + DHCP backup) the answer is
+      failover**, and the page says why it is not PCC rather than silently not offering it.
+  - **Three independent ways back**, because the connection we are giving orders through runs
+    over the very lines being changed:
+    1. Existing default routes are **demoted, never deleted** (`default-route-distance` → 10+).
+       If the new recursive routes fail their ping check, RouterOS falls back to them on its
+       own and the site stays up.
+    2. Everything added carries a `DDS-FAILOVER` comment, so it can be removed exactly and
+       nothing else is touched.
+    3. **A `/system/scheduler` rollback is armed on the router before the first write.** This
+       is the only layer that still works once we have lost contact, which is the case it
+       exists for. Ordering matters: arm first, then change. Reversed, a disconnect mid-change
+       leaves nothing to recover with.
+  - **"The command succeeded" is not "the internet works."** After applying, the router pings
+    each line's own check host from itself; only if the primary answers is the scheduler
+    disarmed and the change kept. Otherwise everything is undone in reverse order. Pinging
+    from the VPS would prove nothing — that path goes through the tunnel, not the site's
+    internet.
+  - **Bug found by running the real cycle, not by reading the code**: removing the config
+    restored `default-route-distance` from the value read *at removal time* — which is the
+    demoted value we had written. It restored 10 over 10 and reported success. The original is
+    now embedded in the route comment (`orig=1`) and read back from there, so the truth lives
+    on the router and survives our own database being gone.
+    - A second, smaller one on the way: the comment parser was written as `new RegExp('\s+…')`,
+      and the escaping collapsed so it silently matched nothing. Replaced with word splitting —
+      readable, and it cannot fail this way.
+  - `scripts/fake-routeros.js` (new) speaks the real RouterOS API binary protocol and holds
+    mutable state, so the write paths are exercised end to end without risking a live site.
+    `--scenario=a4-broken` makes ping fail, which is how the rollback path was proven.
+  - Verified against it through real HTTP, on the actual endpoints: all four routes 401 without
+    a token; analyze returns both lines with correct kinds and gateways; the 10× case rejects
+    PCC quoting "10.0 เท่า" while 500/300 accepts it; apply moves the router from `1/1, 0 routes`
+    to `10/11, 2 routes, NAT added`; remove returns it to `1/1, 0 routes`; and on the broken
+    scenario apply reports failure, rolls back, and leaves the router **byte-for-byte as it
+    started**. 42 new unit tests (**194 total**).
+  - **Not run against A4 itself.** This machine has no route to the VPS, and the first run of
+    something that edits live routing should be watched by someone who can reach the router
+    another way. `npm run check-sites` remains the read-only way to look first.
+  - `NOT_MIGRATED_YET` is now empty: every page has a v2 equivalent. v1 stays the default.
+
 - **2026-08-31 (2)** — Deleted the dead Next.js `src/`; made the Multi-WAN Apply button stop lying.
   - **`src/` removed** (38 tracked files). It was the abandoned 2026-08-12/13 App Router
     experiment, marked `DO_NOT_DEPLOY.md` and documented as permanently dead. The only

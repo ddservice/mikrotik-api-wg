@@ -40,7 +40,8 @@ const FALLBACK_PERMISSIONS = {
 // ลบ key ออกจากชุดนี้เมื่อย้ายหน้านั้นเสร็จ
 // Multi-WAN ตั้งใจไม่ย้ายมา v2 — หน้านั้นเป็นตัว "สร้างสคริปต์" ให้เอาไปวางใน WinBox
 // ตั้งค่าครั้งเดียวตอนติดตั้ง ไม่ใช่งานประจำวัน จึงชี้กลับไปหน้าเดิมถาวร
-export const NOT_MIGRATED_YET = new Set(['multiwan']);
+// multiwan ย้ายมาแล้ว 2026-08-31 (หน้าสำรองอัตโนมัติ อ่านค่าจริง → ดูแผน → ลง)
+export const NOT_MIGRATED_YET = new Set([]);
 
 export const visibleMenus = ref([OVERVIEW_MENU]);
 

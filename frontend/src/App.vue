@@ -8,6 +8,7 @@ import AppSidebar from './components/AppSidebar.vue';
 import OverviewPage from './components/OverviewPage.vue';
 import HotspotPage from './components/HotspotPage.vue';
 import PppoePage from './components/PppoePage.vue';
+import MultiWanPage from './components/MultiWanPage.vue';
 import LogsPage from './components/LogsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import FirewallPage from './components/FirewallPage.vue';
@@ -139,6 +140,7 @@ const activeSiteName = computed(() => {
                 />
                 <HotspotPage v-else-if="resolvedRoute === 'hotspot'" />
                 <PppoePage v-else-if="resolvedRoute === 'pppoe'" />
+                <MultiWanPage v-else-if="resolvedRoute === 'multiwan'" />
                 <LogsPage v-else-if="resolvedRoute === 'logs'" />
                 <SettingsPage v-else-if="resolvedRoute === 'settings'" />
                 <FirewallPage v-else-if="resolvedRoute === 'firewall'" />
