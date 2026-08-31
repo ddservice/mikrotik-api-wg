@@ -73,6 +73,11 @@ const db = {
                     'firmware-type': 'tile' }],
     health: [{ temperature: '42', voltage: '24.1' }],
     netwatch: [],
+    filter: [],
+    scripts: [],
+    dns: [{ servers: '203.113.1.1', 'allow-remote-requests': 'false', 'dynamic-servers': '' }],
+    dhcpNetworks: [{ '.id': '*N1', address: '192.168.88.0/24', gateway: '192.168.88.1',
+                     'dns-server': '203.113.1.1' }],
     addresses: [{ '.id': '*IP1', address: '192.168.88.1/24', interface: 'bridge-lan' }]
 };
 
@@ -126,6 +131,27 @@ function handle(cmd, attrs) {
     if (c === '/system/health/print') return reply(db.health);
     if (c === '/tool/netwatch/print') return reply(db.netwatch);
     if (c === '/ip/address/print') return reply(db.addresses);
+    if (c === '/ip/dns/print') return reply(db.dns);
+    if (c === '/ip/dhcp-server/network/print') return reply(db.dhcpNetworks);
+    if (c === '/ip/firewall/filter/print') return reply(db.filter);
+    if (c === '/ip/dns/set') { Object.assign(db.dns[0], attrs); return done(); }
+    if (c === '/system/script/print') return reply(db.scripts);
+    if (c === '/system/script/run') {
+        // รันสคริปต์ที่เก็บไว้จริง ๆ เท่าที่จำเป็นต่อการทดสอบการคืนค่า
+        const sc = db.scripts.find((x) => x['.id'] === attrs['.id']);
+        if (sc) {
+            String(sc.source || '').split(String.fromCharCode(10)).forEach((line) => {
+                let m = line.match(/^\/ip dns set servers="([^"]*)" allow-remote-requests=(\w+)/);
+                if (m) { db.dns[0].servers = m[1]; db.dns[0]['allow-remote-requests'] = m[2]; return; }
+                m = line.match(/^\/ip dhcp-server network set \[find where \.id="([^"]+)"\] dns-server="([^"]*)"/);
+                if (m) {
+                    const n = db.dhcpNetworks.find((x) => x['.id'] === m[1]);
+                    if (n) n['dns-server'] = m[2];
+                }
+            });
+        }
+        return done();
+    }
 
     if (c === '/system/backup/save') {
         return done([`=ret=${attrs.name || 'backup'}`]);
@@ -155,7 +181,10 @@ function handle(cmd, attrs) {
             '/interface/pppoe-client': db.pppoeClients,
             '/ip/dhcp-client': db.dhcpClients,
             '/tool/netwatch': db.netwatch,
-            '/ip/address': db.addresses
+            '/ip/address': db.addresses,
+            '/ip/firewall/filter': db.filter,
+            '/ip/dhcp-server/network': db.dhcpNetworks,
+            '/system/script': db.scripts
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 

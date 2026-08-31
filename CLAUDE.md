@@ -490,6 +490,36 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-08-31 (10)** — DNS resilience, the last open recommendation. Opt-in, default off,
+  because it is the only step in the whole feature that changes what customers receive.
+  - **The problem it closes**: clients get the primary line's ISP resolver over DHCP. When that
+    line dies, routing fails over correctly and the customer still cannot open a web page,
+    because the resolver is only reachable through the line that just died. The symptom reads as
+    "failover does not work" while every route is right. `analyzeState()` now detects it and
+    raises a warning; the fix is a checkbox in the plan stage.
+  - **Default off, and proven off by tests.** Every other step touches only the routing table;
+    this one changes the DNS a client is handed. It takes effect on the client's next DHCP
+    renewal, not immediately, so nothing online at the time is interrupted.
+  - **Enabling the router as a resolver without blocking WAN port 53 would make it an open DNS
+    resolver** — usable to amplify DDoS traffic at third parties. The two are inseparable here:
+    the `input` drop rules for UDP **and** TCP 53 are added automatically whenever the resolver
+    is enabled, never as a separate choice.
+  - **Second instance of the same class of bug as the `default-route-distance` one**: DNS values
+    are *settings*, not *items*, so they cannot carry the `DDS-FAILOVER` comment that Remove uses
+    to find things. Applying with DNS on and then pressing Remove left the router as a resolver
+    and DHCP still handing out the router's address — "removed" without being undone. Fixed by
+    storing the original values as a RouterOS script on the router itself, which `removeAll()`
+    runs *before* deleting it, and which the armed rollback also runs. Verified on the fixture:
+    `203.113.1.1 / resolver off` → apply → `1.1.1.1,8.8.8.8 / resolver on / DHCP hands out
+    192.168.88.1` → remove → **back to `203.113.1.1 / resolver off` exactly**.
+    - Keeping the restore data on the router rather than in our database is deliberate: it has to
+      work even if this system is gone.
+  - Verified through real HTTP against the 3-WAN fixture: the trap is detected, apply with the
+    option runs 19 steps and with it off runs 14 while leaving DNS **untouched**, two firewall
+    rules are added, and remove reports `dnsRestored: true` and returns every value to its
+    original. A failure to restore is reported rather than swallowed, and never stops the rest of
+    the removal. 18 new tests (**259 total**).
+
 - **2026-08-31 (9)** — Closed the last coherence gap in Multi-WAN, and **corrected a fix that
   the previous entry claimed was made but was not**.
   - **The FastTrack fix in 2026-08-31 (6) never landed.** The patch script used a

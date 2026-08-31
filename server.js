@@ -1218,16 +1218,24 @@ app.post('/api/multiwan/apply', requireAuth(['admin']), async (req, res) => {
 
 /** อ่านสภาพจริงจากเราท์เตอร์ ไม่เขียนอะไรเลย */
 async function readMultiWanState(client) {
-    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses] = await Promise.all([
+    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
+           dns, dhcpNetworks, filter] = await Promise.all([
         client.exec('/interface/print'),
         client.exec('/interface/pppoe-client/print').catch(() => []),
         client.exec('/ip/dhcp-client/print').catch(() => []),
         client.exec('/ip/route/print'),
         client.exec('/ip/firewall/mangle/print').catch(() => []),
         client.exec('/ip/firewall/nat/print').catch(() => []),
-        client.exec('/ip/address/print').catch(() => [])
+        client.exec('/ip/address/print').catch(() => []),
+        // DNS: ต้องรู้ว่าเราท์เตอร์เป็น resolver ให้ลูกข่ายอยู่แล้วหรือยัง
+        // และ DHCP แจก DNS ตัวไหนออกไป — เป็นสาเหตุที่ failover สำเร็จแล้ว
+        // ลูกค้ายังบอกว่าเน็ตไม่ได้
+        client.exec('/ip/dns/print').catch(() => []),
+        client.exec('/ip/dhcp-server/network/print').catch(() => []),
+        client.exec('/ip/firewall/filter/print').catch(() => [])
     ]);
-    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses };
+    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
+             dns, dhcpNetworks, filter };
 }
 
 // 1) วิเคราะห์ — อ่านอย่างเดียว ปลอดภัยเสมอ
@@ -1250,11 +1258,11 @@ app.get('/api/multiwan/analyze', requireAuth(['admin', 'co-admin']), async (req,
 // 2) ดูแผน — ยังไม่เขียนอะไร แค่บอกว่าจะทำอะไรบ้างและย้อนกลับยังไง
 app.post('/api/multiwan/failover/plan', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const { order, checkHosts, speeds } = req.body || {};
+        const { order, checkHosts, speeds, dnsResilience } = req.body || {};
         const out = await executeOnRouter(req, async (client) => {
             const state = await readMultiWanState(client);
             const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
-            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts, dnsResilience });
             return { analysis, plan, rollbackScript: mwPlan.buildRollbackScript(plan) };
         });
         res.json({ success: true, ...out });
@@ -1266,11 +1274,11 @@ app.post('/api/multiwan/failover/plan', requireAuth(['admin', 'co-admin']), asyn
 // 3) ลงจริง — admin เท่านั้น เพราะพลาดแล้วทั้งสาขาหลุด
 app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res) => {
     try {
-        const { order, checkHosts, speeds, rollbackSeconds, skipBackup } = req.body || {};
+        const { order, checkHosts, speeds, rollbackSeconds, skipBackup, dnsResilience } = req.body || {};
         const out = await executeOnRouter(req, async (client) => {
             const state = await readMultiWanState(client);
             const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
-            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts, dnsResilience });
             const r = await mwApply.applyFailover({
                 client, plan,
                 rollbackSeconds: Number(rollbackSeconds) || undefined,

@@ -30,6 +30,10 @@ const speeds = ref({});
 const order = ref([]);
 const rollbackSeconds = ref(180);
 
+// ปิดไว้เป็นค่าเริ่มต้น — ขั้นนี้เปลี่ยนสิ่งที่ลูกข่ายได้รับจริง ต่างจากขั้นอื่น
+// ที่แตะแค่ routing table
+const dnsResilience = ref(false);
+
 // PCC — คำนวณสัดส่วนได้ แต่ลงให้ไม่ได้ ต้องให้คนเอาสคริปต์ไปวางเอง
 const pcc = ref(null);
 const pccScript = ref('');
@@ -69,7 +73,8 @@ async function buildPlan() {
     try {
         const r = await apiFetch('/api/multiwan/failover/plan', {
             method: 'POST',
-            body: JSON.stringify({ order: order.value, speeds: speeds.value })
+            body: JSON.stringify({ order: order.value, speeds: speeds.value,
+                                   dnsResilience: dnsResilience.value })
         });
         analysis.value = r.analysis;
         plan.value = r.plan;
@@ -100,6 +105,7 @@ async function applyPlan() {
             method: 'POST',
             body: JSON.stringify({
                 order: order.value, speeds: speeds.value,
+                dnsResilience: dnsResilience.value,
                 rollbackSeconds: Number(rollbackSeconds.value) || 180
             })
         });
@@ -337,6 +343,26 @@ function moveUp(i) {
             </button>
         </div>
 
+        <section class="card opt" v-if="analysis.canFailover && stage === 1">
+            <label class="opt-row">
+                <input type="checkbox" v-model="dnsResilience" @change="plan = null">
+                <span>
+                    <strong>DNS resilience</strong>
+                    <em v-if="analysis.dns && analysis.dns.atRisk" class="flag">แนะนำสำหรับสาขานี้</em>
+                    <span class="opt-why">
+                        ให้เราท์เตอร์เป็น DNS resolver ให้ลูกข่าย แทนการแจก DNS ของ ISP —
+                        ถ้าไม่ทำ เวลา failover เส้นทางจะสลับสำเร็จแต่ลูกค้าจะยังเปิดเว็บไม่ได้
+                        เพราะ DNS เดิมเข้าถึงได้เฉพาะ line ที่ตายไปแล้ว
+                    </span>
+                    <span class="opt-why warn-txt">
+                        ปิดไว้เป็นค่าเริ่มต้นเพราะ<strong>เปลี่ยนสิ่งที่ลูกข่ายได้รับจริง</strong>
+                        (ขั้นอื่นแตะแค่ routing table) · มีผลเมื่อลูกข่ายต่อ DHCP ใหม่ ไม่ใช่ทันที
+                        เครื่องที่ออนไลน์อยู่ไม่สะดุด · จะเพิ่ม firewall กัน open resolver ให้อัตโนมัติ
+                    </span>
+                </span>
+            </label>
+        </section>
+
         <!-- ============ plan ============ -->
         <section class="card" v-if="plan && stage >= 2">
             <h3>Plan — {{ plan.steps.length }} steps</h3>
@@ -484,6 +510,13 @@ h2 { margin: 0; font-size: 1.25rem; }
           border: 1px solid var(--v2-border); white-space: pre;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chk { display: flex; align-items: center; gap: 10px; font-size: .84rem; }
+.opt { border-left: 3px solid var(--v2-border); }
+.opt-row { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.opt-row input { margin-top: 3px; flex-shrink: 0; width: 16px; height: 16px; }
+.opt-why { display: block; font-size: .8rem; color: var(--v2-text-muted); margin-top: 4px; line-height: 1.7; }
+.warn-txt { color: #b45309; }
+.flag { margin-left: 8px; font-style: normal; font-size: .7rem; padding: 1px 8px;
+        border-radius: 999px; background: var(--v2-primary-soft); color: var(--v2-primary); }
 code { background: var(--v2-primary-soft); padding: 1px 5px; border-radius: 4px;
        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
 </style>
