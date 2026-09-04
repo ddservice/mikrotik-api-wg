@@ -495,6 +495,50 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-04 (4)** — **CSV export of ม.26 logs was silently dropping rows.** Every export
+  route fetched with `limit: 99999`, built one string, and sent it.
+  - **Proven, not suspected**: seeded one day with 120,000 rows — the page reported 120,000,
+    the file contained **99,999**, and nothing anywhere said 20,001 rows were missing. At the
+    current rate (~580,000 DNS rows/day across sites, inferred from 2.9M over ~5 days) **every
+    single-day export was already incomplete.** Same failure class as the PostgREST 1000-row
+    cap on 2026-08-29, which was fixed for the sealing job and left in place here.
+  - `lib/csv-export.js` (new) — `streamCsv` writes as it goes, `forEachPage` walks the source
+    in 5,000-row pages until exhausted. Result on the same fixture: **120,000 / 120,000**.
+  - **The export file is now oldest→newest, while the page stays newest→oldest.** Not an
+    oversight — producing newest-first requires reversing a whole day in memory, and measured
+    at 580,000 rows that pushed RSS to **404–465 MB** against PM2's `max_memory_restart: 500M`.
+    Crossing it means PM2 kills the process mid-export, which takes down every other in-flight
+    request too. Ascending streams with flat memory: **240–306 MB peak**, and chronological
+    order is the more natural read for an evidence file anyway.
+  - Order is still true time order, not merely file order. File order is the order the poller
+    happened to read rows, which is near-sorted but not exact (a late row is appended after
+    newer ones). A sliding window of 50,000 rows — far larger than the ~10-minute router buffer
+    that bounds the displacement — restores exact order while holding only two windows.
+  - Legacy Postgres rows are older than every file row, so they are emitted **first**, walked
+    backwards page by page (`forEachPageReverse`) so the whole file reads in one continuous
+    chronological order without loading either source entirely.
+  - **Two profiling results worth keeping**, both found by measuring instead of guessing:
+    - Yielding one row at a time from an async generator cost **46 s** for 580,000 rows where a
+      callback scan cost 8 s. Async generators charge a promise per `yield`. Yielding batches
+      per stream chunk removed it.
+    - After that, an export still took 40 s while the read-and-format side took **~1 s** —
+      the time was in calling `res.write()` 580,000 times, not in the data. Batching into
+      256 KB chunks cut socket writes from 580,000 to **272**; server-side cost is now 4.3 s
+      (the rest of the wall-clock in testing was curl writing 68 MB to a network drive).
+  - **Exports are serialised system-wide** (`429` if one is running). One export peaks in the
+    hundreds of MB; two at once would cross the PM2 limit. Exports happen when a legal request
+    arrives, so queueing costs nothing in normal use.
+  - **`MAX_SCAN_DAYS` no longer applies to exports.** The 31-day cap exists so the interactive
+    page stays fast; a file used as evidence must contain every day asked for (ม.26 keeps 90).
+    Also fixed: `truncated` was computed by the store and then **thrown away** — the merge path
+    did not forward it and the UI never read it, so a 90-day search silently returned 31 days
+    and looked complete. It is now returned and the page shows a warning naming how many days
+    were actually read, pointing at CSV export for the complete range.
+  - Errors mid-stream `destroy()` the response rather than trying to send a 500 (headers are
+    long gone) — a truncated download that visibly fails beats a file that looks whole.
+  - 17 new tests (**297 total**), including one asserting rows are batched rather than written
+    individually, since that was a 5× cost invisible to every correctness test.
+
 - **2026-09-04 (3)** — Log page: filter by site. Reported from `/v2/` with the branch picker
   reading **A4-Residence** while the table showed rows from Suksawad-CMU, Auioun@WiFi and
   A4-Residence mixed together, 2,906,229 rows deep.

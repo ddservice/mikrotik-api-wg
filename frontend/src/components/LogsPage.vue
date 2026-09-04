@@ -26,6 +26,11 @@ const limit = 100;
 const loading = ref(false);
 const error = ref('');
 
+// ช่วงที่ขอกว้างเกินกว่าที่ระบบยอมอ่านในครั้งเดียว -> ผลลัพธ์บนจอไม่ครบ
+// ต้องบอกให้เห็น ไม่ใช่ปล่อยให้ข้อมูลที่ขาดดูเหมือนข้อมูลที่ครบ
+const truncated = ref(false);
+const scannedDays = ref(0);
+
 const search = ref('');
 const username = ref('');
 const from = ref('');
@@ -116,6 +121,8 @@ async function load() {
             rows.value = res.logs || [];
             total.value = res.total || 0;
             pages.value = res.pages || 1;
+            truncated.value = !!res.truncated;
+            scannedDays.value = res.scannedDays || 0;
         }
     } catch (err) {
         if (myId !== requestId) return;
@@ -433,6 +440,17 @@ const pageWindow = computed(() => {
         <span>
             ประวัติการใช้งานระบบเป็นการกระทำของผู้ดูแล (ใครกดอะไร เมื่อไหร่) จึงไม่ผูกกับสาขา
             และแยกตามสาขาไม่ได้ — ถ้าต้องการดูแยกสาขา ให้ใช้สามแท็บแรก
+        </span>
+    </div>
+
+    <div v-if="truncated" class="v2-callout warn sitenote">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span>
+            <strong>ผลลัพธ์บนหน้านี้ไม่ครบ</strong> — ช่วงวันที่ขอกว้างเกินกว่าที่ระบบอ่านในครั้งเดียว
+            จึงอ่านเฉพาะ {{ scannedDays }} วันล่าสุดของช่วงนั้น ยอดรวมที่แสดงจึงนับไม่ครบด้วย
+            <br>
+            ให้ค้นทีละช่วงสั้นลง หรือถ้าต้องการข้อมูลครบทั้งช่วงเพื่อใช้เป็นหลักฐาน
+            <strong>ให้กด "ส่งออก CSV"</strong> ซึ่งอ่านครบทุกวันที่ขอเสมอ ไม่มีการตัด
         </span>
     </div>
 
