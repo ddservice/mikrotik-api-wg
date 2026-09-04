@@ -499,7 +499,12 @@ async function getDnsQueryLogs(options) {
         if (options.siteName) query = query.eq('site_name', options.siteName);
         var page = parseInt(options.page) || 1;
         var limit = parseInt(options.limit) || 100;
-        var res = await query.range((page - 1) * limit, page * limit - 1);
+        // offset ระบุตรง ๆ ได้ ใช้ตอนหน้าเว็บอ่านข้ามสองแหล่ง (ไฟล์ + ฐานข้อมูล)
+        // แล้วจุดเริ่มของฝั่งฐานข้อมูลไม่ตรงขอบหน้าพอดี — ต้องมีเหมือนกันทั้งสอง DB layer
+        var offset = options.offset !== undefined
+            ? Math.max(0, parseInt(options.offset) || 0)
+            : (page - 1) * limit;
+        var res = await query.range(offset, offset + limit - 1);
         if (res.error) throw res.error;
         return { logs: (res.data || []).map(_mapDnsRow), total: res.count || 0,
                  page: page, limit: limit, pages: Math.ceil((res.count || 0) / limit) };

@@ -677,6 +677,12 @@ function getDnsQueryLogs(options = {}) {
     try {
         let logs = getAllDnsQueryLogsRaw();
 
+        // เรียงใหม่ไปเก่าให้ตรงกับ db-supabase.js ซึ่ง order('query_time', desc) อยู่แล้ว
+        // ของเดิมคืนตามลำดับในไฟล์ (= เก่าไปใหม่) หน้า Log ในโหมด JSON จึงเรียงกลับด้าน
+        // กับโปรดักชันมาตลอด และทำให้การอ่านคร่อมสองแหล่ง (ไฟล์ + ฐานข้อมูล) เพี้ยน
+        // เพราะฝั่งเรียกใช้ถือว่าทั้งสองแหล่งเรียงใหม่ไปเก่าเหมือนกัน
+        logs = logs.slice().sort((a, b) => String(b.queryTime).localeCompare(String(a.queryTime)));
+
         if (options.search) {
             const q = options.search.toLowerCase();
             logs = logs.filter(l =>
@@ -704,7 +710,11 @@ function getDnsQueryLogs(options = {}) {
         const total = logs.length;
         const page = parseInt(options.page) || 1;
         const limit = parseInt(options.limit) || 100;
-        const offset = (page - 1) * limit;
+        // offset ระบุตรง ๆ ได้ ใช้ตอนหน้าเว็บอ่านข้ามสองแหล่ง (ไฟล์ + ฐานข้อมูล)
+        // แล้วจุดเริ่มของฝั่งฐานข้อมูลไม่ตรงขอบหน้าพอดี — ต้องมีเหมือนกันทั้งสอง DB layer
+        const offset = options.offset !== undefined
+            ? Math.max(0, parseInt(options.offset) || 0)
+            : (page - 1) * limit;
         const paginated = logs.slice(offset, offset + limit);
 
         return { logs: paginated, total, page, limit, pages: Math.ceil(total / limit) };

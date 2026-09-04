@@ -690,20 +690,37 @@ async function queryDnsLogs(opts) {
     // ช่วงที่ขอเริ่มตั้งแต่วันแรกที่มีไฟล์เป็นต้นไป -> ข้อมูลทั้งช่วงอยู่ในไฟล์หมดแล้ว
     if (fromDay && fromDay >= oldestFileDay) return await dnsStore.query(opts);
 
-    const dbResult = await db.getDnsQueryLogs(opts);
-
     // ช่วงที่ขอไม่แตะวันที่มีไฟล์เลย -> ฐานข้อมูลล้วน
-    if (!inRange.length) return dbResult;
+    if (!inRange.length) return await db.getDnsQueryLogs(opts);
 
-    // คาบเกี่ยวทั้งสองยุค: ให้ไฟล์ (ข้อมูลใหม่กว่า) มาก่อน แล้วต่อด้วยของเก่าจากฐานข้อมูล
-    const fileResult = await dnsStore.query(Object.assign({}, opts, { page: 1, limit: 99999 }));
-    const merged = fileResult.logs.concat(dbResult.logs || []);
+    // คาบเกี่ยวทั้งสองยุค: ไฟล์ใหม่กว่าแถวในฐานข้อมูล "ทุกแถว" เสมอ (ไฟล์เริ่มใช้วันที่
+    // เลิกเขียนลงฐานข้อมูลพอดี) ลำดับรวมจึงเป็นไฟล์ทั้งก้อนแล้วต่อด้วยฐานข้อมูลทั้งก้อน
+    // — ตัดหน้าได้ตรง ๆ โดยไม่ต้องดึงทั้งสองฝั่งมากองรวมกันก่อน
+    //
+    // ของเดิมดึงไฟล์มา 99,999 แถวเพื่อแสดงหน้าละ 100 แถว ซึ่งบังคับให้ dnsStore.query
+    // เก็บอาร์เรย์เรียงลำดับขนาดแสนแถวไว้ต่อหนึ่งวัน และแทรกด้วย splice ทีละแถว
+    // วันที่มี ~342,000 แถวจึงกลายเป็นการเลื่อนหน่วยความจำหลักร้อยล้านครั้งต่อวัน
+    // คูณจำนวนวันในช่วง = คำขอเดียวกินเวลาเกิน 100 วินาที และ Cloudflare ตอบ 504
+    // (เจอจริงบนโปรดักชัน 2026-09-04 ที่หน้าประวัติเว็บไซต์ ซึ่งเปิดมาแบบไม่กรองอะไรเลย)
     const limit = parseInt(opts.limit) || 100;
     const page = parseInt(opts.page) || 1;
+    const skip = (page - 1) * limit;
+
+    const fileResult = await dnsStore.query(Object.assign({}, opts, { page, limit }));
+    const fileLogs = fileResult.logs || [];
+    const need = limit - fileLogs.length;
+
+    // ยังต้องรู้ยอดรวมฝั่งฐานข้อมูลเพื่อคำนวณจำนวนหน้า แม้หน้านี้จะเต็มจากไฟล์แล้ว
+    // (ขอ 1 แถวก็ได้ count มาครบ)
+    const dbResult = await db.getDnsQueryLogs(Object.assign({}, opts, {
+        offset: Math.max(0, skip - fileResult.total),
+        limit: need > 0 ? need : 1
+    }));
+
     const total = fileResult.total + (dbResult.total || 0);
 
     return {
-        logs: merged.slice((page - 1) * limit, page * limit),
+        logs: need > 0 ? fileLogs.concat(dbResult.logs || []) : fileLogs,
         total,
         page,
         limit,
