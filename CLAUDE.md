@@ -102,6 +102,12 @@ now covers the legacy page for as long as it exists.
    either one means v2 cannot replace v1 however rarely it is used.
    Customers and staff are still used to v1, so `/` stays the default — feature parity
    is a precondition for switching, not the decision to switch.
+   **Switching is an env var, not a deploy** (2026-09-04): `UI_DEFAULT=v2` in the VPS
+   `ecosystem.config.js` makes `/` serve v2; unset (or `v1`) keeps the old behaviour.
+   `/v1/` and `/v2/` both work regardless, so rolling back is editing one line and
+   `pm2 reload` — no git, no rebuild. Retiring v1 is therefore a decision to *make*,
+   not a change to *write*; and rule 4 above (no deletion before a hand click-through)
+   still stands, since nobody has clicked through v2 end to end yet.
    **When checking parity, compare HTTP method + path, not path alone.** A path that
    appears in v2 may only be there for one verb: `/api/mikrotik/pppoe/users/:id` was
    present for `PATCH .../suspend` while `PUT`/`DELETE` (edit and delete a room —
@@ -494,6 +500,37 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-09-04 (5)** — Retiring v1 turned into a switch instead of a rewrite, and two dead
+  files from the Next.js era removed.
+  - **The redundancy is real**: v1 (`public/app.js`, 5,915 lines, no tests) now does nothing
+    v2 cannot. But deleting it would break rule 4 above — nobody has clicked through v2 by
+    hand, and this session could not (the Chrome extension reaches the browser but not the
+    local server). Shipping a deletion on top of an unclicked UI is how a working system
+    becomes an outage.
+  - So the change is the *mechanism*, not the decision: **`UI_DEFAULT`** picks what `/` serves,
+    default `v1` — deploying this changes nothing for anyone. Flip to `v2` by editing one line
+    in the VPS `ecosystem.config.js` and reloading; flip back the same way in seconds.
+    **Being able to undo it in 10 seconds matters more than picking the right default now.**
+  - `/v1/` is a permanent URL for the old UI, added *before* any flip — without it, switching
+    `/` to v2 would leave no way back into v1 at all. It is mounted as a whole static
+    directory because v1's HTML references `app.js?v=` and `style.css?v=` **relatively**, so
+    serving the single HTML file at `/v1/` would 404 every asset. v2 needs no such care: vite
+    is configured with `base: '/v2/'`, so its markup is already absolute and the same file
+    works unchanged at `/`.
+  - Fixed the links that would have pointed at themselves after a flip: v2's three
+    "หน้าเดิม" links (topbar, sidebar, login) targeted `/`, which becomes v2. Now `/v1/`.
+    And v1 had **no link to v2 at all** — staff had no way to discover it — so it gained one.
+  - Deleted `public/sw.js` and `public/manifest.json`: a service worker that was never
+    registered anywhere, caching `/overview`, `/login` and `/globals.css` — Next.js routes
+    that have not existed since `src/` was removed on 2026-08-31.
+  - Verified both modes over HTTP rather than by reading the routing: unset → `/`=v1,
+    `/v1/`=v1, `/v2/`=v2; `UI_DEFAULT=v2` → `/`=v2 with its hashed asset resolving 200 from
+    the root, `/v1/` still v1 with `app.js` and `style.css` both 200, `/` still `no-store`.
+    - The first run of that check reported "v1" in both modes because the detector grepped for
+      `id="app"` inside a shell loop and misfired; re-run against the `/v2/assets/` marker it
+      gave the right answer. **A verification script that can quietly return the wrong answer
+      is worth as much as no verification** — third time this session (see 2026-09-04 (2)).
 
 - **2026-09-04 (4)** — **CSV export of ม.26 logs was silently dropping rows.** Every export
   route fetched with `limit: 99999`, built one string, and sent it.

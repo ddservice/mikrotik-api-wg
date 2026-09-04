@@ -79,7 +79,7 @@ async function submit() {
                 {{ busy ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ' }}
             </button>
 
-            <a class="v2-login-back" href="/">← กลับไปหน้าเดิม</a>
+            <a class="v2-login-back" href="/v1/">← กลับไปหน้าเดิม</a>
         </form>
     </div>
 </template>

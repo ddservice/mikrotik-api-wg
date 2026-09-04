@@ -169,8 +169,21 @@ app.use(express.json({
     type: (req) => req.path !== '/api/wireguard/callback-register' && (req.headers['content-type'] || '').includes('json')
 }));
 
-// Static Assets Caching Strategy (Fast asset loading + no-cache for index.html)
-app.use(express.static(path.join(__dirname, 'public'), {
+// ---------- หน้าเว็บเก่า (v1) กับหน้าใหม่ (v2) ----------
+//
+// ตั้งแต่ 2026-09-04 v2 ทำได้ครบทุกอย่างที่ v1 ทำได้แล้ว แต่ยังไม่ตัด v1 ทิ้ง
+// เพราะกฎในไฟล์นี้เขียนไว้ว่าห้ามลบจนกว่าจะมีคนคลิกใช้จริงจนครบด้วยมือ
+//
+// UI_DEFAULT คุมว่า "/" จะเสิร์ฟตัวไหน โดยไม่ต้องแก้โค้ดหรือ deploy ใหม่:
+//   UI_DEFAULT=v1 (ค่าเริ่มต้น)  "/" = หน้าเดิม
+//   UI_DEFAULT=v2                "/" = หน้าใหม่
+// ย้อนกลับได้ใน 10 วินาทีด้วยการแก้ค่าใน ecosystem.config.js แล้ว pm2 reload
+// ซึ่งสำคัญกว่าการเลือกค่าเริ่มต้นถูกตั้งแต่แรก
+//
+// ไม่ว่าตั้งค่าไหน /v1/ กับ /v2/ ก็ยังเข้าได้เสมอ คนที่คุ้นกับหน้าไหนจึงเปิดตรงนั้นได้เลย
+const UI_DEFAULT = String(process.env.UI_DEFAULT || 'v1').toLowerCase() === 'v2' ? 'v2' : 'v1';
+
+const STATIC_OPTS = {
     maxAge: '1d',
     etag: true,
     setHeaders: (res, filepath) => {
@@ -180,7 +193,23 @@ app.use(express.static(path.join(__dirname, 'public'), {
             res.setHeader('Expires', '0');
         }
     }
-}));
+};
+
+// "/" ต้องตัดสินใจก่อน express.static จะเสิร์ฟ public/index.html ให้อัตโนมัติ
+app.get('/', (req, res, next) => {
+    if (UI_DEFAULT !== 'v2') return next();   // ปล่อยให้ static เสิร์ฟหน้าเดิมตามปกติ
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
+});
+
+// URL ถาวรของหน้าเดิม — ต้องมีก่อนสลับ ไม่งั้นพอ "/" กลายเป็น v2 แล้วจะไม่มีทางเข้า v1 เลย
+// mount ทั้งโฟลเดอร์เพราะ index.html ของ v1 อ้างไฟล์แบบ relative (app.js?v=, style.css?v=)
+// ถ้าเสิร์ฟแค่ไฟล์ HTML เดี่ยว ๆ เบราว์เซอร์จะหา /v1/app.js ไม่เจอ
+// (ต่างจาก v2 ที่ vite ตั้ง base เป็น /v2/ จึงอ้างแบบ absolute อยู่แล้ว)
+app.use('/v1', express.static(path.join(__dirname, 'public'), STATIC_OPTS));
+
+// Static Assets Caching Strategy (Fast asset loading + no-cache for index.html)
+app.use(express.static(path.join(__dirname, 'public'), STATIC_OPTS));
 
 // Session store — คีย์เป็น "แฮชของ token" ไม่ใช่ token ตรง ๆ (ดู lib/session-store.js)
 //

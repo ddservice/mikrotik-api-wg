@@ -47,8 +47,8 @@ function go(menu) {
             </button>
         </nav>
 
-        <a class="back-legacy" href="/">
-            <i class="fa-solid fa-rotate-left"></i> กลับไปหน้าเดิมทั้งหมด
+        <a class="back-legacy" href="/v1/">
+            <i class="fa-solid fa-rotate-left"></i> กลับไปหน้าเดิม
         </a>
     </aside>
 </template>

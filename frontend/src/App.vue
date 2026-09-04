@@ -123,7 +123,7 @@ const activeSiteName = computed(() => {
                     {{ currentUser?.displayName || currentUser?.username }}
                     <em>{{ currentUser?.role }}</em>
                 </span>
-                <a class="ghost" href="/" title="เปิดหน้าเดิมที่มีครบทุกฟีเจอร์">หน้าเดิม</a>
+                <a class="ghost" href="/v1/" title="เปิดหน้าเดิม">หน้าเดิม</a>
                 <button type="button" class="ghost icon" title="ออกจากระบบ" @click="doLogout">
                     <i class="fa-solid fa-power-off"></i>
                 </button>
