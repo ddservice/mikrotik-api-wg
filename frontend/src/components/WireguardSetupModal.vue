@@ -24,10 +24,12 @@ const emit = defineEmits(['close', 'registered']);
 const wireguardIp = ref('');
 const port = ref(8728);
 const script = ref('');
+const scriptKind = ref('install');   // install | uninstall
 const autoRegistered = ref(false);
 const busy = ref('');
 const err = ref('');
 const peer = ref(null);
+const manualKey = ref('');
 
 // เสนอ IP ว่างตัวถัดไปในวง 10.10.88.x ให้ ไม่ต้องไปไล่ดูเองว่าตัวไหนว่าง
 const suggestedIp = computed(() => {
@@ -42,12 +44,18 @@ const suggestedIp = computed(() => {
 watch(() => props.open, (v) => {
     if (!v) return;
     script.value = '';
+    scriptKind.value = 'install';
     err.value = '';
     peer.value = null;
+    manualKey.value = '';
     autoRegistered.value = false;
     wireguardIp.value = (props.site && props.site.wireguardIp) || suggestedIp.value;
     port.value = (props.site && props.site.port) || 8728;
 });
+
+// คีย์ WireGuard จริงเป็น base64 44 ตัวลงท้ายด้วย '=' เสมอ — เช็คไว้ดักคีย์ที่คัดลอกมาไม่ครบ
+// (ไม่บล็อกการกด เพราะเป็นแค่ตัวดักพิมพ์ผิด ไม่ใช่การพิสูจน์ว่าคีย์ถูกต้องจริง)
+const keyLooksValid = computed(() => /^[A-Za-z0-9+/]{43}=$/.test(manualKey.value.trim()));
 
 async function generate() {
     const ip = String(wireguardIp.value || '').trim();
@@ -66,9 +74,79 @@ async function generate() {
             })
         });
         script.value = r.script || '';
+        scriptKind.value = 'install';
         autoRegistered.value = !!r.autoRegistered;
     } catch (e) {
         err.value = e.message;
+    } finally {
+        busy.value = '';
+    }
+}
+
+// สคริปต์ถอนการติดตั้งฝั่งเราท์เตอร์ — ใช้ตอนเลิกใช้สาขา หรือจะตั้งใหม่ให้สะอาด
+// ต้องคู่กับ "ลบ peer บน VPS" ด้านล่าง ไม่งั้นจะเหลือ peer ค้างกินหมายเลข IP ไว้
+async function uninstallScript() {
+    busy.value = 'uninstall';
+    err.value = '';
+    try {
+        const r = await apiFetch('/api/wireguard/generate-uninstall-script', { method: 'POST' });
+        script.value = r.script || '';
+        scriptKind.value = 'uninstall';
+        autoRegistered.value = false;
+    } catch (e) {
+        err.value = e.message;
+    } finally {
+        busy.value = '';
+    }
+}
+
+/**
+ * ใส่ public key เอง — ทางสำรองเมื่อการลงทะเบียนอัตโนมัติใช้ไม่ได้
+ * (ยังไม่ได้ตั้ง PUBLIC_APP_URL, โทเค็นหมดอายุ 30 นาที, หรือเราท์เตอร์ยิง /tool/fetch ออกไม่ได้)
+ */
+async function registerManually() {
+    const key = manualKey.value.trim();
+    const ip = String(wireguardIp.value || '').trim();
+    if (!key) return toast.error('วาง public key ของเราท์เตอร์ก่อน');
+    if (!/^10\.10\.88\.\d{1,3}$/.test(ip)) return toast.error('WireGuard IP ต้องอยู่ในรูปแบบ 10.10.88.x');
+
+    busy.value = 'reg';
+    try {
+        const r = await apiFetch('/api/wireguard/register-peer', {
+            method: 'POST',
+            body: JSON.stringify({ clientPublicKey: key, wireguardIp: ip })
+        });
+        toast.success(r.message || 'ลงทะเบียน peer บน VPS แล้ว');
+        manualKey.value = '';
+        emit('registered');
+        await checkPeer();
+    } catch (e) {
+        toast.error('ลงทะเบียนไม่สำเร็จ: ' + e.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
+async function removePeer() {
+    const ip = String(wireguardIp.value || '').trim();
+    if (!window.confirm([
+        `ลบ WireGuard peer ของ ${ip} ออกจาก VPS?`,
+        '',
+        'อุโมงค์ของสาขานี้จะขาดทันที และระบบจะเข้าเราท์เตอร์ไม่ได้จนกว่าจะลงทะเบียนใหม่',
+        'ใช้ตอนเลิกใช้สาขา หรือจะย้ายสาขาไปหมายเลข IP อื่นเท่านั้น'
+    ].join('\n'))) return;
+
+    busy.value = 'rm';
+    try {
+        const r = await apiFetch('/api/wireguard/remove-peer', {
+            method: 'POST',
+            body: JSON.stringify({ wireguardIp: ip })
+        });
+        toast.success(r.message || 'ลบ peer บน VPS แล้ว');
+        peer.value = null;
+        emit('registered');
+    } catch (e) {
+        toast.error('ลบไม่สำเร็จ: ' + e.message);
     } finally {
         busy.value = '';
     }
@@ -137,7 +215,11 @@ async function checkPeer() {
         <div class="actions">
             <button type="button" class="v2-btn primary" :disabled="busy === 'gen'" @click="generate">
                 <i class="fa-solid" :class="busy === 'gen' ? 'fa-spinner fa-spin' : 'fa-file-code'"></i>
-                สร้างสคริปต์
+                สร้างสคริปต์ติดตั้ง
+            </button>
+            <button type="button" class="v2-btn ghost" :disabled="busy === 'uninstall'" @click="uninstallScript">
+                <i class="fa-solid" :class="busy === 'uninstall' ? 'fa-spinner fa-spin' : 'fa-eraser'"></i>
+                สคริปต์ถอนออกจากเราท์เตอร์
             </button>
         </div>
 
@@ -146,7 +228,27 @@ async function checkPeer() {
             <span>{{ err }}</span>
         </div>
 
-        <template v-if="script">
+        <template v-if="script && scriptKind === 'uninstall'">
+            <div class="v2-callout danger">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>
+                    สคริปต์นี้ <strong>ลบ interface WireGuard และ IP ออกจากเราท์เตอร์</strong>
+                    ถ้ารันผ่านอุโมงค์เดิม จะขาดการติดต่อทันทีและต้องไปที่หน้างาน —
+                    รันตอนต่อสาย LAN ในพื้นที่เท่านั้น
+                    และอย่าลืมกด "ลบ peer บน VPS" ด้านล่างด้วย ไม่งั้นจะเหลือ peer ค้างกินหมายเลข IP ไว้
+                </span>
+            </div>
+
+            <div class="scriptbar">
+                <span class="sub">สคริปต์ถอนการติดตั้ง</span>
+                <button type="button" class="v2-btn ghost sm" @click="copy">
+                    <i class="fa-solid fa-copy"></i> คัดลอก
+                </button>
+            </div>
+            <textarea class="script mono" readonly :value="script" spellcheck="false"></textarea>
+        </template>
+
+        <template v-else-if="script">
             <div class="v2-callout" :class="autoRegistered ? 'ok' : 'info'">
                 <i class="fa-solid" :class="autoRegistered ? 'fa-wand-magic-sparkles' : 'fa-circle-info'"></i>
                 <span v-if="autoRegistered">
@@ -194,6 +296,37 @@ async function checkPeer() {
             </div>
         </template>
 
+        <!-- ทางสำรองเมื่อการลงทะเบียนอัตโนมัติใช้ไม่ได้ + ทางลบ peer ทิ้ง -->
+        <details class="manual">
+            <summary>ลงทะเบียนคีย์เอง / ลบ peer บน VPS</summary>
+
+            <p class="hint">
+                ใช้เมื่อเราท์เตอร์ส่งคีย์กลับมาเองไม่ได้ — เช่น ยังไม่ได้ตั้ง <code>PUBLIC_APP_URL</code>,
+                โทเค็นหมดอายุ 30 นาทีไปแล้ว หรือเราท์เตอร์ยิงออกอินเทอร์เน็ตไม่ได้
+                ดูคีย์บนเราท์เตอร์ที่ <code>/interface/wireguard/print</code>
+            </p>
+
+            <div class="v2-field">
+                <label>Public key ของเราท์เตอร์</label>
+                <input v-model="manualKey" class="v2-input mono" placeholder="เช่น xQ1c...=" spellcheck="false">
+                <span v-if="manualKey && !keyLooksValid" class="v2-hint warn">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    รูปแบบไม่เหมือนคีย์ WireGuard (ควรเป็น 44 ตัวลงท้ายด้วย <code>=</code>) — ตรวจว่าคัดลอกมาครบ
+                </span>
+            </div>
+
+            <div class="actions">
+                <button type="button" class="v2-btn primary" :disabled="busy === 'reg'" @click="registerManually">
+                    <i class="fa-solid" :class="busy === 'reg' ? 'fa-spinner fa-spin' : 'fa-plus'"></i>
+                    บันทึก peer บน VPS
+                </button>
+                <button type="button" class="v2-btn danger" :disabled="busy === 'rm'" @click="removePeer">
+                    <i class="fa-solid" :class="busy === 'rm' ? 'fa-spinner fa-spin' : 'fa-broom'"></i>
+                    ลบ peer ของ {{ wireguardIp }} บน VPS
+                </button>
+            </div>
+        </details>
+
         <template #footer>
             <button type="button" class="v2-btn ghost" @click="emit('close')">ปิด</button>
         </template>
@@ -214,4 +347,9 @@ async function checkPeer() {
           font-size: .76rem; line-height: 1.6; resize: vertical; white-space: pre; overflow-x: auto; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 code { background: var(--v2-primary-soft); padding: 1px 5px; border-radius: 4px; }
+
+.manual { margin-top: 16px; border-top: 1px solid var(--v2-border); padding-top: 12px; }
+.manual summary { font-size: .84rem; font-weight: 600; color: var(--v2-text-soft); cursor: pointer; }
+.manual summary:hover { color: var(--v2-text); }
+.hint { font-size: .78rem; color: var(--v2-text-muted); line-height: 1.6; margin: 10px 0 12px; }
 </style>

@@ -9,7 +9,6 @@
 import { ref } from 'vue';
 import { apiFetch } from '../api.js';
 import { toast } from '../toast.js';
-import BaseModal from './BaseModal.vue';
 import FullUpgradeModal from './FullUpgradeModal.vue';
 
 const busy = ref('');

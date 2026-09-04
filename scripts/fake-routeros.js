@@ -80,7 +80,45 @@ const db = {
     dns: [{ servers: '203.113.1.1', 'allow-remote-requests': 'false', 'dynamic-servers': '' }],
     dhcpNetworks: [{ '.id': '*N1', address: '192.168.88.0/24', gateway: '192.168.88.1',
                      'dns-server': '203.113.1.1' }],
-    addresses: [{ '.id': '*IP1', address: '192.168.88.1/24', interface: 'bridge-lan' }]
+    addresses: [{ '.id': '*IP1', address: '192.168.88.1/24', interface: 'bridge-lan' }],
+    // Hotspot — มีไว้ทดสอบเส้นทางสร้างคูปองแบบกลุ่ม ซึ่งเขียนผู้ใช้ลงเราท์เตอร์จริงทีละไม่เกิน 100 ราย
+    hotspotProfiles: [
+        { '.id': '*HP1', name: 'default', 'rate-limit': '', 'shared-users': '1' },
+        { '.id': '*HP2', name: '1day', 'rate-limit': '10M/10M', 'shared-users': '1',
+          'session-timeout': '1d' }
+    ],
+    hotspotUsers: [
+        { '.id': '*HU1', name: 'a028', password: 'test1234', profile: 'default',
+          uptime: '1h20m', 'limit-uptime': '02:00:00', 'bytes-in': '104857600',
+          'bytes-out': '20971520', comment: 'ลูกค้าประจำ' },
+        { '.id': '*HU2', name: 'a029', password: 'abcd2345', profile: '1day',
+          uptime: '0s', 'limit-uptime': '1d', 'bytes-in': '0', 'bytes-out': '0', comment: '' }
+    ],
+    // PPPoE — ห้องเช่า (/ppp/secret) และเซสชันที่ออนไลน์อยู่ (/ppp/active)
+    pppSecrets: [
+        { '.id': '*PS1', name: 'rm319', password: 'room319', profile: 'default',
+          service: 'pppoe', disabled: 'false', comment: 'คุณสมชาย',
+          'last-logged-out': 'sep/03/2026 21:10:04' },
+        { '.id': '*PS2', name: 'rm320', password: 'room320', profile: 'default',
+          service: 'pppoe', disabled: 'true', comment: 'ค้างค่าเช่า',
+          'last-logged-out': 'aug/28/2026 08:00:00' }
+    ],
+    pppActive: [
+        { '.id': '*PA1', name: 'rm319', address: '10.20.0.5', 'caller-id': 'DE:AD:BE:EF:00:01',
+          uptime: '3h12m', service: 'pppoe' }
+    ],
+    pppProfiles: [
+        { '.id': '*PP1', name: 'default', 'rate-limit': '', 'local-address': '10.20.0.1',
+          'remote-address': 'pppoe-pool' }
+    ],
+    pppoeServers: [
+        { '.id': '*PSV1', 'service-name': 'mt-pppoe', interface: 'ether5',
+          'keepalive-timeout': '10', disabled: 'false' }
+    ],
+    hotspotActive: [
+        { '.id': '*HA1', user: 'a028', address: '192.168.88.101', 'mac-address': 'AA:BB:CC:DD:EE:01',
+          'login-by': 'http-chap', uptime: '1h20m', 'bytes-in': '104857600', 'bytes-out': '20971520' }
+    ]
 };
 
 // ---- โปรโตคอล API ของ RouterOS ----
@@ -157,6 +195,26 @@ function handle(cmd, attrs) {
         return done();
     }
 
+    if (c === '/ppp/secret/print') return reply(db.pppSecrets);
+    if (c === '/ppp/active/print') return reply(db.pppActive);
+    if (c === '/ppp/profile/print') return reply(db.pppProfiles);
+    if (c === '/interface/pppoe-server/server/print') return reply(db.pppoeServers);
+    if (c === '/ip/hotspot/user/print') return reply(db.hotspotUsers);
+    if (c === '/ip/hotspot/user/profile/print') return reply(db.hotspotProfiles);
+    if (c === '/ip/hotspot/active/print') {
+        // server กรองด้วย ?user= ตอนจะเตะเซสชันก่อนต่ออายุ
+        const filt = attrs['?user'] !== undefined ? attrs['?user'] : null;
+        return reply(filt ? db.hotspotActive.filter((s) => s.user === filt) : db.hotspotActive);
+    }
+    if (c === '/ip/hotspot/user/reset-counters') {
+        const u = db.hotspotUsers.find((x) => x['.id'] === (attrs.numbers || attrs['.id']));
+        if (!u) return err('no such item');
+        u.uptime = '0s';
+        u['bytes-in'] = '0';
+        u['bytes-out'] = '0';
+        return done();
+    }
+
     if (c === '/system/backup/save') {
         return done([`=ret=${attrs.name || 'backup'}`]);
     }
@@ -190,7 +248,14 @@ function handle(cmd, attrs) {
             '/ip/dhcp-server/network': db.dhcpNetworks,
             '/system/script': db.scripts,
             '/interface/list': db.ifaceLists,
-            '/interface/list/member': db.ifaceListMembers
+            '/interface/list/member': db.ifaceListMembers,
+            '/ppp/secret': db.pppSecrets,
+            '/ppp/active': db.pppActive,
+            '/ppp/profile': db.pppProfiles,
+            '/interface/pppoe-server/server': db.pppoeServers,
+            '/ip/hotspot/user': db.hotspotUsers,
+            '/ip/hotspot/user/profile': db.hotspotProfiles,
+            '/ip/hotspot/active': db.hotspotActive
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 
@@ -263,7 +328,8 @@ process.stdin.on('data', (d) => {
     if (String(d).trim() === 'dump') {
         console.log(JSON.stringify({
             routes: db.routes, nat: db.nat, scheduler: db.scheduler,
-            pppoe: db.pppoeClients, dhcp: db.dhcpClients
+            pppoe: db.pppoeClients, dhcp: db.dhcpClients,
+            filter: db.filter, hotspotUsers: db.hotspotUsers, pppSecrets: db.pppSecrets
         }, null, 2));
     }
 });

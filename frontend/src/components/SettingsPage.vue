@@ -25,11 +25,38 @@ const siteModalOpen = ref(false);
 const editingSite = ref(null);
 const busySite = ref('');
 
+// สถานะ peer จริงบน wg0 ของ VPS — ตอบคำถาม "สาขานี้เคยต่อเข้ามาไหม และล่าสุดเมื่อไหร่"
+// ซึ่งเป็นคนละเรื่องกับ "API ล็อกอินผ่านไหม" ตอนสาขาล่มต้องแยกสองอย่างนี้ให้ออก
+const wgPeers = ref({});
+
+async function loadWgPeers() {
+    try {
+        wgPeers.value = await apiFetch('/api/wireguard/all-peers-status');
+    } catch (_) {
+        // อ่าน wg ไม่ได้ (สิทธิ์ หรือรันนอก VPS) — ไม่ใช่ความผิดพลาดของหน้านี้ แค่ไม่มีข้อมูลจะโชว์
+        wgPeers.value = {};
+    }
+}
+
+function wgPeerOf(s) {
+    return s.wireguardIp ? wgPeers.value[s.wireguardIp] || null : null;
+}
+
+// แปลงวินาทีเป็นข้อความสั้น ๆ — handshake เก่ากว่า ~3 นาทีแปลว่าอุโมงค์เงียบไปแล้ว
+function handshakeText(sec) {
+    if (sec === null || sec === undefined) return 'ไม่เคยจับมือ';
+    if (sec < 90) return `จับมือล่าสุด ${sec} วินาทีที่แล้ว`;
+    if (sec < 3600) return `จับมือล่าสุด ${Math.floor(sec / 60)} นาทีที่แล้ว`;
+    if (sec < 86400) return `จับมือล่าสุด ${Math.floor(sec / 3600)} ชม. ที่แล้ว`;
+    return `จับมือล่าสุด ${Math.floor(sec / 86400)} วันที่แล้ว`;
+}
+
 async function loadSites() {
     loadingSites.value = true;
     try {
         const data = await apiFetch('/api/sites');
         sites.value = data.sites || [];
+        loadWgPeers();
         checkAll();
     } catch (err) {
         toast.error('โหลดรายชื่อสาขาไม่สำเร็จ: ' + err.message);
@@ -434,6 +461,15 @@ onMounted(async () => {
                                     {{ s.connectionType === 'wireguard' ? 'WireGuard' : 'ต่อตรง' }}
                                 </span>
                                 <div v-if="s.wireguardIp" class="sub mono">{{ s.wireguardIp }}</div>
+                                <template v-if="s.connectionType === 'wireguard'">
+                                    <div v-if="wgPeerOf(s) && wgPeerOf(s).endpoint" class="sub mono peer">
+                                        {{ wgPeerOf(s).endpoint }}
+                                        <span :class="wgPeerOf(s).connected ? 'hs-ok' : 'hs-old'">
+                                            {{ handshakeText(wgPeerOf(s).lastHandshakeSecondsAgo) }}
+                                        </span>
+                                    </div>
+                                    <div v-else class="sub peer hs-old">ยังไม่เคยต่อเข้า VPS</div>
+                                </template>
                             </td>
                             <td class="mono v2-num">
                                 {{ s.host || '—' }}<span v-if="s.port" class="sub">:{{ s.port }}</span>
@@ -482,11 +518,6 @@ onMounted(async () => {
                         </tr>
                     </tbody>
                 </table>
-            </div>
-            <div class="note">
-                <i class="fa-solid fa-circle-info"></i>
-                สร้างสคริปต์ตั้งค่า WireGuard บนเราท์เตอร์ และเครื่องมือวินิจฉัยการเชื่อมต่อ 5 ขั้น
-                ยังทำที่ <a href="/">หน้าเดิม</a>
             </div>
         </div>
     </template>
@@ -947,11 +978,9 @@ tbody tr:last-child td { border-bottom: none; }
 
 .warnhint { font-size: .72rem; color: var(--v2-warn); margin-top: 3px; font-family: inherit; }
 
-.note {
-    display: flex; align-items: center; gap: 8px; padding: 11px 16px;
-    background: var(--v2-primary-soft); color: #1d4ed8; font-size: .81rem; border-top: 1px solid var(--v2-border);
-}
-.note a { color: inherit; font-weight: 700; }
+.peer { margin-top: 2px; font-size: .71rem; }
+.hs-ok { color: var(--v2-success); font-family: inherit; margin-left: 4px; }
+.hs-old { color: var(--v2-text-muted); font-family: inherit; margin-left: 4px; }
 
 .switchrow {
     display: flex; align-items: center; justify-content: space-between; gap: 16px;

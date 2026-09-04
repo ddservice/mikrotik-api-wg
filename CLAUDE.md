@@ -89,18 +89,23 @@ now covers the legacy page for as long as it exists.
 3. **One page at a time.** `/` keeps serving the old UI until every page has a
    working replacement. Both share the same `localStorage` token, so an
    operator can be logged into both simultaneously during the transition.
-   As of 2026-08-31 `/v2/` covers the whole site lifecycle on its own — open a site
-   (including the WireGuard setup script), run it, troubleshoot it (the 5-step
-   diagnostic), and close it. What is left in v1 only: Multi-WAN, the
-   hardened-firewall preset, and bulk voucher generation/printing.
+   **As of 2026-09-04 `/v2/` covers every feature of `/`** — see that day's change-log
+   entry for the endpoint-by-endpoint diff. The single deliberate exception is the
+   legacy Multi-WAN form (`GET/POST /api/multiwan`, `POST /api/multiwan/apply`),
+   which is superseded rather than missing: it asked an operator to *type* interface
+   names and gateways, while v2's Multi-WAN page reads them off the router, backs up,
+   arms a rollback and verifies. Porting the old form would be porting a worse tool.
    **The rule for deciding what must move is the lifecycle, not usage frequency.**
    "Used once per site" was the reason the WireGuard generator and the diagnostic
    were left behind, and it was wrong: the generator is the step that *creates* the
    connection, and the diagnostic is wanted precisely when a branch is down. Missing
    either one means v2 cannot replace v1 however rarely it is used.
-   **Neither UI is redundant yet**: v1 still owns Multi-WAN and the voucher tools,
-   and v2 alone has the sealed-archive browser, the storage monitor and the DNS
-   on/off switch. Customers and staff are still used to v1, so `/` stays the default.
+   Customers and staff are still used to v1, so `/` stays the default — feature parity
+   is a precondition for switching, not the decision to switch.
+   **When checking parity, compare HTTP method + path, not path alone.** A path that
+   appears in v2 may only be there for one verb: `/api/mikrotik/pppoe/users/:id` was
+   present for `PATCH .../suspend` while `PUT`/`DELETE` (edit and delete a room —
+   daily billing work) existed nowhere in v2. A path-only diff called that migrated.
 4. **Never delete `public/app.js` / `public/index.html`** until all pages are
    migrated *and* clicked through by hand. There is no test suite.
 5. If `frontend/src` changed, run `npm run build:frontend` **before** commit —
@@ -489,6 +494,120 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-09-04 (2)** — **Production 504 on the DNS visit-history page.** Reported with a
+  screenshot: Cloudflare `Gateway time-out`, `Host: Error`, on `/` → ประวัติเว็บไซต์ที่เข้าชม.
+  - **The page that fails is the page as it opens** — no date range, no search. That is the
+    single most expensive query the code can make, and nothing else on the site is affected,
+    which is why it looks like the whole origin is down when it is one endpoint.
+  - **Two multiplying causes, both in the read path:**
+    1. `queryDnsLogs()` asked the file store for `limit: 99999, page: 1` and then sliced 100
+       rows out of the result. The store keeps a *sorted* array of `skip + limit` rows per day
+       and inserts with `splice`, so `want = 99,999` turned each day into ~10⁸ memory moves.
+    2. `dnsStore.query()` scanned **every** day file in range — up to `MAX_SCAN_DAYS` (31) at
+       ~342,000 rows each — purely to compute the row count for the pager.
+  - **Measured, not guessed.** Seeded 600,000 rows over 5 days and ran the pre-fix code (from
+    `git show HEAD:`) against the fixed code, same data, same query: **26,861 ms → 121 ms
+    (222×)**. Production has more days than that, which puts the old path well past
+    Cloudflare's 100 s ceiling. The first 100 rows and the totals are **identical** between
+    old and new on pages 1, 5 and 20 — this is a speed fix, not a behaviour change.
+  - **The fix uses what was already on disk.** `dns-logs/index.json` has held a per-day row
+    count since the store was written; nothing read it during a query. Now, when there is no
+    search/username/site filter, a day's count comes from the index and the file is opened
+    only if the requested page actually falls inside that day. The default view reads **one**
+    file. With a filter it still scans everything, because a count of *matching* rows cannot
+    come from an index — that cost is real and is left alone.
+  - Per-day retained rows also dropped from a fixed `skip + limit` to `(skip - rank) + limit`,
+    so days already consumed by earlier pages shrink the window instead of every day paying
+    the deepest page's price.
+  - `query()` now returns **`readDays`** (files actually opened) alongside `scannedDays` (days
+    in range). The two being far apart is the signature of this class of problem, and the
+    tests assert on it rather than on wall-clock time.
+  - **Paging across the two eras no longer materialises anything.** File rows are strictly
+    newer than every legacy Postgres row, so the merged order is "all files, then all DB" and
+    a page can be cut directly: take the page from the store, and top up from the database at
+    `offset = skip - fileTotal`. Needed a real `offset` option, added to **both** DB layers.
+    Verified through HTTP across the boundary at `limit=100` (clean 120/121 split) and at
+    `limit=70`, where page 172 correctly mixes **30 file rows + 40 DB rows** with no duplicate
+    and no gap.
+  - **Found while testing: `db.js` returned DNS logs oldest-first while `db-supabase.js`
+    orders `query_time` descending.** So the JSON fallback has always listed the Log page
+    backwards compared to production, and it broke the merge (which assumes both sources are
+    newest-first). Fixed in `db.js`. `check-db-parity.js` cannot catch this — identical
+    signatures, different behaviour — the same blind spot noted for the LINE fallback.
+  - 10 new tests (**282 total**) covering: one file opened for the default view, correct total
+    from the index, deep pages skipping whole days, the two-day straddle, and filtered queries
+    still reading every day.
+  - **Not verified against production.** This machine has no route to the VPS. The reproduction
+    is a fixture at production scale, and the fix is measured on it.
+
+- **2026-09-04** — `/v2/` reaches feature parity with `/`. Four gaps closed, two of which a
+  path-only endpoint diff had wrongly reported as already migrated.
+  - **How the gaps were found, and how the first pass got it wrong.** Diffing `/api/...`
+    strings between `public/app.js` and `frontend/src` produced 25 v1-only paths, most of them
+    false positives from template-literal URLs. Dismissing those by eye missed two real
+    features, both of which have a path that *does* appear in v2 under a different verb. What
+    caught them was reading the components: a stale "ยังทำที่หน้าเดิม" note in `PppoePage.vue`
+    turned out to be telling the truth. **Compare method + path.**
+  - **PPPoE room accounts — add / edit / delete** (`PppoeRoomModal.vue`). v2 could suspend and
+    unsuspend a room but not create one, so a new tenant moving in still meant going back to
+    v1. This is the most routine task in the whole product. Editing without typing a password
+    keeps the stored one (verified: the value survived a `PUT` that omitted it), because
+    changing it silently would take the room offline until someone drives out to its router.
+    Delete warns that there is no archive to restore from — unlike Hotspot coupons — and
+    points at Suspend for the case it is usually confused with (unpaid rent).
+  - **The Overview's live traffic graph and interface table** (`InterfacesPanel.vue`). v2 had
+    no chart at all. Drawn as SVG rather than v1's `<canvas>`: it scales with the column and
+    stays sharp on high-DPI screens without managing pixel sizes by hand. Speed is derived
+    from the difference between two reads of the router's cumulative counters divided by the
+    **measured** elapsed time — not by the timer's nominal 5 s, because a backgrounded tab
+    fires far later than scheduled and dividing by the constant would report throughput
+    several times higher than reality. Counter resets (a reboot, or switching interface)
+    clamp to 0 instead of drawing a spike.
+  - **Bulk voucher generation and printing** (`VoucherPanel.vue`), plus reprinting selected
+    existing coupons from the accounts tab. Deliberately reuses `id="voucher-print-area"` and
+    the `.voucher-*` classes: `style.css` already carries the whole `@media print` ruleset
+    (hide everything else, 3 columns, never split a card across pages, force black on white).
+    New class names would have meant rewriting all of it and a different printout.
+  - **Hardened firewall preset** on the Firewall page, and **WireGuard peer management**
+    (register a key by hand, remove a peer, uninstall script) in the WireGuard modal, plus the
+    real peer endpoint and handshake age per site in the Settings table.
+  - **PPPoE server first-time setup script** (`PppoeSetupPanel.vue`). Script generator only,
+    no apply button — it creates a VLAN and turns on a PPPoE server on a named interface, and
+    naming the WAN or the management port by mistake takes the branch off the air the instant
+    it runs.
+  - Deliberately **not** migrated: the legacy Multi-WAN form and `POST /api/multiwan/apply`.
+    See the Product-direction note — v2's Multi-WAN page reads the router instead of trusting
+    typed-in values, and this repo has already documented that `apply` as partial and
+    unbacked. Also skipped: `/api/sites/switch/:id`, which v2 replaces with the `X-Site-Id`
+    header by design. Everything else in v1 now has a v2 equivalent.
+  - `scripts/fake-routeros.js` gained Hotspot users/profiles/active (with `reset-counters`)
+    and PPPoE secrets/active/profiles/server, so these write paths are exercised end to end
+    instead of only type-checked. Verified through real HTTP against it: bulk generate creates
+    5 users on the router and returns them for printing, `qty: 101` is rejected `400` and
+    unauthenticated `401`, the hardening preset adds 6 filter rules and **adds none on a
+    second apply**, and the room lifecycle add → edit → delete leaves the router back at its
+    original 2 rooms.
+  - **Could not click through it in a browser this session** — the Chrome extension is
+    connected but cannot reach the local server (both `127.0.0.1` and `localhost` failed).
+    Verified instead the way earlier sessions did when blocked: every new string, endpoint and
+    component present in the emitted bundle, `index.html` pointing at the current hashed
+    filenames with no stale assets, and the Vue build succeeding (it refuses unbalanced markup,
+    which is why this project moved to Vue). A real click-through is still worth doing.
+  - Removed the three "ยังทำที่หน้าเดิม" notes, now that all three statements are false.
+  - Housekeeping in the same pass: dropped a dead `BaseModal` import in `RouterOpsPanel.vue`
+    (pre-existing — the component never rendered one) and a dead array in the new test. No
+    stale files under `public/v2/assets/`; `index.html` points at the two current hashed names.
+  - **Hit the backslash-escaping trap again while writing the throwaway import checker.** A
+    heredoc turned `'\\b'` into a literal backspace character, so `\bref\b` matched nothing and
+    the checker cheerfully reported *every* import in *every* file — including untouched ones —
+    as unused. Same shape as the 2026-08-31 (9) patch script that silently changed nothing, and
+    as the `new RegExp('\s+…')` in 2026-08-31 (4). **Two habits that would have caught all
+    three:** write throwaway scripts to a file rather than through shell quoting, and give any
+    script that makes a judgement a self-check on a known-good and known-bad input before it is
+    allowed to report anything. The rewritten checker used `(?<![A-Za-z0-9_$])` instead of `\b`
+    so there is no backslash to lose, and refused to run until it proved it could tell `ref(`
+    from `preference`.
 
 - **2026-08-31 (11)** — Deep review of everything built this session. Six real defects, all
   found by asking "what if the router is not what we assume" rather than by re-reading the code.

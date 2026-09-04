@@ -4,6 +4,8 @@ import { apiFetch, activeSiteId } from '../api.js';
 import { formatBytes, formatUptime, formatLastSeen } from '../format.js';
 import { toast } from '../toast.js';
 import ProfileModal from './ProfileModal.vue';
+import PppoeRoomModal from './PppoeRoomModal.vue';
+import PppoeSetupPanel from './PppoeSetupPanel.vue';
 
 // ค่า keepalive ของ PPPoE server — ใช้ตอนห้องไหนไฟดับแล้วตัดไม่สะอาด
 // เซสชันจะค้างอยู่จนกว่าเราท์เตอร์จะตรวจเจอว่าปลายทางตายแล้ว ค่านี้คุมว่านานแค่ไหน
@@ -63,6 +65,35 @@ async function deletePackage(p) {
         load({ quiet: true });
     } catch (err) {
         toast.error('ลบไม่สำเร็จ: ' + err.message);
+    }
+}
+
+// เพิ่ม/แก้/ลบห้องพัก — งานประจำวันของระบบเช่าห้อง (ผู้เช่าเข้าใหม่ ย้ายแพ็กเกจ ย้ายออก)
+const roomModalOpen = ref(false);
+const editingRoom = ref(null);
+
+function addRoom() { editingRoom.value = null; roomModalOpen.value = true; }
+function editRoom(r) { editingRoom.value = r; roomModalOpen.value = true; }
+
+async function deleteRoom(r) {
+    // ลบทิ้งเลยกู้คืนไม่ได้ (ไม่มีคลังเก็บเหมือนคูปอง Hotspot) — ผู้เช่าย้ายออกชั่วคราว
+    // ควรใช้ "ระงับการใช้งาน" แทน จะได้ไม่ต้องตั้งค่าเราท์เตอร์ห้องใหม่ตอนกลับมา
+    if (!window.confirm([
+        `ลบห้อง "${r.name}" ออกจากเราท์เตอร์?`,
+        '',
+        'ลบแล้วกู้คืนไม่ได้ ต้องสร้างใหม่และตั้งค่าเราท์เตอร์ของห้องใหม่ทั้งหมด',
+        'ถ้าผู้เช่าแค่ย้ายออกชั่วคราวหรือค้างค่าเช่า ให้ใช้ "ระงับการใช้งาน" แทน'
+    ].join('\n'))) return;
+
+    busyRoom.value = r.name;
+    try {
+        await apiFetch('/api/mikrotik/pppoe/users/' + encodeURIComponent(r.id), { method: 'DELETE' });
+        toast.success(`ลบห้อง "${r.name}" แล้ว`);
+        await load({ quiet: true });
+    } catch (err) {
+        toast.error('ลบไม่สำเร็จ: ' + err.message);
+    } finally {
+        busyRoom.value = '';
     }
 }
 
@@ -294,10 +325,11 @@ async function kick(session) {
 
     <!-- ===== ห้องพักทั้งหมด ===== -->
     <div v-else-if="tab === 'rooms'" class="panel">
-        <div class="note">
-            <i class="fa-solid fa-circle-info"></i>
-            ระงับ/ยกเลิกระงับใช้งานได้จากหน้านี้ — ส่วนการเพิ่ม/แก้ไขห้องและแพ็กเกจ ยังทำที่
-            <a href="/">หน้าเดิม</a> จนกว่าจะย้ายครบ
+        <div class="roombar">
+            <button type="button" class="v2-btn primary" @click="addRoom">
+                <i class="fa-solid fa-plus"></i> เพิ่มห้องพัก
+            </button>
+            <span class="sub">ผู้เช่าเข้าใหม่ให้เพิ่มห้อง · ค้างค่าเช่าให้ใช้ "ระงับการใช้งาน" ไม่ใช่ลบ</span>
         </div>
         <div class="tablewrap">
             <table>
@@ -328,15 +360,23 @@ async function kick(session) {
                         </td>
                         <td class="cmt">{{ r.comment || '—' }}</td>
                         <td class="right">
-                            <button
-                                type="button"
-                                :class="r.disabled ? 'ok-btn' : 'danger-btn'"
-                                :disabled="busyRoom === r.name"
-                                @click="toggleSuspend(r)"
-                            >
-                                <i class="fa-solid" :class="busyRoom === r.name ? 'fa-spinner fa-spin' : (r.disabled ? 'fa-play' : 'fa-ban')"></i>
-                                {{ r.disabled ? 'ยกเลิกระงับ' : 'ระงับการใช้งาน' }}
-                            </button>
+                            <div class="rowbtns">
+                                <button
+                                    type="button"
+                                    :class="r.disabled ? 'ok-btn' : 'danger-btn'"
+                                    :disabled="busyRoom === r.name"
+                                    @click="toggleSuspend(r)"
+                                >
+                                    <i class="fa-solid" :class="busyRoom === r.name ? 'fa-spinner fa-spin' : (r.disabled ? 'fa-play' : 'fa-ban')"></i>
+                                    {{ r.disabled ? 'ยกเลิกระงับ' : 'ระงับการใช้งาน' }}
+                                </button>
+                                <button type="button" class="v2-btn ghost sm" title="แก้ไขห้อง" :disabled="busyRoom === r.name" @click="editRoom(r)">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <button type="button" class="v2-btn danger sm" title="ลบห้อง" :disabled="busyRoom === r.name" @click="deleteRoom(r)">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 </tbody>
@@ -410,14 +450,26 @@ async function kick(session) {
             </table>
         </div>
     </div>
+    <!-- สคริปต์ตั้ง PPPoE Server ครั้งแรกของสาขา — อยู่คู่กับการตั้งค่าฝั่งเซิร์ฟเวอร์อื่น ๆ -->
+    <PppoeSetupPanel v-if="tab === 'packages'" />
+
     <ProfileModal
         :open="pkgModalOpen" kind="pppoe" :profile="editingPkg"
         @close="pkgModalOpen = false" @saved="load({ quiet: true })"
+    />
+    <PppoeRoomModal
+        :open="roomModalOpen" :room="editingRoom" :packages="packages"
+        @close="roomModalOpen = false" @saved="load({ quiet: true })"
     />
 </template>
 
 <style scoped>
 .pkgbar { margin-bottom: 12px; }
+.roombar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--v2-border);
+}
+.rowbtns { display: flex; gap: 6px; justify-content: flex-end; }
 .rowact { display: flex; gap: 6px; }
 .srvpanel { margin-bottom: 16px; }
 .ptitle { font-weight: 600; font-size: .9rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }

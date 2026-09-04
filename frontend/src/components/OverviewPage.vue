@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { apiFetch, currentUser, activeSiteId } from '../api.js';
 import { formatUptime, formatMegabytes } from '../format.js';
 import StatCard from './StatCard.vue';
+import InterfacesPanel from './InterfacesPanel.vue';
 
 const POLL_MS = 10000;
 
@@ -254,6 +255,8 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
             card-title="ห้องพักที่เชื่อมต่อ PPPoE อยู่ในขณะนี้"
         />
     </div>
+
+    <InterfacesPanel />
 </template>
 
 <style scoped>

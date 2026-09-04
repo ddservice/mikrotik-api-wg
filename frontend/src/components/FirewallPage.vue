@@ -122,6 +122,58 @@ async function addRule() {
     }
 }
 
+// ---------- ชุดกฎความปลอดภัย RouterOS v7 ----------
+// ปุ่ม "ติดตั้งผ่าน API" เขียนกฎเพิ่มลง /ip/firewall/filter ทันที จึงต้องยืนยันก่อน
+// และต้องบอกให้ชัดว่ากฎชุดนี้แตะ chain input ซึ่งเป็นทางที่เราคุยกับเราท์เตอร์อยู่
+const hardenOpen = ref(false);
+const hardenScript = ref('');
+const hardenBusy = ref('');
+
+async function showHardenScript() {
+    hardenBusy.value = 'script';
+    try {
+        const r = await apiFetch('/api/mikrotik/firewall/generate-security-script', { method: 'POST' });
+        hardenScript.value = r.script || '';
+        hardenOpen.value = true;
+    } catch (err) {
+        toast.error('สร้างสคริปต์ไม่สำเร็จ: ' + err.message);
+    } finally {
+        hardenBusy.value = '';
+    }
+}
+
+async function copyHardenScript() {
+    try {
+        await navigator.clipboard.writeText(hardenScript.value);
+        toast.success('คัดลอกแล้ว — ไปวางใน WinBox → New Terminal');
+    } catch (_) {
+        toast.error('คัดลอกอัตโนมัติไม่ได้ — เลือกข้อความแล้วกด Ctrl+C');
+    }
+}
+
+async function applyHardening() {
+    if (!window.confirm([
+        'ติดตั้งชุดกฎความปลอดภัยลงเราท์เตอร์เลยหรือไม่?',
+        '',
+        'กฎชุดนี้เพิ่มลง chain input ซึ่งเป็นทางเดียวกับที่ระบบนี้ใช้คุยกับเราท์เตอร์',
+        'สิ่งที่จะเกิดขึ้น: IP ที่เดารหัส WinBox/SSH/API ผิดซ้ำ ๆ จะถูกแบน 24 ชั่วโมง',
+        'ถ้าเครื่องคุณเดารหัสผิดหลายครั้ง ก็จะโดนแบนไปด้วยเช่นกัน',
+        '',
+        'ระบบจะข้ามให้เองถ้าเราท์เตอร์มีกฎชุดนี้อยู่แล้ว (ไม่ซ้อนซ้ำ)'
+    ].join('\n'))) return;
+
+    hardenBusy.value = 'apply';
+    try {
+        const r = await apiFetch('/api/mikrotik/firewall/apply-security-hardening', { method: 'POST' });
+        toast.success(r.message || 'ติดตั้งชุดกฎความปลอดภัยแล้ว');
+        await load();
+    } catch (err) {
+        toast.error('ติดตั้งไม่สำเร็จ: ' + err.message);
+    } finally {
+        hardenBusy.value = '';
+    }
+}
+
 async function removeRule(r) {
     if (!window.confirm(`เลิกบล็อก "${r.comment || r.id}"?`)) return;
     busy.value = r.id;
@@ -246,10 +298,59 @@ async function removeRule(r) {
             </table>
         </div>
 
-        <div class="note">
-            <i class="fa-solid fa-circle-info"></i>
-            สคริปต์ RouterOS v7 Hardened Security Preset (กันยิงรหัส WinBox/SSH, กัน DNS amplification)
-            เป็นการตั้งค่าครั้งเดียว ยังทำที่ <a href="/">หน้าเดิม</a>
+    </div>
+
+    <!-- ชุดกฎความปลอดภัย — ตั้งครั้งเดียวต่อเราท์เตอร์ -->
+    <div class="panel harden">
+        <div class="phead">
+            <h3><i class="fa-solid fa-shield-halved"></i> ชุดกฎความปลอดภัย RouterOS v7 (Hardened Preset)</h3>
+        </div>
+
+        <div class="hbody">
+            <p class="lead">
+                ชุดกฎมาตรฐานสำหรับเราท์เตอร์ที่เปิดให้เข้าถึงจากอินเทอร์เน็ต — แบน IP ที่ไล่เดารหัส
+                WinBox / SSH / API แบบทวีความเข้ม (ผิดซ้ำ → แบน 24 ชม.), ปิดช่องให้คนนอกใช้เราท์เตอร์
+                เป็น DNS resolver ยิง DDoS ใส่คนอื่น และทิ้งแพ็กเก็ตที่ผิดรูป
+            </p>
+
+            <div class="v2-callout warn">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>
+                    กฎอยู่ใน <code>chain input</code> ซึ่งเป็นทางเดียวกับที่ระบบนี้ใช้คุยกับเราท์เตอร์ —
+                    ถ้าเครื่องที่คุณใช้อยู่เดารหัสผิดหลายครั้ง จะโดนแบนไปด้วย
+                    ควรมีทางเข้าสำรอง (สาย LAN ในพื้นที่) ไว้ก่อนกดติดตั้ง
+                </span>
+            </div>
+
+            <div class="hactions">
+                <button type="button" class="v2-btn ghost" :disabled="hardenBusy === 'script'" @click="showHardenScript">
+                    <i class="fa-solid" :class="hardenBusy === 'script' ? 'fa-spinner fa-spin' : 'fa-file-code'"></i>
+                    ดูสคริปต์ก่อน (คัดลอกไปวางเอง)
+                </button>
+                <button type="button" class="v2-btn primary" :disabled="hardenBusy === 'apply'" @click="applyHardening">
+                    <i class="fa-solid" :class="hardenBusy === 'apply' ? 'fa-spinner fa-spin' : 'fa-bolt'"></i>
+                    ติดตั้งผ่าน API ทันที
+                </button>
+            </div>
+
+            <p class="fine">
+                สองปุ่มนี้ไม่เท่ากัน: <b>ดูสคริปต์</b> ให้ครบทุกข้อรวม address-list และกฎ chain forward
+                ไปวางใน WinBox เอง · <b>ติดตั้งผ่าน API</b> ลงเฉพาะกฎกันเดารหัสกับกฎทิ้งแพ็กเก็ตผิดรูป
+                และข้ามให้เองถ้ามีอยู่แล้ว
+            </p>
+
+            <template v-if="hardenOpen && hardenScript">
+                <div class="scriptbar">
+                    <span class="sub">สคริปต์เต็มสำหรับวางใน WinBox → New Terminal</span>
+                    <button type="button" class="v2-btn ghost sm" @click="copyHardenScript">
+                        <i class="fa-solid fa-copy"></i> คัดลอก
+                    </button>
+                    <button type="button" class="v2-btn ghost sm" @click="hardenOpen = false">
+                        <i class="fa-solid fa-xmark"></i> ซ่อน
+                    </button>
+                </div>
+                <textarea class="script" readonly :value="hardenScript" spellcheck="false"></textarea>
+            </template>
         </div>
     </div>
 </template>
@@ -337,9 +438,20 @@ tbody tr:last-child td { border-bottom: none; }
 .b-bad { background: var(--v2-danger-soft); color: var(--v2-danger); }
 .b-muted { background: #eef2f7; color: var(--v2-text-muted); }
 
-.note {
-    display: flex; align-items: center; gap: 8px; padding: 11px 16px;
-    background: var(--v2-primary-soft); color: #1d4ed8; font-size: .81rem; border-top: 1px solid var(--v2-border);
+.harden { margin-top: 18px; }
+.hbody { padding: 16px; }
+.lead { margin: 0 0 12px; font-size: .85rem; color: var(--v2-text-soft); line-height: 1.65; }
+.hactions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+.fine { margin: 10px 0 0; font-size: .77rem; color: var(--v2-text-muted); line-height: 1.6; }
+.fine b { color: var(--v2-text-soft); }
+code { background: var(--v2-primary-soft); padding: 1px 5px; border-radius: 4px; }
+
+.scriptbar { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.scriptbar .sub { font-size: .78rem; color: var(--v2-text-muted); margin-right: auto; }
+.script {
+    width: 100%; min-height: 260px; margin-top: 6px; padding: 12px;
+    border-radius: 8px; border: 1px solid var(--v2-border); background: var(--v2-bg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .74rem; line-height: 1.6; resize: vertical; white-space: pre; overflow-x: auto;
 }
-.note a { color: inherit; font-weight: 700; }
 </style>

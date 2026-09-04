@@ -1,16 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { apiFetch, activeSiteId } from '../api.js';
 import { formatBytes, formatUptime, parseUptimeToMs } from '../format.js';
 import { toast } from '../toast.js';
 import HotspotUserModal from './HotspotUserModal.vue';
 import HotspotArchivePanel from './HotspotArchivePanel.vue';
 import ProfileModal from './ProfileModal.vue';
+import VoucherPanel from './VoucherPanel.vue';
 
 const TABS = [
     { key: 'active', label: 'ผู้ใช้ที่กำลังเชื่อมต่อ', icon: 'fa-solid fa-signal' },
     { key: 'accounts', label: 'บัญชีผู้ใช้ทั้งหมด', icon: 'fa-solid fa-users' },
     { key: 'profiles', label: 'โปรไฟล์ / แพ็กเกจ', icon: 'fa-solid fa-layer-group' },
+    { key: 'vouchers', label: 'สร้าง / พิมพ์คูปอง', icon: 'fa-solid fa-ticket' },
     { key: 'archive', label: 'ผู้ใช้ที่ถูกลบ / กู้คืน', icon: 'fa-solid fa-box-archive' }
 ];
 
@@ -93,8 +95,17 @@ watch(activeSiteId, () => {
     active.value = [];
     users.value = [];
     profiles.value = [];
+    selected.value = new Set();
     error.value = '';
     load();
+});
+
+// เปิดแท็บคูปองแล้วค่อยเติมค่าเริ่มต้น — ชื่อสาขาต้องยิงขอเพิ่มอีกครั้ง
+// ไม่ควรยิงตั้งแต่เข้าหน้า Hotspot ทั้งที่อาจไม่ได้เปิดแท็บนี้เลย
+watch(tab, async (t) => {
+    if (t !== 'vouchers') return;
+    await nextTick();
+    voucherRef.value && voucherRef.value.primeDefaults();
 });
 
 // ชุดชื่อผู้ใช้ที่ออนไลน์อยู่ ใช้ติดป้าย "ออนไลน์" ในตารางบัญชี
@@ -135,6 +146,37 @@ const statusCounts = computed(() => {
     users.value.forEach((u) => { c[accountStatus(u).key]++; });
     return c;
 });
+
+// ---------- เลือกบัญชีเพื่อพิมพ์คูปองซ้ำ ----------
+// ใช้ตอนคูปองใบเดิมหายหรือพิมพ์ตกไปบางใบ — ไม่สร้างบัญชีใหม่บนเราท์เตอร์
+const voucherRef = ref(null);
+const selected = ref(new Set());
+
+function toggleSelect(id) {
+    const next = new Set(selected.value);
+    next.has(id) ? next.delete(id) : next.add(id);
+    selected.value = next;
+}
+
+const allVisibleSelected = computed(() =>
+    filteredUsers.value.length > 0 && filteredUsers.value.every((u) => selected.value.has(u.id))
+);
+
+function toggleSelectAll() {
+    selected.value = allVisibleSelected.value
+        ? new Set()
+        : new Set(filteredUsers.value.map((u) => u.id));
+}
+
+async function printSelected() {
+    const picked = users.value.filter((u) => selected.value.has(u.id));
+    if (!picked.length) return toast.error('เลือกบัญชีที่ต้องการพิมพ์อย่างน้อย 1 รายการก่อน');
+    tab.value = 'vouchers';
+    await nextTick();
+    if (!voucherRef.value) return;
+    await voucherRef.value.primeDefaults();
+    voucherRef.value.showReprint(picked);
+}
 
 const busy = ref('');
 
@@ -249,13 +291,13 @@ function quickRenew(u) {
             @click="tab = t.key"
         >
             <i :class="t.icon"></i> {{ t.label }}
-            <span v-if="t.key !== 'archive'" class="count v2-num">
+            <span v-if="['active', 'accounts', 'profiles'].includes(t.key)" class="count v2-num">
                 {{ t.key === 'active' ? active.length : (t.key === 'profiles' ? profiles.length : users.length) }}
             </span>
         </button>
     </div>
 
-    <div v-if="tab !== 'archive' && tab !== 'profiles'" class="toolbar">
+    <div v-if="tab === 'active' || tab === 'accounts'" class="toolbar">
         <div class="search">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input
@@ -288,6 +330,15 @@ function quickRenew(u) {
                     {{ f.t }} <span class="v2-num">{{ statusCounts[f.k] }}</span>
                 </button>
             </div>
+            <button
+                type="button" class="v2-btn ghost sm"
+                :disabled="!selected.size"
+                :title="selected.size ? 'พิมพ์คูปองซ้ำจากบัญชีที่เลือก' : 'ติ๊กเลือกบัญชีในตารางก่อน'"
+                @click="printSelected"
+            >
+                <i class="fa-solid fa-print"></i> พิมพ์คูปองที่เลือก
+                <span v-if="selected.size" class="v2-num">({{ selected.size }})</span>
+            </button>
         </template>
 
         <span class="result v2-num">
@@ -344,15 +395,17 @@ function quickRenew(u) {
 
     <!-- ===== บัญชีผู้ใช้ทั้งหมด ===== -->
     <div v-else-if="tab === 'accounts'" class="panel">
-        <div class="note">
-            <i class="fa-solid fa-circle-info"></i>
-            พิมพ์คูปอง, สร้างคูปองแบบกลุ่ม และคลังคูปองที่ถูกลบ ยังทำที่
-            <a href="/">หน้าเดิม</a> จนกว่าจะย้ายครบ
-        </div>
         <div class="tablewrap">
             <table>
                 <thead>
                     <tr>
+                        <th class="chkcol">
+                            <input
+                                type="checkbox" title="เลือกทั้งหมดที่แสดงอยู่"
+                                :checked="allVisibleSelected" :disabled="!filteredUsers.length"
+                                @change="toggleSelectAll"
+                            >
+                        </th>
                         <th>ชื่อผู้ใช้ / รหัสผ่าน</th>
                         <th>โปรไฟล์</th>
                         <th>สถานะ</th>
@@ -365,11 +418,14 @@ function quickRenew(u) {
                 </thead>
                 <tbody>
                     <tr v-if="!filteredUsers.length">
-                        <td colspan="8" class="empty">
+                        <td colspan="9" class="empty">
                             {{ loading ? 'กำลังโหลด...' : 'ไม่พบบัญชีที่ตรงกับเงื่อนไข' }}
                         </td>
                     </tr>
-                    <tr v-for="u in filteredUsers" :key="u.id">
+                    <tr v-for="u in filteredUsers" :key="u.id" :class="{ picked: selected.has(u.id) }">
+                        <td class="chkcol">
+                            <input type="checkbox" :checked="selected.has(u.id)" @change="toggleSelect(u.id)">
+                        </td>
                         <td>
                             <div class="strong">
                                 {{ u.name }}
@@ -453,6 +509,14 @@ function quickRenew(u) {
             </table>
         </div>
     </div>
+
+    <!-- ===== สร้าง / พิมพ์คูปอง ===== -->
+    <VoucherPanel
+        v-else-if="tab === 'vouchers'"
+        ref="voucherRef"
+        :profiles="profiles"
+        @generated="load({ quiet: true })"
+    />
 
     <!-- ===== ผู้ใช้ที่ถูกลบ / กู้คืน ===== -->
     <HotspotArchivePanel v-else />
@@ -628,18 +692,9 @@ function quickRenew(u) {
     overflow: hidden;
 }
 
-.note {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 11px 16px;
-    background: var(--v2-primary-soft);
-    color: #1d4ed8;
-    font-size: .81rem;
-    border-bottom: 1px solid var(--v2-border);
-}
-
-.note a { color: inherit; font-weight: 700; }
+.chkcol { width: 34px; padding-right: 0; }
+.chkcol input { width: 15px; height: 15px; cursor: pointer; }
+tbody tr.picked td { background: var(--v2-primary-soft); }
 
 /* ตารางกว้างเกินจอให้เลื่อนในกล่องตัวเอง ไม่ดันทั้งหน้าให้เลื่อนแนวนอน */
 .tablewrap { overflow-x: auto; }
