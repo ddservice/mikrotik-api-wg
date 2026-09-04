@@ -495,6 +495,34 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-04 (3)** — Log page: filter by site. Reported from `/v2/` with the branch picker
+  reading **A4-Residence** while the table showed rows from Suksawad-CMU, Auioun@WiFi and
+  A4-Residence mixed together, 2,906,229 rows deep.
+  - **Logs are not scoped by the branch picker, and cannot be.** Every other page reaches a
+    router, so the `X-Site-Id` header routes it. Logs are database rows tagged with a site
+    *name*, so the header does nothing — the server filters only when it receives
+    `?site=<name>`, and `LogsPage.vue` never sent it. Worse, it carried a comment claiming
+    "log ฝั่ง server กรองตามสาขาให้อยู่แล้ว" next to a watcher that reloaded on every branch
+    switch and produced identical results each time. **A wrong comment kept the bug alive.**
+  - Added a visible **สาขา** dropdown (ทุกสาขา + each branch), defaulting to the branch the
+    picker is on, so the page agrees with what the picker says. Deliberately not v1's silent
+    filtering: there the scope is invisible, and "2.9 ล้านรายการ" tells you nothing about
+    whose 2.9 million it is. The row count now carries the scope as a chip next to it.
+  - **"ทุกสาขา" has to stay available.** A ม.26 request sometimes covers the whole system, and
+    a filter with no way back to everything is a worse tool than no filter. Switching branches
+    respects an explicit "ทุกสาขา" instead of yanking it back to one site.
+  - **CSV export sends the same filter as the screen.** An export that quietly contains every
+    branch while the screen showed one is invisible until the file is opened, and it is a
+    legal document.
+  - **The activity log genuinely cannot be split by site** — `activity_logs` has no site column
+    at all (`addLog(username, action, details)`); it records who pressed what, not per-branch
+    traffic. Proven rather than assumed: same `total` with and without `?site=`. So the
+    dropdown is hidden on that tab and a note says why, instead of offering a control that
+    silently does nothing.
+  - Verified against seeded data of 100 / 200 / 300 rows across three branches: unfiltered
+    returns 600 with all three names, each filter returns exactly its own count and only its
+    own name, an unknown site returns 0, and the CSV export returns 600 / 100 / 300 to match.
+
 - **2026-09-04 (2)** — **Production 504 on the DNS visit-history page.** Reported with a
   screenshot: Cloudflare `Gateway time-out`, `Host: Error`, on `/` → ประวัติเว็บไซต์ที่เข้าชม.
   - **The page that fails is the page as it opens** — no date range, no search. That is the

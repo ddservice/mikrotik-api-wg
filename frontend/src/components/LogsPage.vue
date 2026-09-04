@@ -33,6 +33,37 @@ const to = ref('');
 const month = ref(new Date().toISOString().slice(0, 7));
 const pppoeRooms = ref([]);
 
+// ---------- ตัวกรองสาขา ----------
+// log ไม่ได้ถูกกรองด้วยตัวเลือกสาขาด้านบนโดยอัตโนมัติ เพราะเป็นแถวในฐานข้อมูล
+// ที่ติดป้ายชื่อสาขาไว้ ไม่ใช่การยิงไปเราท์เตอร์ (header X-Site-Id จึงไม่มีผล)
+// ฝั่ง server กรองให้ก็ต่อเมื่อส่ง ?site=<ชื่อสาขา> ไปเท่านั้น
+//
+// ตั้งค่าเริ่มต้นเป็นสาขาที่เลือกอยู่ ให้ตรงกับที่ตัวเลือกด้านบนบอก แต่ทำเป็น
+// dropdown ที่มองเห็นได้ ไม่ใช่กรองเงียบ ๆ แบบหน้าเดิม — ผู้ใช้ต้องรู้ว่ากำลังดูของสาขาไหน
+// และต้องเลือก "ทุกสาขา" ได้ เพราะการส่งข้อมูลตาม ม.26 บางครั้งขอมาทั้งระบบ
+const sites = ref([]);
+const siteFilter = ref('');          // '' = ทุกสาขา, อื่น ๆ = ชื่อสาขา
+const siteFilterReady = ref(false);
+
+// ประวัติการใช้งานระบบเป็นการกระทำของผู้ดูแล (ใครกดอะไร) ไม่ได้ผูกกับสาขา
+// ตาราง activity_logs ไม่มีคอลัมน์สาขาเลย จึงกรองไม่ได้จริง ๆ ไม่ใช่แค่ยังไม่ได้ทำ
+const SITE_FILTERABLE = ['dns', 'hotspot', 'pppoe'];
+const canFilterSite = computed(() => SITE_FILTERABLE.includes(tab.value));
+
+async function loadSites() {
+    try {
+        const data = await apiFetch('/api/sites');
+        sites.value = data.sites || [];
+        const cur = sites.value.find((s) => s.id === activeSiteId.value);
+        siteFilter.value = cur ? cur.name : '';
+    } catch (_) {
+        // อ่านรายชื่อสาขาไม่ได้ = ไม่มี dropdown ให้เลือก แต่ยังดู log รวมได้ตามปกติ
+        sites.value = [];
+    } finally {
+        siteFilterReady.value = true;
+    }
+}
+
 // ไฟล์ปิดผนึกรายวัน
 const archives = ref([]);
 const verifyResults = ref({});   // id -> ผลการตรวจ
@@ -52,6 +83,7 @@ function buildQuery(extra = {}) {
     if (username.value.trim()) q.set('username', username.value.trim());
     if (from.value) q.set('from', from.value);
     if (to.value) q.set('to', to.value);
+    if (canFilterSite.value && siteFilter.value) q.set('site', siteFilter.value);
     q.set('page', String(page.value));
     q.set('limit', String(limit));
     Object.entries(extra).forEach(([k, v]) => q.set(k, v));
@@ -70,7 +102,8 @@ async function load() {
             total.value = res.total || 0;
             pages.value = res.pages || 1;
         } else if (tab.value === 'pppoe') {
-            const res = await apiFetch(`/api/pppoe-usage?month=${encodeURIComponent(month.value)}`);
+            const sq = siteFilter.value ? `&site=${encodeURIComponent(siteFilter.value)}` : '';
+            const res = await apiFetch(`/api/pppoe-usage?month=${encodeURIComponent(month.value)}${sq}`);
             if (myId !== requestId) return;
             pppoeRooms.value = (res.rooms || []).sort((a, b) =>
                 (b.bytesIn + b.bytesOut) - (a.bytesIn + a.bytesOut)
@@ -95,7 +128,11 @@ async function load() {
     }
 }
 
-onMounted(load);
+onMounted(async () => {
+    // ต้องรู้ชื่อสาขาก่อนยิงครั้งแรก ไม่งั้นครั้งแรกจะได้ทุกสาขาแล้วค่อยกระพริบเป็นสาขาเดียว
+    await loadSites();
+    load();
+});
 
 watch(tab, () => {
     page.value = 1;
@@ -106,8 +143,16 @@ watch(tab, () => {
     load();
 });
 
-// สลับสาขา -> โหลดใหม่ทันที (log ฝั่ง server กรองตามสาขาให้อยู่แล้ว)
-watch(activeSiteId, () => { page.value = 1; load(); });
+// สลับสาขาด้านบน -> เลื่อนตัวกรองตาม แล้วโหลดใหม่
+// ถ้าผู้ใช้ตั้งไว้เป็น "ทุกสาขา" เองก็เคารพค่านั้น ไม่ดึงกลับมาเป็นสาขาเดียว
+watch(activeSiteId, () => {
+    if (siteFilter.value) {
+        const cur = sites.value.find((s) => s.id === activeSiteId.value);
+        siteFilter.value = cur ? cur.name : siteFilter.value;
+    }
+    page.value = 1;
+    load();
+});
 
 function applyFilters() {
     page.value = 1;
@@ -163,6 +208,9 @@ async function exportCsv() {
         if (from.value) q.set('from', from.value);
         if (to.value) q.set('to', to.value);
     }
+    // ไฟล์ที่ได้ต้องตรงกับที่เห็นบนจอ — ส่งออกได้ทุกสาขาทั้งที่หน้าจอกรองไว้สาขาเดียว
+    // เป็นความผิดพลาดที่มองไม่เห็นจนกว่าจะเปิดไฟล์ และร้ายแรงถ้าเป็นเอกสารส่งตาม ม.26
+    if (canFilterSite.value && siteFilter.value) q.set('site', siteFilter.value);
 
     exporting.value = true;
     try {
@@ -330,6 +378,14 @@ const pageWindow = computed(() => {
 
     <!-- ตัวกรอง -->
     <div v-if="tab !== 'archives'" class="filters">
+        <div v-if="canFilterSite && sites.length > 1" class="fld">
+            <label>สาขา</label>
+            <select v-model="siteFilter" class="v2-input" @change="applyFilters">
+                <option value="">ทุกสาขา</option>
+                <option v-for="s in sites" :key="s.id" :value="s.name">{{ s.name }}</option>
+            </select>
+        </div>
+
         <template v-if="tab === 'pppoe'">
             <div class="fld">
                 <label>เดือน</label>
@@ -367,6 +423,16 @@ const pageWindow = computed(() => {
         </template>
         <span class="result v2-num">
             {{ tab === 'pppoe' ? pppoeRooms.length + ' ห้อง' : total.toLocaleString('th-TH') + ' รายการ' }}
+            <span v-if="canFilterSite" class="scope">{{ siteFilter || 'ทุกสาขา' }}</span>
+            <span v-else-if="tab === 'activity'" class="scope">ทั้งระบบ</span>
+        </span>
+    </div>
+
+    <div v-if="tab === 'activity'" class="v2-callout info sitenote">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>
+            ประวัติการใช้งานระบบเป็นการกระทำของผู้ดูแล (ใครกดอะไร เมื่อไหร่) จึงไม่ผูกกับสาขา
+            และแยกตามสาขาไม่ได้ — ถ้าต้องการดูแยกสาขา ให้ใช้สามแท็บแรก
         </span>
     </div>
 
@@ -558,6 +624,12 @@ const pageWindow = computed(() => {
 .fld > label { font-size: .74rem; font-weight: 600; color: var(--v2-text-muted); }
 .fld.btns { flex-direction: row; gap: 8px; }
 .result { font-size: .8rem; color: var(--v2-text-muted); font-weight: 600; margin-left: auto; align-self: center; }
+/* บอกขอบเขตของตัวเลขไว้ข้าง ๆ กันเข้าใจผิดว่า "2.9 ล้านรายการ" คือของสาขาเดียว */
+.scope {
+    display: inline-block; margin-left: 7px; padding: 2px 9px; border-radius: 999px;
+    background: var(--v2-primary-soft); color: var(--v2-primary); font-size: .72rem; font-weight: 700;
+}
+.sitenote { margin-bottom: 14px; }
 
 .alert {
     background: var(--v2-danger-soft); border: 1px solid #fecaca; color: var(--v2-danger);
