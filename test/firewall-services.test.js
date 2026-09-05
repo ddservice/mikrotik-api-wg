@@ -59,6 +59,15 @@ describe('firewall-services — รายการบริการ', () => {
         });
     });
 
+    it('คีย์เดิม 11 ตัวต้องยังอยู่ — v1 มีรายการฝังไว้เองและยังเสิร์ฟที่ /v1/', () => {
+        // public/app.js:FW_SERVICES เป็นอาร์เรย์ตายตัว ไม่ได้ดึงจาก server
+        // เปลี่ยนชื่อคีย์เดิมเมื่อไหร่ v1 จะพังเงียบ ๆ และกฎที่ติดตั้งบนเราท์เตอร์
+        // ก็อ้าง comment/listName ชุดเดิมอยู่ด้วย
+        ['youtube', 'line', 'games', 'ads', 'tiktok', 'facebook', 'adult',
+         'netflix', 'torrent', 'steam', 'crypto'].forEach((k) =>
+            assert.ok(fw.SERVICES[k], 'คีย์เดิม ' + k + ' หายไป'));
+    });
+
     it('มีหมวด VPN — ถ้าไม่มี หมวดอื่นทั้งหมดไร้ผลเมื่อลูกค้าลงแอป VPN', () => {
         assert.ok(fw.SERVICES.vpn, 'ต้องมีบริการ vpn');
         assert.ok(fw.SERVICES.vpn.domains.length >= 8);

@@ -9,7 +9,7 @@
  * ตัวสวิตช์ลบอัตโนมัติอยู่ที่นี่ด้วย เพราะเป็นต้นทางของรายการในตารางนี้
  * คนที่มาดูว่า "ทำไมคูปองหาย" ควรเห็นทั้งสองอย่างในหน้าเดียว
  */
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { apiFetch, activeSiteId, sites, loadSites, activeSiteName } from '../api.js';
 import { toast } from '../toast.js';
 

@@ -501,6 +501,24 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06** — Clean-code pass, and one thing worth writing down about v1.
+  - **The unused-import checker was made to prove itself before it was allowed to report.**
+    Same tool shape as 2026-09-04, where a heredoc turned `'\\b'` into a literal backspace and
+    the checker cheerfully declared every import in every file unused. This one uses
+    `(?<![A-Za-z0-9_$])` — no backslash to lose — and exits non-zero without printing anything
+    unless it can first tell `ref(` from `preference`. One real finding: a `computed` import in
+    `HotspotArchivePanel.vue` left over from the site-filter change. Nothing orphaned in `lib/`
+    or `scripts/`.
+  - **v1 keeps its own hardcoded copy of the firewall service keys** (`FW_SERVICES` in
+    `public/app.js`, 11 entries, not fetched from the server). Renaming a key in
+    `lib/firewall-services.js` would break the old UI silently — and the rules already installed
+    on routers reference the same `comment`/`listName` strings. A test now pins those 11 keys,
+    so the constraint is enforced rather than remembered. New keys can still be added freely;
+    the five added yesterday simply do not appear in v1, which is correct — v1 is frozen.
+  - No files deleted. `logs/*.log` on this dev machine are gitignored leftovers from August and
+    total 8 KB; `public/v2/assets/` holds exactly the two hashed files `index.html` points at.
+  - **460 tests, 123 routes**, `npm run check` clean.
+
 - **2026-09-05 (12)** — Six things reported from the live UI. Two of them were features that
   told the operator what was wrong and then offered no way to act on it, which is the theme.
   - **Multi-WAN "กด Read แล้วไงต่อ เหมือนกดมาเพื่อดูเฉย ๆ" — correct, it was a dead end.** On
