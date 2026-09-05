@@ -59,7 +59,17 @@ const db = {
         { '.id': '*D', 'dst-address': '0.0.0.0/0', gateway: '192.168.1.1',
           distance: '1', dynamic: 'true', active: 'true' }
     ],
-    mangle: [],
+    // scenario=pcc-conflict — เราท์เตอร์ที่มี PCC/mark-routing เดิมอยู่ ซึ่งเป็นสภาพจริง
+    // ของสาขาที่เคยมีคนตั้ง load balance ไว้ก่อน และเป็นเคสที่ทำให้ Multi-WAN ตัน
+    mangle: (SCENARIO === 'pcc-conflict' ? [
+        { '.id': '*M1', chain: 'prerouting', action: 'mark-connection',
+          'per-connection-classifier': 'both-addresses:2/0', 'new-connection-mark': 'wan1-conn',
+          comment: 'PCC เดิมของช่าง' },
+        { '.id': '*M2', chain: 'prerouting', action: 'mark-routing',
+          'connection-mark': 'wan1-conn', 'new-routing-mark': 'to-wan1' },
+        { '.id': '*M3', chain: 'prerouting', action: 'mark-routing',
+          'connection-mark': 'wan2-conn', 'new-routing-mark': 'to-wan2', comment: 'สายสอง' }
+    ] : []),
     nat: [
         { '.id': '*E', chain: 'srcnat', action: 'masquerade',
           'out-interface': 'pppoe-out1', comment: 'NAT หลัก' }

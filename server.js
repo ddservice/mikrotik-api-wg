@@ -17,6 +17,7 @@ const sessionStore = require('./lib/session-store');
 const siteDiagnostics = require('./lib/site-diagnostics');
 const rosErrors = require('./lib/routeros-errors');
 const mwAnalyze = require('./lib/multiwan-analyze');
+const mwMangle = require('./lib/multiwan-mangle');
 const mwPlan = require('./lib/multiwan-plan');
 const mwApply = require('./lib/multiwan-apply');
 const pccWeights = require('./lib/pcc-weights');
@@ -1263,6 +1264,48 @@ app.get('/api/multiwan/analyze', requireAuth(['admin', 'co-admin']), async (req,
             return mwAnalyze.analyzeState(state, { speeds });
         });
         res.json({ success: true, analysis: out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 1b) ปิด/คืนค่ากฎ mangle ที่ขวางการติดตั้ง
+//
+// เดิมหน้าจอบอกว่า "ต้องปิดหรือลบกฎชุดนี้ก่อน" แล้วจบแค่นั้น เป็นทางตัน
+// คนใช้ต้องไปเปิด WinBox หาเอง ทั้งที่ระบบรู้อยู่แล้วว่ากฎข้อไหน
+//
+// ปิด ไม่ลบ และติดป้ายไว้ทุกข้อ เพื่อให้คืนค่าได้ตรงข้อที่เราแตะเท่านั้น
+app.post('/api/multiwan/mangle/conflicts', requireAuth(['admin']), async (req, res) => {
+    const action = String((req.body || {}).action || '');
+    if (action !== 'disable' && action !== 'restore') {
+        return res.status(400).json({ error: "action ต้องเป็น 'disable' หรือ 'restore'" });
+    }
+    try {
+        const out = await executeOnRouter(req, async (client) => {
+            const all = await client.exec('/ip/firewall/mangle/print');
+            const plan = action === 'disable'
+                ? mwMangle.planDisable(mwAnalyze.conflictingMangle({ mangle: all }))
+                : mwMangle.planRestore(all);
+
+            const done = [];
+            for (const step of plan.steps) {
+                await client.exec(step.cmd, step.args);
+                done.push(step.id);
+            }
+
+            // อ่านซ้ำเพื่อยืนยันว่าเราท์เตอร์ทำตามจริง ไม่ใช่แค่ไม่ error
+            // RouterOS รับคำสั่งแล้วไม่ทำอะไรได้โดยไม่บ่น ซึ่งเจอมาหลายรอบในโปรเจกต์นี้
+            const after = await client.exec('/ip/firewall/mangle/print');
+            const stillConflicting = mwAnalyze.conflictingMangle({ mangle: after }).length;
+            const stillTagged = mwMangle.countOurs(after);
+            return { changed: done.length, notes: plan.notes || [], stillConflicting, stillTagged };
+        });
+
+        const ok = action === 'disable' ? out.stillConflicting === 0 : out.stillTagged === 0;
+        db.addLog(req.user.username, 'Multi-WAN mangle',
+            (action === 'disable' ? 'ปิด' : 'คืนค่า') + 'กฎ mangle ที่ขวาง failover ' +
+            out.changed + ' ข้อ' + (ok ? '' : ' (ยังเหลือค้าง)'));
+        res.json({ success: ok, action, ...out });
     } catch (e) {
         res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
     }

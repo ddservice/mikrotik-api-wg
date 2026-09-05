@@ -38,6 +38,110 @@ const dnsResilience = ref(false);
 const pcc = ref(null);
 const pccScript = ref('');
 
+// สรุป "ขั้นต่อไปคืออะไร" ให้ชัดหนึ่งกล่องเสมอ
+//
+// เดิมพออ่าน config มาแล้วติด blocker หน้าจะโชว์ตารางยาว ๆ กับกล่องแดงบอกว่าติดอะไร
+// แล้วไม่มีปุ่มอะไรให้กดต่อเลย เพราะปุ่ม Review plan ผูกกับ canFailover
+// คนใช้จึงรู้สึกว่ากด Read มาเพื่อดูเฉย ๆ ซึ่งเป็นความจริง — มันเป็นทางตัน
+const nextStep = computed(() => {
+    if (!analysis.value) return null;
+    const a = analysis.value;
+
+    if (a.blockers && a.blockers.length) {
+        const mangle = a.blockers.find((b) => b.code === 'existing-mark-routing');
+        if (mangle) {
+            return {
+                tone: 'block',
+                title: 'ติดกฎ mangle เดิมอยู่ ' + (a.mangleConflicts || []).length + ' ข้อ',
+                body: 'กฎพวกนี้ดึง traffic ไปใช้ routing table ของตัวเอง ข้าม default route ที่ failover ' +
+                      'จะสร้าง ถ้าติดตั้งทับจะขึ้นว่าสำเร็จแต่ไม่มีผลจริงกับ traffic ของลูกค้า',
+                action: 'disableMangle',
+                actionLabel: 'ปิดกฎที่ขวาง ' + (a.mangleConflicts || []).length + ' ข้อ (ปิด ไม่ลบ คืนค่าได้)'
+            };
+        }
+        return {
+            tone: 'block',
+            title: a.blockers[0].message,
+            body: 'ต้องแก้เรื่องนี้ที่เราท์เตอร์ก่อน แล้วกด Read current config อีกครั้ง',
+            action: null
+        };
+    }
+
+    if (stage.value >= 3 && result.value) {
+        return result.value.success
+            ? { tone: 'ok', title: 'ติดตั้งและ verify เรียบร้อย', action: null,
+                body: 'หน้านี้จะบอกว่าตอนนี้วิ่งอยู่สายไหนทุกครั้งที่กด Read · ' +
+                      'ถ้าต้องการถอนคืน ใช้ปุ่ม Remove existing config' }
+            : { tone: 'block', title: 'ไม่สำเร็จ และ rollback แล้ว', action: null,
+                body: 'เราท์เตอร์กลับไปสถานะเดิม ดูรายการขั้นตอนด้านล่างว่าไปหยุดที่ขั้นไหน' };
+    }
+
+    if (stage.value >= 2 && plan.value) {
+        return {
+            tone: 'go', action: null,
+            title: 'แผนพร้อมแล้ว ' + plan.value.steps.length + ' ขั้น',
+            body: 'อ่านรายการขั้นตอนด้านล่างให้ครบก่อนกด Apply · ระหว่าง apply internet ' +
+                  'ของสาขาอาจสะดุดสั้น ๆ และมี scheduler คืนค่าให้เองถ้า session หลุด'
+        };
+    }
+
+    if (a.canFailover) {
+        const warn = (a.warnings || []).length;
+        return {
+            tone: 'go',
+            title: 'พร้อมทำ failover ได้',
+            body: 'ลำดับสายตอนนี้: PRIMARY ' + (order.value[0] || '—') +
+                  (order.value.length > 1 ? ' · BACKUP ' + order.value.slice(1).join(', ') : '') +
+                  (warn ? ' · มีข้อควรระวัง ' + warn + ' ข้อด้านล่าง ควรอ่านก่อน' : '') +
+                  ' — ขั้นถัดไปยังไม่เขียนอะไรลงเราท์เตอร์',
+            action: 'plan',
+            actionLabel: 'ดูแผนก่อนติดตั้ง'
+        };
+    }
+    return null;
+});
+
+// ปิด/คืนค่ากฎ mangle ที่ขวาง — ทางออกของทางตันข้างบน
+const taggedMangle = computed(() =>
+    (analysis.value?.mangleDetail || []).filter((m) => (m.comment || '').includes('[DDS-OFF]')).length);
+
+async function mangleAction(action) {
+    if (action === 'disable') {
+        const n = (analysis.value?.mangleConflicts || []).length;
+        const ok = window.confirm(
+            'จะปิดกฎ mangle ' + n + ' ข้อบนเราท์เตอร์จริง\n\n' +
+            'ปิด ไม่ได้ลบ และติดป้าย [DDS-OFF] ไว้ทุกข้อ กดคืนค่าได้ทีหลัง\n\n' +
+            'ถ้าในชุดนี้มีกฎ PCC อยู่ traffic ที่เคยกระจายหลายสายจะกลับไปออกสายเดียวทันที\n' +
+            'ความเร็วรวมจะลดลง ไม่ใช่แค่การเตรียมพร้อม — ยืนยันหรือไม่'
+        );
+        if (!ok) return;
+    }
+    busy.value = 'mangle';
+    try {
+        const r = await apiFetch('/api/multiwan/mangle/conflicts', {
+            method: 'POST', body: JSON.stringify({ action })
+        });
+        (r.notes || []).forEach((n) => toast.success(n));
+        if (r.success) {
+            toast.success(action === 'disable'
+                ? 'ปิดกฎที่ขวางแล้ว ' + r.changed + ' ข้อ'
+                : 'คืนค่ากฎแล้ว ' + r.changed + ' ข้อ');
+        } else {
+            toast.error('ทำแล้วแต่ยังเหลือค้าง — เราท์เตอร์รับคำสั่งแต่ไม่ได้เปลี่ยนทุกข้อ');
+        }
+        await readState();
+    } catch (e) {
+        toast.error('ทำรายการไม่สำเร็จ: ' + e.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
+function runNextStep(a) {
+    if (a === 'plan') return buildPlan();
+    if (a === 'disableMangle') return mangleAction('disable');
+}
+
 const rec = computed(() => analysis.value && analysis.value.recommendation);
 const wans = computed(() => (analysis.value && analysis.value.usable) || []);
 const activeWan = computed(() => analysis.value && analysis.value.activeWan);
@@ -212,6 +316,36 @@ function moveUp(i) {
     </div>
 
     <template v-else>
+        <!-- ขั้นต่อไปคืออะไร — ต้องมีคำตอบเสมอ ไม่ว่าจะติด blocker หรือไม่ -->
+        <section v-if="nextStep" class="nextstep" :class="nextStep.tone">
+            <div class="ns-body">
+                <div class="ns-title">
+                    <i class="fa-solid" :class="nextStep.tone === 'block' ? 'fa-circle-exclamation'
+                        : nextStep.tone === 'ok' ? 'fa-circle-check' : 'fa-arrow-right'"></i>
+                    {{ nextStep.title }}
+                </div>
+                <p class="ns-text">{{ nextStep.body }}</p>
+            </div>
+            <button v-if="nextStep.action" class="v2-btn primary"
+                    :disabled="busy === 'plan' || busy === 'mangle'"
+                    @click="runNextStep(nextStep.action)">
+                <i class="fa-solid" :class="(busy === 'plan' || busy === 'mangle') ? 'fa-spinner fa-spin' : 'fa-play'"></i>
+                {{ nextStep.actionLabel }}
+            </button>
+        </section>
+
+        <!-- กฎที่เราปิดไว้เอง — ต้องมีทางคืนค่าเสมอ ไม่งั้นการปิดกลายเป็นทางเดียว -->
+        <div v-if="taggedMangle" class="v2-callout info">
+            <i class="fa-solid fa-rotate-left"></i>
+            <span>
+                มีกฎ mangle ที่ระบบนี้ปิดไว้ {{ taggedMangle }} ข้อ (ป้าย <code>[DDS-OFF]</code>)
+                <button class="v2-btn ghost sm" style="margin-left:8px"
+                        :disabled="busy === 'mangle'" @click="mangleAction('restore')">
+                    คืนค่ากฎเดิม
+                </button>
+            </span>
+        </div>
+
         <!-- กำลังวิ่งบน backup อยู่หรือเปล่า — เรื่องที่ต้องเห็นก่อนอย่างอื่น -->
         <div v-if="activeWan && !activeWan.isPrimary" class="v2-callout warn">
             <i class="fa-solid fa-triangle-exclamation"></i>
@@ -513,6 +647,21 @@ function moveUp(i) {
 </template>
 
 <style scoped>
+.nextstep {
+    display: flex; gap: 14px; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; padding: 14px 16px; border-radius: 10px; margin-bottom: 14px;
+    border: 1px solid var(--v2-border); background: #fff; border-left-width: 4px;
+}
+.nextstep.go    { border-left-color: var(--v2-primary); background: #f6f9ff; }
+.nextstep.block { border-left-color: #dc2626; background: #fef6f6; }
+.nextstep.ok    { border-left-color: #16a34a; background: #f4fbf6; }
+.ns-body { min-width: 260px; flex: 1; }
+.ns-title { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: 8px; }
+.nextstep.go .ns-title i { color: var(--v2-primary); }
+.nextstep.block .ns-title i { color: #dc2626; }
+.nextstep.ok .ns-title i { color: #16a34a; }
+.ns-text { margin: 6px 0 0; font-size: .82rem; color: var(--v2-text-muted); line-height: 1.6; }
+
 .mw { display: flex; flex-direction: column; gap: 14px; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1.25rem; }
