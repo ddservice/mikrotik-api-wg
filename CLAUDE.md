@@ -501,6 +501,39 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (10)** — Router configs are now backed up **off the router**, nightly.
+  - **The existing backup button was not disaster recovery.** `POST /api/mikrotik/system/backup`
+    runs `/system/backup/save`, which writes a `.backup` file **onto the router itself**. If the
+    router dies, is stolen, or gets reset, the backup dies with it. It was a feeling of safety
+    with nothing behind it. That button is kept — it is genuinely useful for a quick revert —
+    but it is now labelled for what it is, next to one that stores the config somewhere else.
+  - **`/export` text, not the binary `.backup`**, because the point is being able to recover:
+    the export is readable (you can see what changed since yesterday), it pastes into a
+    replacement router, and it is not tied to the model or RouterOS version the way a `.backup`
+    file is. Gzipped, SHA-256'd and stored on the VPS plus R2 — the same shape as the ม.26
+    sealed archives, so `sha256sum <file>` verifies it without unpacking.
+  - **The rule that matters: never record a backup that does not contain a config.** `/export`
+    returning an empty string or a permission error would otherwise be gzipped and filed as a
+    successful backup, and nobody would find out until the day they needed to restore.
+    `looksLikeConfig()` requires real length and at least three `/`-prefixed command lines, and
+    `buildBackup()` **throws** rather than writing an empty file. Tested against the dangerous
+    case specifically: `failure: not enough permissions (9)` is rejected, as is long prose with
+    no commands in it.
+  - `parseExport()` accepts every shape RouterOS has been seen to return — one string, many
+    sentences in `ret`, `section` fields, or a plain array — rather than assuming one and
+    silently producing nothing on a router that answers differently.
+  - **Nightly at 02:30**, after the 02:00 database backup and log sealing. Skips sites whose
+    config is byte-identical to the last run, so a router nobody touched does not cost a file a
+    day, and the stored history reads as "the days something changed" — which is the question
+    actually being asked when someone wonders who altered what. One site failing does not stop
+    the rest.
+  - The download route takes a filename from the URL, so it is pinned with `path.basename`, a
+    strict pattern and a prefix check. Verified: `../../../etc/passwd` → 404, `..%2f..%2f` → 400,
+    unauthenticated → 401.
+  - Verified end to end against the fixture: backup → list → download returns bytes **identical
+    to the file on disk**, the SHA-256 matches, and gunzipping it yields config that starts with
+    real RouterOS commands. 17 new tests (**423 total**), 123 routes.
+
 - **2026-09-05 (9)** — The health check now runs itself, daily, per site, into Telegram.
   - The button existed but somebody had to think to press it. A disk filling up, a rising
     temperature or a rogue DHCP server on the LAN goes unnoticed until a customer complains —

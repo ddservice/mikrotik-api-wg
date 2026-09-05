@@ -223,6 +223,29 @@ function handle(cmd, attrs) {
     if (c === '/ppp/active/print') return reply(db.pppActive);
     if (c === '/ppp/profile/print') return reply(db.pppProfiles);
     if (c === '/interface/pppoe-server/server/print') return reply(db.pppoeServers);
+    // /export คืนคอนฟิกเป็นข้อความ — RouterOS จริงส่งมาหลาย sentence
+    if (c === '/export') {
+        const cfg = [
+            '# sep/05/2026 02:30:00 by RouterOS ' + VERSION,
+            '/interface bridge',
+            'add name=bridge-lan comment="LAN"',
+            '/interface wireguard',
+            'add name=wg-gatekeeper listen-port=13231 comment="MT Management WireGuard"',
+            '/ip pool',
+            'add name=dhcp_pool0 ranges=192.168.88.10-192.168.88.254',
+            '/ip address',
+            'add address=192.168.88.1/24 interface=bridge-lan',
+            'add address=10.10.88.5/24 interface=wg-gatekeeper comment="WireGuard VPN IP"',
+            '/ip dhcp-server',
+            'add address-pool=dhcp_pool0 interface=bridge-lan name=dhcp1',
+            '/ip firewall filter',
+            'add action=accept chain=input connection-state=established,related',
+            'add action=drop chain=input connection-state=invalid',
+            '/system identity',
+            'set name=A4-Residence-FAKE'
+        ];
+        return reply(cfg.map((line) => ({ ret: line })));
+    }
     if (c === '/log/print') return reply(db.routerLogs);
     if (c === '/ip/dhcp-server/lease/print') return reply(db.dhcpLeases);
     if (c === '/ip/dhcp-server/print') return reply(db.dhcpServers);

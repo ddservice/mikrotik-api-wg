@@ -25,6 +25,8 @@ const { streamCsv, forEachPage, forEachPageReverse, csvRow } = require('./lib/cs
 const wgScript = require('./lib/wireguard-script');
 const routerLog = require('./lib/router-log');
 const routerHealth = require('./lib/router-health');
+const routerBackup = require('./lib/router-backup');
+const r2 = require('./lib/r2');
 
 // ปลายทาง WireGuard ของ VPS — เดิม hardcode ไว้ในสคริปต์ตั้งแต่คอมมิตแรกและไม่มีใครตรวจ
 // ตั้งผ่าน env ได้แล้ว ถ้า VPS ย้าย IP จะได้แก้ที่เดียวโดยไม่ต้องแก้โค้ด
@@ -2508,6 +2510,95 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 });
 
 // ==========================================
+// สำรองคอนฟิกเราท์เตอร์ออกมาไว้นอกตัวเราท์เตอร์
+//
+// ปุ่มเดิม (/system/backup) สร้างไฟล์ไว้บนตัวเราท์เตอร์เอง ซึ่งไม่ช่วยอะไรเลย
+// ตอนเราท์เตอร์พังหรือถูกขโมย ตัวนี้ดึง /export ออกมาเก็บที่ VPS + R2
+// พร้อม SHA-256 แบบเดียวกับไฟล์ปิดผนึก ม.26
+// ==========================================
+const ROUTER_BACKUP_DIR = path.join(__dirname, 'backups', 'routers');
+
+async function backupRouterConfig(reqOrSiteId, siteName, createdBy) {
+    const rows = await executeOnRouter(reqOrSiteId, async (client) =>
+        client.exec('/export', {}, { timeoutMs: 120000 }));
+
+    // buildBackup จะโยน error ถ้าเนื้อหาไม่ใช่คอนฟิกจริง — ตั้งใจให้ล้มตรงนี้
+    // ดีกว่าบันทึกว่าสำเร็จแล้วไปรู้ตอนต้องกู้ว่าไฟล์ว่าง
+    const backup = routerBackup.buildBackup(siteName, routerBackup.parseExport(rows));
+
+    if (!fs.existsSync(ROUTER_BACKUP_DIR)) fs.mkdirSync(ROUTER_BACKUP_DIR, { recursive: true });
+    const localPath = path.join(ROUTER_BACKUP_DIR, backup.fileName);
+    fs.writeFileSync(localPath, backup.buffer);
+
+    // R2 เป็น best-effort — สำเนาบน VPS มีแล้ว การอัปไม่ขึ้นไม่ควรทำให้ทั้งงานล้ม
+    let r2Key = null;
+    if (r2.isConfigured()) {
+        try {
+            r2Key = await r2.putObject(
+                `${process.env.R2_SITE_NAME || 'Mikrotikapi-db'}/router-configs/${backup.fileName}`,
+                backup.buffer, 'application/gzip');
+        } catch (e) {
+            console.warn('[RouterBackup] อัปขึ้น R2 ไม่สำเร็จ:', e.message);
+        }
+    }
+
+    db.addLog(createdBy || 'System Auto', 'สำรองคอนฟิกเราท์เตอร์',
+        `${siteName}: ${backup.fileName} (${backup.commandLines} บรรทัดคำสั่ง, ` +
+        `${backup.sizeBytes} bytes, sha256 ${backup.sha256.slice(0, 12)}…)` +
+        (r2Key ? ' + R2' : ' (เฉพาะ VPS)'));
+
+    return Object.assign({}, backup, { localPath, r2Key, siteName });
+}
+
+app.post('/api/mikrotik/backup/config', requireAuth(['admin']), async (req, res) => {
+    try {
+        const cfg = await Promise.resolve(db.getConfig(resolveSiteIdFromReq(req))).catch(() => ({}));
+        const b = await backupRouterConfig(req, cfg.name || 'site', req.user.username);
+        res.json({
+            success: true, fileName: b.fileName, sha256: b.sha256,
+            sizeBytes: b.sizeBytes, rawBytes: b.rawBytes,
+            commandLines: b.commandLines, storedOnR2: !!b.r2Key
+        });
+    } catch (err) {
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'backup' }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+app.get('/api/mikrotik/backup/config', requireAuth(['admin']), (req, res) => {
+    try {
+        if (!fs.existsSync(ROUTER_BACKUP_DIR)) return res.json({ backups: [] });
+        const files = fs.readdirSync(ROUTER_BACKUP_DIR)
+            .filter((f) => f.endsWith('.rsc.gz'))
+            .map((f) => {
+                const st = fs.statSync(path.join(ROUTER_BACKUP_DIR, f));
+                return { fileName: f, sizeBytes: st.size, createdAt: st.mtime.toISOString() };
+            })
+            .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        res.json({ backups: files });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/mikrotik/backup/config/:fileName/download', requireAuth(['admin']), (req, res) => {
+    // ชื่อไฟล์มาจาก URL — ต้องกันการไต่ path ออกนอกโฟลเดอร์เด็ดขาด
+    const name = path.basename(String(req.params.fileName || ''));
+    if (!/^[A-Za-z0-9_.-]+\.rsc\.gz$/.test(name)) {
+        return res.status(400).json({ error: 'ชื่อไฟล์ไม่ถูกต้อง' });
+    }
+    const full = path.join(ROUTER_BACKUP_DIR, name);
+    if (!full.startsWith(ROUTER_BACKUP_DIR) || !fs.existsSync(full)) {
+        return res.status(404).json({ error: 'ไม่พบไฟล์สำรองนี้' });
+    }
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.send(fs.readFileSync(full));
+});
+
+// ==========================================
 // ตรวจสุขภาพเราท์เตอร์ปุ่มเดียว
 //
 // รวมทุกอย่างที่ระบบรู้อยู่แล้วให้จบในคำขอเดียว แล้วสรุปเป็น "เจอ N เรื่อง / ทำอะไรต่อ"
@@ -4872,6 +4963,46 @@ setInterval(async () => {
             `${report.issues.map((i) => i.area + ' — ' + i.message).join('; ')}${sent ? '' : ' (ส่ง Telegram ไม่ได้)'}`);
     } catch (e) {
         console.error('[Storage] ตรวจพื้นที่ไม่สำเร็จ:', e.message || e);
+    }
+}, 60000);
+
+// ===================== สำรองคอนฟิกเราท์เตอร์ทุกสาขาทุกคืน =====================
+//
+// 02:30 — หลังงานสำรองฐานข้อมูลกับปิดผนึก log ตอน 02:00 เสร็จ
+//
+// เก็บเฉพาะตอนคอนฟิกเปลี่ยนจริง (เทียบด้วย SHA-256) เราท์เตอร์ที่ไม่มีใครแตะ
+// จึงไม่กินที่วันละไฟล์ และเวลาไล่ดูย้อนหลังจะเห็นเฉพาะ "วันที่มีการเปลี่ยนแปลง"
+// ซึ่งเป็นสิ่งที่อยากรู้จริงตอนสงสัยว่าใครไปแก้อะไรไว้
+let lastRouterBackupDate = '';
+const lastBackupSha = new Map();   // siteId -> sha256 ของชุดล่าสุด
+setInterval(async () => {
+    try {
+        const bkk = bangkokNow();
+        if (bkk.hhmm !== '02:30' || lastRouterBackupDate === bkk.dateStr) return;
+        lastRouterBackupDate = bkk.dateStr;
+
+        const sitesData = await db.getSites();
+        for (const site of (sitesData.sites || [])) {
+            try {
+                const rows = await executeOnRouter(site.id, async (client) =>
+                    client.exec('/export', {}, { timeoutMs: 120000 }));
+                const built = routerBackup.buildBackup(site.name, routerBackup.parseExport(rows));
+
+                if (!routerBackup.hasChanged(lastBackupSha.get(site.id), built)) {
+                    console.log(`[RouterBackup] ${site.name}: คอนฟิกไม่เปลี่ยน ข้าม`);
+                    continue;
+                }
+                const saved = await backupRouterConfig(site.id, site.name, 'System Auto');
+                lastBackupSha.set(site.id, saved.sha256);
+                console.log(`[RouterBackup] ${site.name}: เก็บแล้ว ${saved.fileName}`);
+            } catch (e) {
+                // สาขาหนึ่งล้มต้องไม่ทำให้สาขาที่เหลือไม่ถูกสำรอง
+                console.warn(`[RouterBackup] ${site.name}: สำรองไม่สำเร็จ — ${e.message}`);
+                db.addLog('System Auto', 'สำรองคอนฟิกไม่สำเร็จ', `${site.name}: ${e.message}`);
+            }
+        }
+    } catch (e) {
+        console.error('[RouterBackup] งานสำรองคอนฟิกล้มเหลว:', e.message || e);
     }
 }, 60000);
 

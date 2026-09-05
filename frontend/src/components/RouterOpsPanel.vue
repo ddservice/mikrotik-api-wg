@@ -40,6 +40,23 @@ function flushDns() {
         'ล้างแคช DNS ของเราท์เตอร์แล้ว');
 }
 
+const cfgResult = ref(null);
+
+// สำรองคอนฟิกออกมาไว้นอกเราท์เตอร์ — ต่างจากปุ่มด้านล่างที่เก็บไว้ในเครื่องเอง
+async function backupConfig() {
+    busy.value = 'cfgbackup';
+    cfgResult.value = null;
+    try {
+        const r = await apiFetch('/api/mikrotik/backup/config', { method: 'POST' });
+        cfgResult.value = r;
+        toast.success('สำรองคอนฟิกแล้ว — ' + r.fileName);
+    } catch (err) {
+        toast.error('สำรองไม่สำเร็จ: ' + err.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
 function backup() {
     run('backup', () => apiFetch('/api/mikrotik/system/backup', { method: 'POST' }),
         'สั่งสำรองค่าเราท์เตอร์แล้ว — ไฟล์ .backup อยู่ในเราท์เตอร์');
@@ -196,8 +213,29 @@ function pingSummary(rows) {
 
         <div class="opsgrid">
             <div class="op">
-                <div class="opname">สำรองค่าเราท์เตอร์</div>
-                <div class="sub">สร้างไฟล์ .backup เก็บไว้ในเราท์เตอร์ ใช้เวลาสักครู่</div>
+                <div class="opname">สำรองคอนฟิกออกมาเก็บไว้</div>
+                <div class="sub">
+                    ดึงคอนฟิกออกมาเก็บที่เซิร์ฟเวอร์ + R2 พร้อม SHA-256 —
+                    <strong>ใช้กู้ได้จริงแม้เราท์เตอร์พังหรือหาย</strong>
+                    (ระบบทำให้เองทุกคืน 02:30 น. เฉพาะวันที่คอนฟิกเปลี่ยน)
+                </div>
+                <button type="button" class="v2-btn primary" :disabled="busy === 'cfgbackup'" @click="backupConfig">
+                    <i class="fa-solid" :class="busy === 'cfgbackup' ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'"></i>
+                    สำรองตอนนี้
+                </button>
+                <div v-if="cfgResult" class="cfgok">
+                    <i class="fa-solid fa-circle-check"></i>
+                    {{ cfgResult.fileName }} · {{ cfgResult.commandLines }} บรรทัด ·
+                    {{ cfgResult.sizeBytes }} bytes{{ cfgResult.storedOnR2 ? ' · ขึ้น R2 แล้ว' : ' · เก็บที่เซิร์ฟเวอร์' }}
+                </div>
+            </div>
+
+            <div class="op">
+                <div class="opname">สำรองค่าไว้ในเราท์เตอร์</div>
+                <div class="sub">
+                    สร้างไฟล์ .backup เก็บไว้<strong>บนตัวเราท์เตอร์เอง</strong> —
+                    ใช้ย้อนค่าเร็ว ๆ ได้ แต่หายไปพร้อมเราท์เตอร์ถ้าเครื่องพัง
+                </div>
                 <button type="button" class="v2-btn ghost" :disabled="busy === 'backup'" @click="backup">
                     <i class="fa-solid" :class="busy === 'backup' ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i> สำรองค่า
                 </button>
@@ -243,6 +281,11 @@ function pingSummary(rows) {
 .inline { display: flex; gap: 8px; flex-wrap: wrap; }
 .inline .v2-input { flex: 1; min-width: 90px; }
 .inline .v2-input.num { max-width: 72px; flex: 0 0 72px; }
+.cfgok {
+    margin-top: 9px; font-size: .78rem; color: var(--v2-success);
+    background: var(--v2-success-soft); border-radius: 8px; padding: 7px 10px; line-height: 1.55;
+}
+.cfgok i { margin-right: 5px; }
 .result { margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--v2-primary-soft); font-size: .82rem; }
 .result .ok { color: var(--v2-success); font-weight: 600; }
 .result .bad { color: var(--v2-danger); font-weight: 600; }
