@@ -501,6 +501,32 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (6)** — **EstiaHotel connected. Root cause: our script picked a listen-port that
+  was already taken, and RouterOS disabled the new interface without saying so.**
+  - The router already had a WireGuard interface on `listen-port=13231`, which the setup script
+    hardcoded. RouterOS accepted the `add`, then **silently disabled the new interface**. No
+    error, no warning; the script printed its success banner and finished. The tunnel could
+    never come up, and every layer of the diagnostic looked sane — peer registered on the VPS,
+    no handshake, no endpoint — which is why it took so long to find.
+  - **Two fixes, because either alone still leaves a silent failure:**
+    1. The script now finds a free port at runtime (starting at 13231, stepping up, bounded by
+       a guard counter so it cannot loop forever on a router) and *says* when it had to move.
+    2. After creating the interface it checks `disabled` and prints a loud `!!!! FAILED` with
+       the exact command to fix it. **Creating something is not the same as it running** — that
+       gap is where this whole incident lived.
+  - It still touches only its own interface: `remove [find name=wg-gatekeeper]`, never
+    `remove [find]`. Another WireGuard tunnel the customer relies on keeps working.
+  - `lib/wireguard-script.js` (new) — the script that gets pasted into customers' routers had
+    **no test at all** despite being the thing that decides whether a branch connects. Now 17
+    tests (**365 total**), including that the port is not hardcoded, that the disabled-check is
+    present, and that install and uninstall agree on the interface name and IP comment (if they
+    ever drift, uninstall silently leaves things behind).
+  - The VPS endpoint is now `WG_ENDPOINT_HOST` / `WG_ENDPOINT_PORT` instead of an IP hardcoded
+    since the first commit. Verified this session that `157.85.108.84` really is the VPS —
+    `/health` returns the same uptime hitting the IP directly and through the domain — so the
+    value was right, but nothing had ever checked it and a VPS migration would have broken
+    every newly generated script with no warning.
+
 - **2026-09-05 (5)** — Multi-WAN: existing hand-built PCC is now a **blocker**, not a warning,
   and the analysis says what it found instead of telling the operator to go check.
   - Reported from a branch whose analysis said *"มี mangle rule ที่ทำ mark-routing / PCC อยู่แล้ว

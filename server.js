@@ -22,6 +22,12 @@ const mwApply = require('./lib/multiwan-apply');
 const pccWeights = require('./lib/pcc-weights');
 const dnsStore = require('./lib/dns-log-store');
 const { streamCsv, forEachPage, forEachPageReverse, csvRow } = require('./lib/csv-export');
+const wgScript = require('./lib/wireguard-script');
+
+// ปลายทาง WireGuard ของ VPS — เดิม hardcode ไว้ในสคริปต์ตั้งแต่คอมมิตแรกและไม่มีใครตรวจ
+// ตั้งผ่าน env ได้แล้ว ถ้า VPS ย้าย IP จะได้แก้ที่เดียวโดยไม่ต้องแก้โค้ด
+const WG_ENDPOINT_HOST = process.env.WG_ENDPOINT_HOST || '157.85.108.84';
+const WG_ENDPOINT_PORT = Number(process.env.WG_ENDPOINT_PORT) || 51820;
 
 // ส่งออกได้ทีละคำขอเท่านั้นทั้งระบบ
 //
@@ -1744,43 +1750,14 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
         console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
     }
 
-    const script = `# ======================================================
-# MikroTik RouterOS WireGuard Setup Script (MT Management)
-# Targeted IP: ${targetIp}
-# API Port: ${targetPort}
-# VPS Endpoint: 157.85.108.84:51820
-# ======================================================
-
-# 1. Clear existing interface, peers, and IP if any — removing the interface
-# does NOT cascade-delete its peers/addresses on this RouterOS version, so
-# they'd otherwise accumulate as orphaned "unknown"-interface entries on every
-# re-run of this script. This router only ever has the one VPS Hub Server
-# peer, so it's safe to clear all WireGuard peers/addresses unconditionally.
-/interface/wireguard/peers/remove [find]
-/ip/address/remove [find comment="WireGuard VPN IP"]
-/interface/wireguard/remove [find name=wg-gatekeeper]
-
-# 2. Add WireGuard interface
-/interface/wireguard/add name=wg-gatekeeper listen-port=13231 comment="MT Management WireGuard"
-
-# 3. Add IP Address
-/ip/address/add address=${targetIp}/24 interface=wg-gatekeeper comment="WireGuard VPN IP"
-
-# 4. Add VPS Server Peer
-/interface/wireguard/peers/add interface=wg-gatekeeper endpoint-address="157.85.108.84" endpoint-port=51820 allowed-address=10.10.88.0/24 persistent-keepalive=25s comment="VPS Hub Server" public-key="${pubKey}"
-
-# 5. Security Hardening (Lock API Service to VPN Subnet Only & Set Custom Port)
-/ip/service/set api address=10.10.88.0/24 port=${targetPort} disabled=no
-/ip/service/disable api-ssl
-
-# 6. Display Result
-:put "--------------------------------------------------------"
-:put "WireGuard Interface & Security Hardening Completed!"
-:put "Your Router WireGuard Public Key is:"
-:put [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
-:put "--------------------------------------------------------"
-${callbackScriptBlock}
-`;
+    const script = wgScript.buildSetupScript({
+        wireguardIp: targetIp,
+        apiPort: targetPort,
+        vpsPublicKey: pubKey,
+        endpointHost: WG_ENDPOINT_HOST,
+        endpointPort: WG_ENDPOINT_PORT,
+        callbackBlock: callbackScriptBlock
+    });
 
     // สองค่านี้คนละเรื่องกัน อย่าสลับ:
     //   autoRegistered = "ผมเพิ่งลงทะเบียนคีย์ที่คุณส่งมาให้แล้ว" (เส้นทางใส่คีย์เอง)
@@ -1948,19 +1925,7 @@ app.post('/api/wireguard/remove-peer', requireAuth(['admin']), (req, res) => {
 
 // Generate Uninstall Script for MikroTik
 app.post('/api/wireguard/generate-uninstall-script', requireAuth(['admin']), (req, res) => {
-    const script = `# ======================================================
-# MikroTik RouterOS WireGuard Clean-up / Uninstall Script
-# ======================================================
-
-# 1. Remove WireGuard Interface and associated IPs/Peers
-/interface/wireguard/remove [find name=wg-gatekeeper]
-/ip/address/remove [find comment="WireGuard VPN IP"]
-
-:put "--------------------------------------------------------"
-:put "WireGuard Interface & Configuration Removed Successfully!"
-:put "--------------------------------------------------------"
-`;
-    res.json({ script });
+    res.json({ script: wgScript.buildUninstallScript() });
 });
 
 
