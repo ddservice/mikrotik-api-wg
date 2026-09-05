@@ -501,6 +501,28 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (2)** — v2's WireGuard setup told operators to do work the script already does.
+  - `POST /api/wireguard/generate-script` returns `autoRegistered`, which means **"I registered
+    the key you sent me"** — the manual path where the caller supplies `clientPublicKey`. v2
+    never sends one, so it is always `false`, and the modal concluded *"ยังไม่ได้ตั้ง
+    PUBLIC_APP_URL จึงไม่มีการลงทะเบียนอัตโนมัติ — ต้องคัดลอก public key จากเราท์เตอร์มาใส่เอง"*.
+    On production `PUBLIC_APP_URL` **is** set, so the generated script already carries the
+    `/tool/fetch` callback and the router registers its own key seconds after the paste. The
+    operator was being sent to do a manual step that had already happened.
+  - v1 never claimed this — it only shows a success alert when `autoRegistered` is true and is
+    silent otherwise. So this was a v2-only regression introduced when the modal was written.
+  - Server now returns a separate `selfRegister: !!process.env.PUBLIC_APP_URL`, and v2 reads
+    that. Two different facts that were being conflated: *who* registered the key, versus
+    *whether the script can register it by itself*.
+  - Verified both branches over HTTP: with `PUBLIC_APP_URL` set → `selfRegister: true` and the
+    script contains `/tool/fetch` + `callback-register`; unset → `selfRegister: false` and no
+    callback. `autoRegistered` is `false` in **both**, which is what proves the old UI could
+    never have shown the right message.
+  - Worth remembering for anyone adding a site: **pasting the script into WinBox is still
+    required and is not a v2 gap** — it is unavoidable when the router is behind NAT, because
+    the dashboard cannot reach a router that has no tunnel yet. What is *not* required is
+    copying the public key back by hand.
+
 - **2026-09-05** — **Production outage: 70 of 115 API routes deleted by a scripted edit,
   committed and deployed.** Every page rendered `Cannot GET /api/...`; reported by screenshot.
   - **Cause.** `server.js` was edited by a Python script that spliced on string index:

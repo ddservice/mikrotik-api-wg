@@ -1782,7 +1782,12 @@ app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, r
 ${callbackScriptBlock}
 `;
 
-    res.json({ script, wireguardIp: targetIp, autoRegistered });
+    // สองค่านี้คนละเรื่องกัน อย่าสลับ:
+    //   autoRegistered = "ผมเพิ่งลงทะเบียนคีย์ที่คุณส่งมาให้แล้ว" (เส้นทางใส่คีย์เอง)
+    //   selfRegister   = "สคริปต์มีคำสั่งให้เราท์เตอร์ส่งคีย์กลับมาเอง" (ไม่ต้องคัดลอกคีย์)
+    // หน้าเว็บเคยอ่าน autoRegistered แล้วสรุปว่าไม่มีการลงทะเบียนอัตโนมัติ ทั้งที่สคริปต์
+    // ลงทะเบียนให้อยู่แล้ว จึงสั่งให้ผู้ใช้ไปคัดลอกคีย์เองโดยไม่จำเป็น
+    res.json({ script, wireguardIp: targetIp, autoRegistered, selfRegister: !!process.env.PUBLIC_APP_URL });
 });
 
 // Callback endpoint the generated RouterOS script hits via /tool/fetch to

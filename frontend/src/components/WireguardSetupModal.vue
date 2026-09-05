@@ -25,7 +25,7 @@ const wireguardIp = ref('');
 const port = ref(8728);
 const script = ref('');
 const scriptKind = ref('install');   // install | uninstall
-const autoRegistered = ref(false);
+const selfRegister = ref(false);   // สคริปต์มีคำสั่งให้เราท์เตอร์ส่ง public key กลับมาเอง
 const busy = ref('');
 const err = ref('');
 const peer = ref(null);
@@ -48,7 +48,7 @@ watch(() => props.open, (v) => {
     err.value = '';
     peer.value = null;
     manualKey.value = '';
-    autoRegistered.value = false;
+    selfRegister.value = false;
     wireguardIp.value = (props.site && props.site.wireguardIp) || suggestedIp.value;
     port.value = (props.site && props.site.port) || 8728;
 });
@@ -75,7 +75,8 @@ async function generate() {
         });
         script.value = r.script || '';
         scriptKind.value = 'install';
-        autoRegistered.value = !!r.autoRegistered;
+        // สคริปต์ลงทะเบียนคีย์ให้เอง = selfRegister (คนละความหมายกับค่าที่ส่งคีย์ไปให้ลงทะเบียน)
+        selfRegister.value = !!r.selfRegister;
     } catch (e) {
         err.value = e.message;
     } finally {
@@ -92,7 +93,7 @@ async function uninstallScript() {
         const r = await apiFetch('/api/wireguard/generate-uninstall-script', { method: 'POST' });
         script.value = r.script || '';
         scriptKind.value = 'uninstall';
-        autoRegistered.value = false;
+        selfRegister.value = false;
     } catch (e) {
         err.value = e.message;
     } finally {
@@ -249,9 +250,9 @@ async function checkPeer() {
         </template>
 
         <template v-else-if="script">
-            <div class="v2-callout" :class="autoRegistered ? 'ok' : 'info'">
-                <i class="fa-solid" :class="autoRegistered ? 'fa-wand-magic-sparkles' : 'fa-circle-info'"></i>
-                <span v-if="autoRegistered">
+            <div class="v2-callout" :class="selfRegister ? 'ok' : 'info'">
+                <i class="fa-solid" :class="selfRegister ? 'fa-wand-magic-sparkles' : 'fa-circle-info'"></i>
+                <span v-if="selfRegister">
                     <strong>ลงทะเบียนอัตโนมัติ:</strong> สคริปต์มีคำสั่งให้เราท์เตอร์ส่ง public key
                     กลับมาเอง ไม่ต้องคัดลอกคีย์ด้วยมือ — <strong>ใช้ได้ครั้งเดียวและหมดอายุใน 30 นาที</strong>
                     ถ้าเกินให้กดสร้างใหม่
