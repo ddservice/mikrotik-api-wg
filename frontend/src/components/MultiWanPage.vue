@@ -333,6 +333,67 @@ function moveUp(i) {
             <i class="fa-solid fa-circle-xmark"></i><span>{{ b.message }}</span>
         </div>
 
+        <!-- กฎ mangle เดิมที่แย่งการเลือกเส้นทาง — ต้องเห็นทีละข้อถึงจะตัดสินใจได้
+             ว่ากฎไหนยังต้องใช้ กฎไหนปิดได้ การบอกแค่จำนวนคือโยนงานตรวจกลับให้คนทั้งหมด -->
+        <section v-if="analysis.mangleDetail && analysis.mangleDetail.length" class="card">
+            <h3><i class="fa-solid fa-code-branch"></i> mangle rules เดิมที่แย่งการเลือกเส้นทาง</h3>
+            <p class="sub">
+                กฎพวกนี้ติด routing-mark ให้ traffic ทำให้ traffic ไปใช้ routing table อื่น
+                แทนที่จะใช้ default route ที่ failover สร้าง — ต้องปิดหรือลบก่อนจึงจะติดตั้งได้
+            </p>
+            <div class="tablewrap">
+                <table>
+                    <thead>
+                        <tr><th>chain</th><th>action</th><th>PCC</th><th>mark</th><th>ใช้กับ traffic</th><th>หมายเหตุเดิม</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="m in analysis.mangleDetail" :key="m.id">
+                            <td class="mono">{{ m.chain }}</td>
+                            <td class="mono">{{ m.action }}</td>
+                            <td class="mono">{{ m.pcc || '—' }}</td>
+                            <td class="mono">{{ m.mark || '—' }}</td>
+                            <td>{{ m.scope }}</td>
+                            <td class="sub">{{ m.comment || '—' }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- default route ที่มีอยู่ + ข้อเสนอว่าสายไหนควรเป็น primary -->
+        <section v-if="analysis.defaultRouteDetail && analysis.defaultRouteDetail.length > 1" class="card">
+            <h3><i class="fa-solid fa-route"></i> default route ที่มีอยู่ตอนนี้</h3>
+            <div class="tablewrap">
+                <table>
+                    <thead>
+                        <tr><th>gateway</th><th>distance</th><th>routing table</th><th>สถานะ</th><th>ที่มา</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="r in analysis.defaultRouteDetail" :key="r.id">
+                            <td class="mono">{{ r.gateway }}</td>
+                            <td class="mono">{{ r.distance ?? '—' }}</td>
+                            <td class="mono">{{ r.routingTable }}</td>
+                            <td>{{ r.active ? 'active' : 'inactive' }}</td>
+                            <td class="sub">{{ r.dynamic ? 'สร้างอัตโนมัติ' : 'ตั้งเอง' }}{{ r.comment ? ' · ' + r.comment : '' }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <template v-if="analysis.distancePlan && analysis.distancePlan.length">
+                <p class="sub propose">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    ข้อเสนอลำดับสาย (ยังไม่ได้ตั้งให้ — เป็นข้อมูลประกอบการตัดสินใจ):
+                </p>
+                <ul class="plan">
+                    <li v-for="p in analysis.distancePlan" :key="p.interface">
+                        <b class="mono">{{ p.interface }}</b> → distance <b>{{ p.proposedDistance }}</b>
+                        ({{ p.role }}) — <span class="sub">{{ p.reason }}</span>
+                    </li>
+                </ul>
+            </template>
+        </section>
+
         <div class="actions" v-if="analysis.canFailover && stage === 1">
             <button class="v2-btn primary" :disabled="busy === 'plan'" @click="buildPlan">
                 <i class="fa-solid" :class="busy === 'plan' ? 'fa-spinner fa-spin' : 'fa-list-check'"></i>
@@ -472,6 +533,17 @@ h2 { margin: 0; font-size: 1.25rem; }
           color: var(--v2-text-muted); font-size: .76rem; white-space: nowrap; }
 .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--v2-border); vertical-align: middle; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.tablewrap { overflow-x: auto; margin-top: 10px; }
+.tablewrap table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.tablewrap th {
+    text-align: left; font-weight: 600; font-size: .74rem; color: var(--v2-text-muted);
+    padding: 8px 12px; border-bottom: 1px solid var(--v2-border); white-space: nowrap; background: #fbfcfe;
+}
+.tablewrap td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.tablewrap tbody tr:last-child td { border-bottom: none; }
+.propose { margin-top: 14px; font-weight: 600; color: var(--v2-text-soft); }
+.plan { margin: 6px 0 0; padding-left: 20px; font-size: .84rem; line-height: 1.9; }
 .sm { font-size: .78rem; }
 .up { text-transform: uppercase; font-size: .74rem; letter-spacing: .03em; }
 .rank { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .68rem;

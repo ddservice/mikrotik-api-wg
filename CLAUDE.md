@@ -501,6 +501,38 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (5)** — Multi-WAN: existing hand-built PCC is now a **blocker**, not a warning,
+  and the analysis says what it found instead of telling the operator to go check.
+  - Reported from a branch whose analysis said *"มี mangle rule ที่ทำ mark-routing / PCC อยู่แล้ว
+    6 rules — ต้องตรวจก่อนว่าจะ conflict หรือไม่"* and *"มี active default route อยู่ 6 routes —
+    ต้องตั้ง distance ให้ชัด"*. Both were warnings, so **Apply stayed enabled.**
+  - **Applying failover onto a router with mark-routing would have been the worst kind of
+    failure.** Traffic carrying a routing-mark uses that mark's routing table, not `main` where
+    failover writes its default routes. The install would complete all 23 steps, report success,
+    and change nothing about where customer traffic goes — and when the primary died, marked
+    traffic would keep going to the dead line. **The post-apply verification would have passed
+    too**, because the confirming ping originates on the router itself and is not subject to
+    those mangle rules. That is "reports success while doing nothing", which this repo has now
+    hit several times and which is worse than failing outright.
+  - Now a blocker (`existing-mark-routing`) whose message states the mechanism, the consequence,
+    and what to do — disable or remove those rules first.
+  - **Only rules that actually steal routing count.** Disabled rules do not block (they have no
+    effect on traffic), and `action=mark-packet` for QoS does not either. Verified by test: a
+    6-rule hand-built PCC set yields 5 conflicting rules, because the `action=accept` one does
+    not mark routing.
+  - `mangleDetail` now reports each rule — chain, action, PCC classifier, mark, which traffic it
+    matches, and **the operator's own comment**, which is the main clue to intent and must not
+    be dropped. A rule with no match conditions is reported as "ทุก traffic ที่ผ่าน chain นี้"
+    rather than an empty cell.
+  - `defaultRouteDetail` lists every default route with distance, routing table, active and
+    whether it was created dynamically; `distancePlan` proposes which line should be primary,
+    ranked by the entered bandwidth, with the reason for each. **Proposals only — nothing is
+    applied.** Rewriting someone's hand-built PCC means guessing their intent on a live branch,
+    and a wrong guess takes the site off the internet through the same links we manage it over.
+  - 15 new tests (**348 total**). The existing suite passed unchanged when the warning became a
+    blocker, which is itself the finding: nothing had ever asserted that a router with existing
+    PCC must not be installed onto.
+
 - **2026-09-05 (4)** — Adding a site no longer needs a page refresh, and the WireGuard branch
   of the flow stopped asking the operator to do the computer's job.
   - **The refresh bug had a structural cause**: five components each fetched `/api/sites` and
