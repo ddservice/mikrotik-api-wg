@@ -9,8 +9,8 @@
  * ตัวสวิตช์ลบอัตโนมัติอยู่ที่นี่ด้วย เพราะเป็นต้นทางของรายการในตารางนี้
  * คนที่มาดูว่า "ทำไมคูปองหาย" ควรเห็นทั้งสองอย่างในหน้าเดียว
  */
-import { ref, onMounted } from 'vue';
-import { apiFetch } from '../api.js';
+import { ref, computed, onMounted, watch } from 'vue';
+import { apiFetch, activeSiteId, sites, loadSites, activeSiteName } from '../api.js';
 import { toast } from '../toast.js';
 
 const rows = ref([]);
@@ -20,11 +20,19 @@ const busy = ref('');
 const search = ref('');
 const cleanup = ref({ autoCleanupExpired: false });
 
+// คลังคูปองเป็นแถวในฐานข้อมูลที่ติดชื่อสาขาไว้ ไม่ใช่การยิงไปเราท์เตอร์
+// header X-Site-Id จึงไม่มีผล ต้องส่ง ?siteName= ไปเองเหมือนหน้า Log
+// ก่อนหน้านี้ไม่ได้ส่ง คูปองของทุกสาขาจึงปนกันหมดทั้งที่เลือกสาขาไว้แล้ว
+const siteFilter = ref('');   // '' = ทุกสาขา
+
 async function load() {
     loading.value = true;
     try {
-        const q = search.value.trim() ? '?search=' + encodeURIComponent(search.value.trim()) : '';
-        const r = await apiFetch('/api/mikrotik/hotspot/archived-users' + q);
+        const q = new URLSearchParams();
+        if (search.value.trim()) q.set('search', search.value.trim());
+        if (siteFilter.value) q.set('siteName', siteFilter.value);
+        const qs = q.toString();
+        const r = await apiFetch('/api/mikrotik/hotspot/archived-users' + (qs ? '?' + qs : ''));
         rows.value = r.users || [];
         total.value = r.total || 0;
     } catch (err) {
@@ -33,6 +41,12 @@ async function load() {
         loading.value = false;
     }
 }
+
+// สลับสาขาด้านบน -> เลื่อนตัวกรองตาม เว้นแต่ผู้ใช้ตั้งเป็น "ทุกสาขา" ไว้เอง
+watch(activeSiteId, () => {
+    if (siteFilter.value) siteFilter.value = activeSiteName() || siteFilter.value;
+    load();
+});
 
 async function loadCleanup() {
     try {
@@ -152,7 +166,9 @@ const REASONS = {
     auto_cleanup: 'ลบอัตโนมัติ'
 };
 
-onMounted(() => { load(); loadCleanup(); });
+onMounted(async () => {
+    await loadSites();
+    siteFilter.value = activeSiteName(); load(); loadCleanup(); });
 </script>
 
 <template>
@@ -181,6 +197,10 @@ onMounted(() => { load(); loadCleanup(); });
     </div>
 
     <div class="bar">
+        <select v-if="sites.length > 1" v-model="siteFilter" class="v2-input site" @change="load">
+            <option value="">ทุกสาขา</option>
+            <option v-for="s in sites" :key="s.id" :value="s.name">{{ s.name }}</option>
+        </select>
         <input
             v-model="search" class="v2-input" placeholder="ค้นหาชื่อผู้ใช้ / โปรไฟล์ / คอมเมนต์"
             @keyup.enter="load"
@@ -188,7 +208,7 @@ onMounted(() => { load(); loadCleanup(); });
         <button type="button" class="v2-btn ghost" :disabled="loading" @click="load">
             <i class="fa-solid" :class="loading ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'"></i> ค้นหา
         </button>
-        <span class="count">{{ total.toLocaleString() }} รายการ</span>
+        <span class="count">{{ total.toLocaleString() }} รายการ<span class="scope">{{ siteFilter || 'ทุกสาขา' }}</span></span>
         <button
             v-if="total" type="button" class="v2-btn danger sm" :disabled="busy === 'clear'"
             @click="clearAll"
@@ -254,6 +274,9 @@ onMounted(() => { load(); loadCleanup(); });
 .sw input:checked + span { background: var(--v2-primary); }
 .sw input:checked + span::before { transform: translateX(20px); }
 .sw input:focus-visible + span { outline: 2px solid var(--v2-primary); outline-offset: 2px; }
+.site { max-width: 190px; flex: 0 0 auto; }
+.scope { margin-left: 7px; padding: 2px 9px; border-radius: 999px;
+         background: var(--v2-primary-soft); color: var(--v2-primary); font-size: .72rem; font-weight: 700; }
 .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .bar .v2-input { max-width: 320px; }
 .count { font-size: .82rem; color: var(--v2-text-muted); }

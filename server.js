@@ -5111,63 +5111,8 @@ app.post('/api/mikrotik/hotspot/generate', requireAuth(['admin', 'co-admin', 'us
 // Firewall Block/Unblock & Schedule APIs
 // ==========================================
 
-const FIREWALL_SERVICES = {
-    youtube: {
-        comment: 'Block YouTube (Dashboard)',
-        listName: 'blocked_youtube',
-        domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com']
-    },
-    line: {
-        comment: 'Block LINE (Dashboard)',
-        listName: 'blocked_line',
-        domains: ['line.me', 'line-apps.com', 'line-cdn.net']
-    },
-    games: {
-        comment: 'Block Mobile Games (Dashboard)',
-        listName: 'blocked_games',
-        domains: ['roblox.com', 'rbxcdn.com', 'garena.com', 'freefiremobile.com', 'pubgmobile.com', 'proxima-beta.com', 'hoyoverse.com', 'genshinimpact.com', 'supercell.com', 'clashofclans.com']
-    },
-    ads: {
-        comment: 'Block Ads & Trackers (Dashboard)',
-        listName: 'blocked_ads',
-        domains: ['doubleclick.net', 'adservice.google.com', 'googlesyndication.com', 'adnxs.com', 'admob.com', 'criteo.com', 'taboola.com', 'outbrain.com', 'appsflyer.com']
-    },
-    tiktok: {
-        comment: 'Block TikTok (Dashboard)',
-        listName: 'blocked_tiktok',
-        domains: ['tiktok.com', 'tiktokcdn.com', 'byteoversea.com', 'musical.ly']
-    },
-    facebook: {
-        comment: 'Block Facebook & IG (Dashboard)',
-        listName: 'blocked_facebook',
-        domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com']
-    },
-    adult: {
-        comment: 'Block Adult Content (Dashboard)',
-        listName: 'blocked_adult',
-        domains: ['pornhub.com', 'xvideos.com', 'xnxx.com', 'stripchat.com', 'xhamster.com']
-    },
-    netflix: {
-        comment: 'Block Netflix & Streaming (Dashboard)',
-        listName: 'blocked_netflix',
-        domains: ['netflix.com', 'nflxext.com', 'nflxvideo.net', 'disneyplus.com', 'bamgrid.com', 'viu.com', 'wetv.vip']
-    },
-    torrent: {
-        comment: 'Block BitTorrent & P2P (Dashboard)',
-        listName: 'blocked_torrent',
-        domains: ['torrent.com', 'bittorrent.com', 'thepiratebay.org', '1337x.to', 'rarbg.to', 'yts.mx']
-    },
-    steam: {
-        comment: 'Block Steam & PC Gaming (Dashboard)',
-        listName: 'blocked_steam',
-        domains: ['steampowered.com', 'steamcommunity.com', 'steamgames.com', 'epicgames.com', 'unrealengine.com']
-    },
-    crypto: {
-        comment: 'Block Crypto Miners & Malware (Dashboard)',
-        listName: 'blocked_crypto',
-        domains: ['coinhive.com', 'coin-hive.com', 'crypto-loot.com', 'jsecoin.com', 'minr.pw', 'coin-have.com']
-    }
-};
+const fwServices = require('./lib/firewall-services');
+const FIREWALL_SERVICES = fwServices.SERVICES;
 
 // Get block status & schedule for all services
 app.get('/api/mikrotik/firewall/status', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
@@ -5346,6 +5291,12 @@ app.post('/api/mikrotik/firewall/toggle', requireAuth(['admin', 'co-admin', 'use
                     if (scheduleEnabled && Array.isArray(days) && days.length > 0) {
                         addParams.days = days.join(',');
                     }
+
+                    // ต้องแทรกเหนือกฎ accept/fasttrack ตัวแรกของ chain forward
+                    // ถ้าต่อท้ายเฉย ๆ กฎ drop จะไม่มีวันถูกเรียกบนเราท์เตอร์ที่มี
+                    // accept กว้าง ๆ อยู่ก่อน = ขึ้นว่าบล็อกแล้วแต่ยังเข้าเว็บได้
+                    const placeBefore = fwServices.placeBeforeFor(filterRules, 'forward');
+                    if (placeBefore) addParams['place-before'] = placeBefore;
 
                     await client.exec('/ip/firewall/filter/add', addParams);
                 }

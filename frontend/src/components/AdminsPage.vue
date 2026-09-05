@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { apiFetch, currentUser, sites, loadSites } from '../api.js';
-import { CONFIGURABLE_MENUS } from '../menu.js';
+import { CONFIGURABLE_MENUS, ADMIN_ONLY_MENUS, OVERVIEW_MENU } from '../menu.js';
 import { toast } from '../toast.js';
 import BaseModal from './BaseModal.vue';
 
@@ -13,6 +13,25 @@ const ROLES = [
 
 const users = ref([]);
 const perms = ref({ 'co-admin': [], user: [] });
+
+// ยกเมนูมาให้ครบทุกตัว ไม่ใช่เฉพาะที่ปรับได้ — ถ้าเห็นแค่ 5 จาก 8 คนตั้งค่าจะไม่รู้ว่า
+// เมนูที่เหลือหายไปไหน แล้วเข้าใจผิดว่าลืมเปิดให้ ทั้งที่มันตั้งใจให้เป็นแบบนั้น
+const ALL_MENU_ROWS = [
+    { ...OVERVIEW_MENU, lock: 'always', note: 'ทุกบทบาทเห็นเสมอ — เป็นหน้าแรกหลังล็อกอิน' },
+    ...CONFIGURABLE_MENUS.map((m) => ({ ...m, lock: null })),
+    ...ADMIN_ONLY_MENUS.map((m) => ({ ...m, lock: 'admin', note: 'เฉพาะ Super Admin — ปรับไม่ได้' }))
+];
+
+// เปิด/ปิดทั้งหมดในบทบาทเดียว — มี 5 ช่องต่อบทบาท การกดทีละช่องเสียเวลาโดยไม่จำเป็น
+function setAll(role, on) {
+    perms.value = { ...perms.value, [role]: on ? CONFIGURABLE_MENUS.map((m) => m.key) : [] };
+}
+
+const permCount = computed(() => ({
+    'co-admin': (perms.value['co-admin'] || []).length,
+    user: (perms.value.user || []).length,
+    total: CONFIGURABLE_MENUS.length
+}));
 const loading = ref(false);
 const busy = ref('');
 const savingPerms = ref(false);
@@ -228,11 +247,35 @@ const adminCount = computed(() => users.value.filter((u) => u.role === 'admin').
         <div class="ptable">
             <div class="prow phdr">
                 <div>เมนู</div>
-                <div>Co-Admin</div>
-                <div>User</div>
+                <div>
+                    Co-Admin
+                    <div class="allbtns">
+                        <button type="button" @click="setAll('co-admin', true)">ทั้งหมด</button>
+                        <button type="button" @click="setAll('co-admin', false)">ไม่เลือก</button>
+                    </div>
+                </div>
+                <div>
+                    User
+                    <div class="allbtns">
+                        <button type="button" @click="setAll('user', true)">ทั้งหมด</button>
+                        <button type="button" @click="setAll('user', false)">ไม่เลือก</button>
+                    </div>
+                </div>
             </div>
-            <div v-for="m in CONFIGURABLE_MENUS" :key="m.key" class="prow">
-                <div class="mname"><i :class="m.icon"></i> {{ m.title }}</div>
+            <div v-for="m in ALL_MENU_ROWS" :key="m.key" class="prow" :class="{ locked: m.lock }">
+                <div class="mname">
+                    <i :class="m.icon"></i> {{ m.title }}
+                    <div v-if="m.note" class="mnote">{{ m.note }}</div>
+                </div>
+                <template v-if="m.lock === 'always'">
+                    <div class="fixed"><i class="fa-solid fa-check"></i> เห็น</div>
+                    <div class="fixed"><i class="fa-solid fa-check"></i> เห็น</div>
+                </template>
+                <template v-else-if="m.lock === 'admin'">
+                    <div class="fixed off"><i class="fa-solid fa-minus"></i> ไม่เห็น</div>
+                    <div class="fixed off"><i class="fa-solid fa-minus"></i> ไม่เห็น</div>
+                </template>
+                <template v-else>
                 <div>
                     <label class="cbox">
                         <input type="checkbox" :checked="perms['co-admin'].includes(m.key)" @change="togglePerm('co-admin', m.key)">
@@ -245,6 +288,7 @@ const adminCount = computed(() => users.value.filter((u) => u.role === 'admin').
                         <span></span>
                     </label>
                 </div>
+            </template>
             </div>
         </div>
 
@@ -252,6 +296,13 @@ const adminCount = computed(() => users.value.filter((u) => u.role === 'admin').
             <button type="button" class="v2-btn primary" :disabled="savingPerms" @click="savePerms">
                 <i class="fa-solid" :class="savingPerms ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i> บันทึกสิทธิ์เมนู
             </button>
+            <span class="pcount">
+                Co-Admin เห็น {{ permCount['co-admin'] }}/{{ permCount.total }} เมนู ·
+                User เห็น {{ permCount.user }}/{{ permCount.total }} เมนู
+                <template v-if="permCount.user === 0 || permCount['co-admin'] === 0">
+                    — บทบาทที่ไม่เลือกเลยจะเห็นแค่หน้าภาพรวม
+                </template>
+            </span>
         </div>
     </div>
 
@@ -354,7 +405,17 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .prow > div:not(:first-child) { text-align: center; }
 .phdr { background: #fbfcfe; font-size: .75rem; font-weight: 600; color: var(--v2-text-muted); }
-.mname { display: flex; align-items: center; gap: 9px; font-size: .86rem; font-weight: 500; }
+.mname { display: flex; align-items: center; gap: 9px; font-size: .86rem; font-weight: 500; flex-wrap: wrap; }
+.mnote { flex-basis: 100%; padding-left: 25px; font-size: .7rem; color: var(--v2-text-muted); font-weight: 400; }
+.prow.locked { background: #fcfcfd; }
+.fixed { font-size: .72rem; color: var(--v2-success, #16a34a); font-weight: 600; }
+.fixed.off { color: var(--v2-text-muted); }
+.allbtns { display: flex; gap: 4px; justify-content: center; margin-top: 5px; }
+.allbtns button {
+    border: 1px solid var(--v2-border); background: #fff; border-radius: 5px;
+    padding: 2px 7px; font-size: .66rem; font-family: inherit; color: var(--v2-text-muted); cursor: pointer;
+}
+.allbtns button:hover { border-color: var(--v2-primary); color: var(--v2-primary); }
 .mname i { width: 16px; text-align: center; color: var(--v2-text-muted); }
 
 .cbox { display: inline-flex; cursor: pointer; }
@@ -368,7 +429,8 @@ tbody tr:last-child td { border-bottom: none; }
 .cbox input:checked + span::after { opacity: 1; }
 .cbox input:focus-visible + span { outline: 2px solid var(--v2-primary); outline-offset: 2px; }
 
-.pfoot { padding: 14px 16px; background: #fbfcfe; }
+.pfoot { padding: 14px 16px; background: #fbfcfe; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pcount { font-size: .74rem; color: var(--v2-text-muted); }
 
 .roles { display: flex; flex-direction: column; gap: 8px; }
 .rcard {

@@ -1,23 +1,43 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { apiFetch, activeSiteId } from '../api.js';
 import { toast } from '../toast.js';
 
 // ต้องตรงกับคีย์ใน FIREWALL_SERVICES ของ server.js เป๊ะ ๆ
 // ถ้าสะกดไม่ตรง server จะตอบ "Invalid service" กลับมา
+const SERVICE_GROUPS = [{"key": "social", "title": "โซเชียล & แชท"}, {"key": "video", "title": "วิดีโอ & สตรีมมิ่ง"}, {"key": "game", "title": "เกม"}, {"key": "shop", "title": "ช้อปปิ้ง & ไลฟ์ขายของ"}, {"key": "risk", "title": "ความเสี่ยง & กฎหมาย"}, {"key": "net", "title": "เครือข่าย & การหลบเลี่ยง"}];
+
 const SERVICES = [
-    { key: 'youtube', label: 'YouTube', icon: 'fa-brands fa-youtube', color: '#ef4444' },
-    { key: 'tiktok', label: 'TikTok', icon: 'fa-brands fa-tiktok', color: '#0f172a' },
-    { key: 'facebook', label: 'Facebook', icon: 'fa-brands fa-facebook', color: '#1877f2' },
-    { key: 'line', label: 'LINE', icon: 'fa-brands fa-line', color: '#06c755' },
-    { key: 'netflix', label: 'Netflix', icon: 'fa-solid fa-film', color: '#e50914' },
-    { key: 'games', label: 'เกมมือถือ', icon: 'fa-solid fa-gamepad', color: '#8b5cf6' },
-    { key: 'steam', label: 'Steam', icon: 'fa-brands fa-steam', color: '#1b2838' },
-    { key: 'adult', label: 'เว็บผู้ใหญ่', icon: 'fa-solid fa-ban', color: '#be123c' },
-    { key: 'torrent', label: 'BitTorrent', icon: 'fa-solid fa-download', color: '#0891b2' },
-    { key: 'crypto', label: 'ขุดเหรียญ (Crypto)', icon: 'fa-brands fa-bitcoin', color: '#f59e0b' },
-    { key: 'ads', label: 'โฆษณา & ตัวติดตาม', icon: 'fa-solid fa-rectangle-ad', color: '#64748b' }
+    // โซเชียล & แชท
+    { key: 'facebook', group: 'social', label: 'Facebook & Instagram', icon: 'fa-brands fa-facebook', color: '#1877f2' },
+    { key: 'tiktok', group: 'social', label: 'TikTok', icon: 'fa-brands fa-tiktok', color: '#0f172a' },
+    { key: 'line', group: 'social', label: 'LINE', icon: 'fa-brands fa-line', color: '#06c755' },
+    { key: 'social_extra', group: 'social', label: 'X / Discord / Snapchat / Reddit', icon: 'fa-brands fa-x-twitter', color: '#334155' },
+    // วิดีโอ & สตรีมมิ่ง
+    { key: 'youtube', group: 'video', label: 'YouTube', icon: 'fa-brands fa-youtube', color: '#ef4444' },
+    { key: 'netflix', group: 'video', label: 'Netflix & OTT', icon: 'fa-solid fa-film', color: '#e50914' },
+    { key: 'livestream', group: 'video', label: 'Twitch / Kick / Bigo', icon: 'fa-brands fa-twitch', color: '#9146ff' },
+    // เกม
+    { key: 'games', group: 'game', label: 'เกมมือถือ', icon: 'fa-solid fa-gamepad', color: '#8b5cf6' },
+    { key: 'steam', group: 'game', label: 'เกม PC & Console', icon: 'fa-brands fa-steam', color: '#1b2838' },
+    // ช้อปปิ้ง & ไลฟ์ขายของ
+    { key: 'shopping', group: 'shop', label: 'Shopee / Lazada / TikTok Shop', icon: 'fa-solid fa-bag-shopping', color: '#f97316' },
+    // ความเสี่ยง & กฎหมาย
+    { key: 'adult', group: 'risk', label: 'เว็บผู้ใหญ่', icon: 'fa-solid fa-ban', color: '#be123c' },
+    { key: 'gambling', group: 'risk', label: 'พนันออนไลน์', icon: 'fa-solid fa-dice', color: '#dc2626' },
+    { key: 'crypto', group: 'risk', label: 'ขุดเหรียญ (Crypto)', icon: 'fa-brands fa-bitcoin', color: '#f59e0b' },
+    // เครือข่าย & การหลบเลี่ยง
+    { key: 'vpn', group: 'net', label: 'VPN & Proxy หลบเลี่ยง', icon: 'fa-solid fa-user-secret', color: '#0ea5e9' },
+    { key: 'torrent', group: 'net', label: 'BitTorrent & P2P', icon: 'fa-solid fa-download', color: '#0891b2' },
+    { key: 'ads', group: 'net', label: 'โฆษณา & ตัวติดตาม', icon: 'fa-solid fa-rectangle-ad', color: '#64748b' }
 ];
+
+// กรองหมวด — 15 บริการเรียงเป็นพืดหาไม่เจอ
+const groupFilter = ref('');
+const shownServices = computed(() => groupFilter.value
+    ? SERVICES.filter((s) => s.group === groupFilter.value)
+    : SERVICES);
+const blockedCount = computed(() => SERVICES.filter((s) => svc(s.key).blocked).length);
 
 const DAYS = [
     { k: 'mon', t: 'จ' }, { k: 'tue', t: 'อ' }, { k: 'wed', t: 'พ' }, { k: 'thu', t: 'พฤ' },
@@ -202,8 +222,19 @@ async function removeRule(r) {
 
     <div v-if="error" class="alert"><i class="fa-solid fa-triangle-exclamation"></i> {{ error }}</div>
 
+    <div class="gbar">
+        <button type="button" class="gpill" :class="{ on: groupFilter === '' }" @click="groupFilter = ''">
+            ทั้งหมด <span>{{ SERVICES.length }}</span>
+        </button>
+        <button v-for="g in SERVICE_GROUPS" :key="g.key" type="button"
+                class="gpill" :class="{ on: groupFilter === g.key }" @click="groupFilter = g.key">
+            {{ g.title }} <span>{{ SERVICES.filter((s) => s.group === g.key).length }}</span>
+        </button>
+        <span class="gsum" v-if="blockedCount">บล็อกอยู่ {{ blockedCount }} รายการ</span>
+    </div>
+
     <div class="grid">
-        <div v-for="s in SERVICES" :key="s.key" class="card" :class="{ on: svc(s.key).blocked }">
+        <div v-for="s in shownServices" :key="s.key" class="card" :class="{ on: svc(s.key).blocked }">
             <div class="top">
                 <span class="ico" :style="{ background: svc(s.key).blocked ? s.color : '#eef2f7', color: svc(s.key).blocked ? '#fff' : '#94a3b8' }">
                     <i :class="s.icon"></i>
@@ -356,6 +387,17 @@ async function removeRule(r) {
 </template>
 
 <style scoped>
+.gbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
+.gpill {
+    border: 1px solid var(--v2-border); background: #fff; border-radius: 999px;
+    padding: 5px 12px; font-size: .78rem; font-family: inherit; color: var(--v2-text);
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.gpill span { font-size: .68rem; color: var(--v2-text-muted); }
+.gpill.on { background: var(--v2-primary); border-color: var(--v2-primary); color: #fff; }
+.gpill.on span { color: rgba(255,255,255,.75); }
+.gsum { margin-left: auto; font-size: .75rem; color: var(--v2-text-muted); }
+
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .head h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
 .head p { margin: 3px 0 0; font-size: .85rem; color: var(--v2-text-muted); }
