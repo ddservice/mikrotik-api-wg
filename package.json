@@ -9,6 +9,7 @@
     "preflight": "bash scripts/preflight-mikrotik-ecosystem.sh",
     "validate-html": "node scripts/validate-html.js",
     "check-db-parity": "node scripts/check-db-parity.js",
+    "check-routes": "node scripts/check-routes.js",
     "migrate-json-to-supabase": "node scripts/migrate-json-to-supabase.js",
     "cleanup-old-backups": "node scripts/cleanup-old-backups.js",
     "enable-dns-logging": "node scripts/enable-dns-logging.js",
@@ -17,7 +18,7 @@
     "rotate-api-password": "node scripts/rotate-mikrotik-api-password.js",
     "verify-pppoe-bytes": "node scripts/verify-pppoe-bytes.js",
     "test": "node test/run.js",
-    "check": "npm run test && npm run validate-html && npm run check-db-parity",
+    "check": "npm run test && npm run validate-html && npm run check-db-parity && npm run check-routes",
     "normalize-site-names": "node scripts/normalize-site-names.js",
     "check-sites": "node scripts/check-sites.js"
   },

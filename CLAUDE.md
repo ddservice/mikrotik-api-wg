@@ -501,6 +501,44 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05** — **Production outage: 70 of 115 API routes deleted by a scripted edit,
+  committed and deployed.** Every page rendered `Cannot GET /api/...`; reported by screenshot.
+  - **Cause.** `server.js` was edited by a Python script that spliced on string index:
+    ```
+    start = s.index("app.get('/api/pppoe-usage/export-csv'")
+    end   = s.index("// Helper for cleaning expired users")
+    s = s[:start] + new_route + s[end:]
+    ```
+    That comment was assumed to sit just after the route. It sits ~2,300 lines below, so the
+    splice deleted everything between: Dashboard Users CRUD, every Hotspot and PPPoE route,
+    sites, WireGuard, firewall, LINE, storage. 5,509 lines → 3,181; 115 routes → 45.
+  - **Why nothing caught it — worth internalising, because each check "passed":**
+    - `node -c` passes on a file with fewer routes. Syntax was never the problem.
+    - `npm test` never loads `server.js` at all (requiring it starts a listener), so 295 green
+      tests said nothing about it.
+    - The endpoints spot-checked after the edit were the four exports just rewritten — all near
+      the top of the file, all upstream of the deletion. **The change was verified; the file
+      was not.**
+  - **Rule: never edit a source file by index splicing.** Use exact-match replacement, and
+    after any scripted edit assert an invariant of the *whole file*, not of the part touched.
+  - `scripts/check-routes.js` (new, wired into `npm run check`) is that invariant for
+    `server.js`: a minimum route count, a list of routes whose absence means the dashboard is
+    dead, and a duplicate-route check. Verified it fails on the actual broken commit
+    (`git show e42ee7f:server.js` → "45 route, น้อยกว่าขั้นต่ำ 116") and passes on the fix —
+    a guard that has not been shown to fail on the real defect is not a guard.
+  - Recovery: restored `a3f1a4f:server.js` and re-applied each change with exact-match edits,
+    checking the route list after every step. Route-by-route diff against `a3f1a4f` is empty in
+    the "missing" direction, with only the new `app.get('/')` added. Then verified **live**
+    against the fixture rather than by reading the diff: 30 GET endpoints across every group
+    plus all four CSV exports return 200; the two 500s are environment limits proven identical
+    to the pre-change code (the fake router has no `/ip/firewall/address-list`, and `sudo wg`
+    does not exist on Windows).
+  - Also added `test/log-archive.test.js` — 24 tests over the ม.26 sealing path, the largest
+    untested module left: rows past the PostgREST 1000 cap, refusing to seal the current day,
+    no empty files, idempotent re-runs, `runNightly` backfilling missed days, and **verify
+    failing when a single byte is flipped** — the one behaviour the whole feature exists for.
+    **316 tests total.**
+
 - **2026-09-04 (5)** — Retiring v1 turned into a switch instead of a rewrite, and two dead
   files from the Next.js era removed.
   - **The redundancy is real**: v1 (`public/app.js`, 5,915 lines, no tests) now does nothing
