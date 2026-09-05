@@ -5,8 +5,12 @@
 */
 
 :root {
-    /* ตัวเลขใช้ Inter เพราะมี tabular figures — ค่าอัปเดตทุก 10 วิแล้วตัวเลขไม่ขยับซ้ายขวา */
-    --v2-font: 'Inter', 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Inter ต้องมาก่อน Prompt เสมอ ห้ามสลับ
+       Inter ไม่มีอักขระไทย ตัวอักษรไทยจึงตกไปใช้ Prompt เองโดยอัตโนมัติ
+       แต่ "ตัวเลข" จะถูกวาดด้วย Inter ซึ่งมี tabular figures — ค่าบนหน้าจอนี้อัปเดตทุก
+       10 วินาที ถ้าตัวเลขไม่กว้างเท่ากันทุกตัวจะเห็นเลขขยับซ้ายขวาตลอดเวลา
+       ถ้าเอา Prompt ขึ้นก่อน ตัวเลขจะไปใช้ Prompt แทนแล้วอาการนั้นจะกลับมา */
+    --v2-font: 'Inter', 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
     --v2-bg: #f6f8fb;
     --v2-surface: #ffffff;

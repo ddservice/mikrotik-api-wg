@@ -501,6 +501,36 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (7)** — Font unified with v1, traffic graph defaults to the WAN, and a DHCP
+  lease page so the most common WinBox errand no longer needs WinBox.
+  - **Font: v2 now uses Prompt for Thai, matching v1.** The two UIs had been loading different
+    Thai faces (v1 Prompt, v2 IBM Plex Sans Thai), so the same product looked like two products.
+    **Inter stays first in the stack and that order must not be swapped**: Inter carries no Thai
+    glyphs, so Thai falls through to Prompt on its own, while *digits* keep rendering in Inter —
+    which has tabular figures. Values on this dashboard refresh every 10 s, and without equal-width
+    digits the numbers visibly jitter left and right. Putting Prompt first would bring that back.
+  - **The traffic graph now defaults to the WAN.** It picked the first `ether*` it found, which is
+    usually a LAN port or an unused one — the graph opened flat at zero while the line was busy.
+    Now: `pppoe-out*` → any `pppoe*` → an interface whose *type* is PPPoE → a running `ether*` →
+    anything enabled. Checked against 8 shapes including a disabled `pppoe-out1` (must not be
+    picked), no PPPoE at all, and an empty list.
+  - **"Vue pilot" is gone** from the sidebar, login screen and page title. It was accurate when
+    v2 was one page; it now does everything v1 does, and a label reading "pilot" invites people
+    not to trust it. Reads `v2` instead.
+  - **New DHCP panel on Overview** — every lease with IP, MAC, host name, static vs
+    router-assigned, status, last seen and expiry; search, a static-only filter, one-click
+    "reserve this IP permanently" (`make-static`), and lease removal. Sorted numerically by
+    address, so `.50` comes before `.101`.
+    - Deletion warns differently for the two kinds, because the consequences differ: a dynamic
+      lease comes back by itself on the next connection, a reservation does not.
+    - Reading is `read`; reserving and deleting need `write` — added a `dhcp` policy hint so a
+      permission failure says which policy is missing rather than surfacing a raw RouterOS error.
+    - The fixture gained leases and a DHCP server. Verified over HTTP: 3 leases summarised as
+      2 bound / 1 static / 2 dynamic, then `make-static` on a dynamic lease flipped it and the
+      summary became 2 static / 1 dynamic.
+  - Three new routes, so `test/routes.manifest.json` and `MIN_ROUTES` were both updated —
+    **119 routes**, smoke test green.
+
 - **2026-09-05 (6)** — **EstiaHotel connected. Root cause: our script picked a listen-port that
   was already taken, and RouterOS disabled the new interface without saying so.**
   - The router already had a WireGuard interface on `listen-port=13231`, which the setup script

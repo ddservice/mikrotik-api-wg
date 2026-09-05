@@ -40,7 +40,7 @@ async function submit() {
                 <i class="fa-solid fa-diagram-project"></i>
                 <div>
                     <strong>MT Management</strong>
-                    <span class="v2-pilot-tag">Vue pilot</span>
+                    <span class="v2-pilot-tag">v2</span>
                 </div>
             </div>
             <p class="v2-login-sub">เข้าสู่ระบบเพื่อจัดการเราท์เตอร์ MikroTik</p>

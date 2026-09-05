@@ -17,6 +17,33 @@ import { formatBytes } from '../format.js';
 const POINTS = 30;          // เท่าหน้าเดิม — ที่ 5 วิ/จุด = ย้อนหลังราว 2 นาทีครึ่ง
 const PERIOD_MS = 5000;
 
+/**
+ * เลือกพอร์ตตั้งต้นให้ตรงกับสิ่งที่คนเปิดหน้านี้อยากดูจริง
+ *
+ * คนเปิดกราฟ traffic เพื่อดู "เน็ตขาออกตอนนี้เป็นยังไง" ซึ่งคือขา WAN
+ * ทุกสาขาต่อออกผ่าน PPPoE จึงเริ่มที่ pppoe-out ก่อน แล้วค่อยไล่ลงมา
+ * ของเดิมเลือก ether ตัวแรกที่เจอ ซึ่งมักเป็นขา LAN หรือขาที่ไม่ได้ใช้
+ * เปิดมาแล้วกราฟนิ่งเป็นศูนย์ ทั้งที่เน็ตใช้งานอยู่
+ */
+function pickDefaultInterface(list) {
+    const enabled = list.filter((i) => !i.disabled);
+    const name = (i) => String(i.name || '').toLowerCase();
+    const find = (pred) => enabled.find(pred);
+
+    const pick =
+        // ขา WAN จริง เรียงจากที่เจาะจงที่สุดก่อน
+        find((i) => name(i).startsWith('pppoe-out')) ||
+        find((i) => name(i).startsWith('pppoe')) ||
+        find((i) => String(i.type || '').toLowerCase().includes('pppoe')) ||
+        // ไม่มี PPPoE (สาขาที่ต่อผ่าน DHCP/IP นิ่ง) — เอาขาที่ลิงก์ขึ้นอยู่ก่อน
+        find((i) => name(i).startsWith('ether') && i.running) ||
+        find((i) => name(i).startsWith('ether')) ||
+        enabled[0] ||
+        list[0];
+
+    return (pick && pick.name) || '';
+}
+
 const interfaces = ref([]);
 const selected = ref('');
 const error = ref('');
@@ -41,8 +68,7 @@ async function load() {
         error.value = '';
 
         if (!selected.value || !interfaces.value.some((i) => i.name === selected.value)) {
-            const eth = interfaces.value.find((i) => i.name.startsWith('ether') && !i.disabled);
-            selected.value = (eth || interfaces.value.find((i) => !i.disabled) || interfaces.value[0] || {}).name || '';
+            selected.value = pickDefaultInterface(interfaces.value);
             resetHistory();
         }
 

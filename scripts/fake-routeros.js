@@ -115,6 +115,22 @@ const db = {
         { '.id': '*PSV1', 'service-name': 'mt-pppoe', interface: 'ether5',
           'keepalive-timeout': '10', disabled: 'false' }
     ],
+    // DHCP lease — เคสจริงมีทั้งที่เราท์เตอร์แจกเอง (dynamic) และที่คนจองไว้ (static)
+    dhcpLeases: [
+        { '.id': '*L1', address: '192.168.88.101', 'mac-address': 'AA:BB:CC:DD:EE:01',
+          'host-name': 'iPhone-somchai', server: 'dhcp1', dynamic: 'true', status: 'bound',
+          'last-seen': '2m30s', 'expires-after': '2h15m', disabled: 'false' },
+        { '.id': '*L2', address: '192.168.88.50', 'mac-address': 'AA:BB:CC:DD:EE:02',
+          'host-name': 'printer-office', server: 'dhcp1', dynamic: 'false', status: 'bound',
+          comment: 'เครื่องพิมพ์ชั้น 2', 'last-seen': '10s', 'expires-after': '', disabled: 'false' },
+        { '.id': '*L3', address: '192.168.88.150', 'mac-address': 'AA:BB:CC:DD:EE:03',
+          'host-name': '', server: 'dhcp1', dynamic: 'true', status: 'waiting',
+          'last-seen': '3d1h', 'expires-after': '', disabled: 'false' }
+    ],
+    dhcpServers: [
+        { '.id': '*S1', name: 'dhcp1', interface: 'bridge-lan',
+          'address-pool': 'dhcp_pool0', 'lease-time': '3d', disabled: 'false' }
+    ],
     hotspotActive: [
         { '.id': '*HA1', user: 'a028', address: '192.168.88.101', 'mac-address': 'AA:BB:CC:DD:EE:01',
           'login-by': 'http-chap', uptime: '1h20m', 'bytes-in': '104857600', 'bytes-out': '20971520' }
@@ -199,6 +215,14 @@ function handle(cmd, attrs) {
     if (c === '/ppp/active/print') return reply(db.pppActive);
     if (c === '/ppp/profile/print') return reply(db.pppProfiles);
     if (c === '/interface/pppoe-server/server/print') return reply(db.pppoeServers);
+    if (c === '/ip/dhcp-server/lease/print') return reply(db.dhcpLeases);
+    if (c === '/ip/dhcp-server/print') return reply(db.dhcpServers);
+    if (c === '/ip/dhcp-server/lease/make-static') {
+        const l = db.dhcpLeases.find((x) => x['.id'] === (attrs.numbers || attrs['.id']));
+        if (!l) return err('no such item');
+        l.dynamic = 'false';
+        return done();
+    }
     if (c === '/ip/hotspot/user/print') return reply(db.hotspotUsers);
     if (c === '/ip/hotspot/user/profile/print') return reply(db.hotspotProfiles);
     if (c === '/ip/hotspot/active/print') {
@@ -253,6 +277,7 @@ function handle(cmd, attrs) {
             '/ppp/active': db.pppActive,
             '/ppp/profile': db.pppProfiles,
             '/interface/pppoe-server/server': db.pppoeServers,
+            '/ip/dhcp-server/lease': db.dhcpLeases,
             '/ip/hotspot/user': db.hotspotUsers,
             '/ip/hotspot/user/profile': db.hotspotProfiles,
             '/ip/hotspot/active': db.hotspotActive

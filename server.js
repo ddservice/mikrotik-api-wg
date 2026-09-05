@@ -2506,6 +2506,94 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 });
 
 // ==========================================
+// DHCP — ดู lease ทั้งหมดโดยไม่ต้องเปิด WinBox
+//
+// เป็นเรื่องที่ต้องเปิด WinBox บ่อยที่สุด: "เครื่องนี้ได้ IP อะไร", "IP นี้ใครถืออยู่",
+// "จองให้ถาวรหน่อย" ทั้งหมดเป็นการอ่านและคำสั่งสั้น ๆ ที่ไม่แตะเส้นทาง traffic
+// ==========================================
+
+app.get('/api/mikrotik/dhcp/leases', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const data = await executeOnRouter(req, async (client) => {
+            const [leases, servers] = await Promise.all([
+                client.exec('/ip/dhcp-server/lease/print'),
+                client.exec('/ip/dhcp-server/print').catch(() => [])
+            ]);
+
+            const rows = leases.map((l) => ({
+                id: l['.id'],
+                address: l.address || '',
+                macAddress: l['mac-address'] || '',
+                hostName: l['host-name'] || '',
+                comment: l.comment || '',
+                server: l.server || '',
+                // dynamic = เราท์เตอร์แจกให้เอง / static = มีคนจองไว้ถาวร
+                dynamic: String(l.dynamic) === 'true',
+                blocked: String(l.blocked) === 'true',
+                disabled: String(l.disabled) === 'true',
+                status: l.status || '',
+                lastSeen: l['last-seen'] || '',
+                expiresAfter: l['expires-after'] || ''
+            }));
+
+            return {
+                leases: rows,
+                servers: (servers || []).map((s) => ({
+                    name: s.name || '', interface: s.interface || '',
+                    addressPool: s['address-pool'] || '', leaseTime: s['lease-time'] || '',
+                    disabled: String(s.disabled) === 'true'
+                }))
+            };
+        });
+
+        // สรุปให้เห็นภาพรวมทันทีโดยไม่ต้องนับเอง
+        const bound = data.leases.filter((l) => String(l.status).toLowerCase() === 'bound').length;
+        res.json({
+            ...data,
+            summary: {
+                total: data.leases.length,
+                bound,
+                static: data.leases.filter((l) => !l.dynamic).length,
+                dynamic: data.leases.filter((l) => l.dynamic).length
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: rosErrors.explain(err, { task: 'dhcp' }) });
+    }
+});
+
+// จอง IP ให้เครื่องนี้ถาวร — แปลง lease ที่เราท์เตอร์แจกเองให้กลายเป็น static
+app.post('/api/mikrotik/dhcp/leases/:id/make-static', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/dhcp-server/lease/make-static', { numbers: req.params.id });
+            if (req.body && req.body.comment !== undefined) {
+                await client.exec('/ip/dhcp-server/lease/set', {
+                    '.id': req.params.id, comment: String(req.body.comment || '')
+                });
+            }
+        });
+        db.addLog(req.user.username, 'จอง IP ถาวร (DHCP)', 'lease ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// คืน IP กลับเข้ากอง — ใช้ตอนเครื่องเก่าเลิกใช้แล้วแต่ยังจองที่ไว้
+app.delete('/api/mikrotik/dhcp/leases/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/dhcp-server/lease/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบ DHCP lease', 'lease ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
 // Hotspot Management APIs (Admin and Co-Admin)
 // ==========================================
 

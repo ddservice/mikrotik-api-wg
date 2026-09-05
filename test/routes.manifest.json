@@ -1,7 +1,8 @@
 {
   "note": "รายชื่อ route ที่ต้องมีอยู่จริง — สร้างจาก server.js ตอนที่ระบบทำงานปกติ (2026-09-05 หลังกู้คืน). เพิ่ม route ใหม่ให้เพิ่มที่นี่ด้วย, ลบ route ต้องลบที่นี่พร้อมกันและอธิบายในคอมมิต",
-  "count": 116,
+  "count": 119,
   "routes": [
+    "DELETE /api/mikrotik/dhcp/leases/:id",
     "DELETE /api/mikrotik/firewall/custom-rules/:id",
     "DELETE /api/mikrotik/hotspot/active/:id",
     "DELETE /api/mikrotik/hotspot/archived-users",
@@ -22,6 +23,7 @@
     "GET /api/hotspot-logs/export-csv",
     "GET /api/logs",
     "GET /api/logs/export-csv",
+    "GET /api/mikrotik/dhcp/leases",
     "GET /api/mikrotik/diagnose-site",
     "GET /api/mikrotik/dns-logging",
     "GET /api/mikrotik/firewall/custom-rules",
@@ -62,6 +64,7 @@
     "POST /api/auth/logout",
     "POST /api/config",
     "POST /api/line/webhook",
+    "POST /api/mikrotik/dhcp/leases/:id/make-static",
     "POST /api/mikrotik/dns-logging",
     "POST /api/mikrotik/firewall/apply-security-hardening",
     "POST /api/mikrotik/firewall/custom-rules",

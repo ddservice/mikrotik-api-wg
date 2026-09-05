@@ -27,7 +27,7 @@ function go(menu) {
             <i class="fa-solid fa-diagram-project"></i>
             <div class="brand-text">
                 <strong>MT Management</strong>
-                <span class="tag">Vue pilot</span>
+                <span class="tag">v2</span>
             </div>
         </div>
 

@@ -4,6 +4,7 @@ import { apiFetch, currentUser, activeSiteId } from '../api.js';
 import { formatUptime, formatMegabytes } from '../format.js';
 import StatCard from './StatCard.vue';
 import InterfacesPanel from './InterfacesPanel.vue';
+import DhcpPanel from './DhcpPanel.vue';
 
 const POLL_MS = 10000;
 
@@ -257,6 +258,7 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
     </div>
 
     <InterfacesPanel />
+    <DhcpPanel />
 </template>
 
 <style scoped>
