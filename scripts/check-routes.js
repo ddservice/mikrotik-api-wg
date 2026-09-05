@@ -23,8 +23,8 @@ const path = require('path');
 
 const SERVER = path.join(__dirname, '..', 'server.js');
 
-// ขั้นต่ำ — ขยับขึ้นเมื่อเพิ่ม route ใหม่ (116 หลังกู้คืน + DHCP 3 + health-check 1 + สำรองคอนฟิก 3)
-const MIN_ROUTES = 123;
+// ขั้นต่ำ — ขยับขึ้นเมื่อเพิ่ม route ใหม่ (116 หลังกู้คืน + DHCP 3 + health-check 1 + สำรองคอนฟิก 3 − multiwan/apply ที่ลบทิ้ง 1)
+const MIN_ROUTES = 122;
 
 // route ที่ถ้าหายแปลว่าหน้าเว็บใช้งานไม่ได้เลย — ทั้งหมดนี้เคยหายไปจริงในเหตุการณ์นั้น
 const MUST_HAVE = [

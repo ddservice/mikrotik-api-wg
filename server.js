@@ -185,12 +185,18 @@ app.use(express.json({
 // เพราะกฎในไฟล์นี้เขียนไว้ว่าห้ามลบจนกว่าจะมีคนคลิกใช้จริงจนครบด้วยมือ
 //
 // UI_DEFAULT คุมว่า "/" จะเสิร์ฟตัวไหน โดยไม่ต้องแก้โค้ดหรือ deploy ใหม่:
-//   UI_DEFAULT=v1 (ค่าเริ่มต้น)  "/" = หน้าเดิม
-//   UI_DEFAULT=v2                "/" = หน้าใหม่
-// ย้อนกลับได้ใน 10 วินาทีด้วยการแก้ค่าใน ecosystem.config.js แล้ว pm2 reload
+//   UI_DEFAULT=v2 (ค่าเริ่มต้น)  "/" = หน้าใหม่
+//   UI_DEFAULT=v1                "/" = หน้าเดิม
+//
+// สลับมาเป็น v2 เมื่อ 2026-09-05 เพราะ v1 ตามไม่ทันแล้ว ไม่ใช่แค่ v2 ตามทัน:
+// ฟีเจอร์ที่เพิ่มหลังจากนั้น (หน้า DHCP, ตรวจสุขภาพ, สำรองคอนฟิก, กรอง log ตามสาขา)
+// อยู่ใน v2 ทั้งหมด คนที่เปิดเว็บตามปกติจึงไม่เห็นของใหม่เลย และช่องว่างกว้างขึ้นทุกครั้ง
+//
+// **ย้อนกลับได้ทันทีโดยไม่ต้องแก้โค้ด**: ใส่ UI_DEFAULT: 'v1' ใน ecosystem.config.js
+// แล้ว pm2 reload — ใช้เวลาไม่ถึงนาที ไม่ต้อง git ไม่ต้อง build
 //
 // ไม่ว่าตั้งค่าไหน /v1/ กับ /v2/ ก็ยังเข้าได้เสมอ
-const UI_DEFAULT = String(process.env.UI_DEFAULT || 'v1').toLowerCase() === 'v2' ? 'v2' : 'v1';
+const UI_DEFAULT = String(process.env.UI_DEFAULT || 'v2').toLowerCase() === 'v1' ? 'v1' : 'v2';
 
 const STATIC_OPTS = {
     maxAge: '1d',
@@ -1204,138 +1210,15 @@ app.post('/api/multiwan/generate-script', requireAuth(['admin', 'co-admin']), as
 // admin เท่านั้น — เส้นทางนี้เขียน routing table / NAT / conntrack ลงเราท์เตอร์จริง
 // โดยไม่มีการสำรอง ไม่มีตัวถอนอัตโนมัติ และไม่ตรวจว่าหลังสั่งแล้วยังออกเน็ตได้
 // จึงอันตรายกว่า /failover/apply ที่มีครบทั้งสามอย่าง แต่เดิมกลับให้สิทธิ์หลวมกว่า
-app.post('/api/multiwan/apply', requireAuth(['admin']), async (req, res) => {
-    try {
-        const cfg = req.body;
-        const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
-        
-        // Save config first
-        await db.saveMultiWanConfig(siteId, cfg);
-
-        const wans = _parseWanLines(cfg);
-
-        const result = await executeOnRouter(req, async (client) => {
-            const logs = [];
-
-            // 0. ตรวจก่อนสั่ง — ชื่อ interface ที่กรอกต้องมีอยู่จริงบนเราท์เตอร์
-            //
-            // ถ้าไม่ตรวจ RouterOS จะรับ mangle/route ที่อ้าง interface ที่ไม่มีอยู่ไว้เฉย ๆ
-            // แล้วเส้นทางนั้นก็ตายเงียบ ๆ โดยที่หน้าจอขึ้นว่าสำเร็จ ซึ่งเป็นอาการที่
-            // หาสาเหตุยากที่สุดเวลาอินเทอร์เน็ตสาขาล่ม
-            const existing = await client.exec('/interface/print');
-            const names = new Set(existing.map((i) => String(i.name || '')).filter(Boolean));
-            const missing = wans
-                .map((w) => w.interface)
-                .filter((n) => n && !names.has(n));
-            if (missing.length > 0) {
-                const err = new Error(
-                    `ไม่มี interface ชื่อ ${missing.join(', ')} บนเราท์เตอร์ตัวนี้ — ` +
-                    `ยังไม่ได้สั่งอะไรลงไปเลย
-` +
-                    `interface ที่มีจริง: ${[...names].join(', ')}`
-                );
-                err.preflight = true;
-                throw err;
-            }
-            logs.push(`ตรวจชื่อ interface ครบ ${wans.length} สาย`);
-
-            // 1. Check & Add Routing Tables (RouterOS v7)
-            try {
-                const tables = await client.exec('/routing/table/print');
-                for (const w of wans) {
-                    const tableName = `to_WAN${w.num}`;
-                    if (!tables.some(t => t.name === tableName)) {
-                        await client.exec('/routing/table/add', { name: tableName, fib: '' });
-                        logs.push(`สร้าง Routing Table: ${tableName}`);
-                    }
-                }
-            } catch (e) {
-                /* ignore */
-            }
-
-            // 2. Setup Host Check Routes
-            try {
-                const routes = await client.exec('/ip/route/print');
-                for (const r of routes) {
-                    if (r.comment && r.comment.includes('Host Check')) {
-                        await client.exec('/ip/route/remove', { '.id': r['.id'] });
-                    }
-                }
-                for (const w of wans) {
-                    const gw = w.type === 'pppoe' ? w.interface : (w.gateway || w.interface);
-                    await client.exec('/ip/route/add', {
-                        'dst-address': `${w.dnsCheck}/32`,
-                        gateway: gw,
-                        scope: '10',
-                        'target-scope': '10',
-                        comment: `WAN${w.num} Host Check`
-                    });
-                    logs.push(`ตั้งค่า Host Check Route WAN${w.num} (${w.dnsCheck})`);
-                }
-            } catch (e) {
-                logs.push(`ข้อผิดพลาด Routes: ${e.message}`);
-            }
-
-            // 3. Setup NAT Rules
-            try {
-                const nats = await client.exec('/ip/firewall/nat/print');
-                for (const w of wans) {
-                    if (!nats.some(n => n['out-interface'] === w.interface && n.action === 'masquerade')) {
-                        await client.exec('/ip/firewall/nat/add', {
-                            chain: 'srcnat',
-                            'out-interface': w.interface,
-                            action: 'masquerade',
-                            comment: `Masquerade WAN${w.num}`
-                        });
-                    }
-                }
-                logs.push(`ตั้งค่า Outbound NAT (Masquerade) ทั้งหมด ${wans.length} WAN`);
-            } catch (e) {
-                logs.push(`ข้อผิดพลาด NAT: ${e.message}`);
-            }
-
-            // 4. Connection Tracking Optimization
-            try {
-                await client.exec('/ip/firewall/connection/tracking/set', {
-                    enabled: 'yes',
-                    'tcp-established-timeout': '1h',
-                    'tcp-syn-sent-timeout': '15s',
-                    'udp-timeout': '10s'
-                });
-                logs.push('ปรับตั้งค่า Connection Tracking Optimization');
-            } catch (e) { /* ignore */ }
-
-            return logs;
-        });
-
-        // ปุ่มนี้ลงให้เฉพาะชั้นเตรียมพื้น ไม่ได้ลง PCC กับ failover ซึ่งเป็นตัวกระจายโหลด
-        // และตัวสลับสายจริง ๆ — ของสองอย่างนั้นเขียนทับ mangle/route ที่มีอยู่เดิม
-        // ถ้าพลาดคือสาขาหลุดเน็ตทั้งสาขาและกู้จากระยะไกลไม่ได้ จึงให้ผ่านสคริปต์
-        // ที่คนดูก่อนวางได้เท่านั้น (ดูหัวข้อ Multi-WAN ใน CLAUDE.md)
-        const pending = [
-            'กระจายโหลด PCC (mangle mark-connection / mark-routing)',
-            'เส้นทางสำรองอัตโนมัติ (failover routes + check-gateway)'
-        ];
-        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN (ชั้นเตรียมพื้น)',
-            `ลงตารางเส้นทาง/NAT/conntrack ให้ ${wans.length} สาย — ยังไม่ได้ลง PCC และ failover`);
-        res.json({
-            success: true,
-            partial: true,
-            message: `ลงชั้นเตรียมพื้นให้ ${wans.length} สายแล้ว (ตารางเส้นทาง, NAT, Connection Tracking)`,
-            pending,
-            pendingNote: 'ยังใช้กระจายโหลดไม่ได้จนกว่าจะรันสคริปต์เต็มจากปุ่ม "สร้างสคริปต์" ' +
-                         'ซึ่งมีทั้ง PCC และเส้นทางสำรอง — จงใจให้คนดูก่อนวางเอง เพราะสองส่วนนี้' +
-                         'เขียนทับกฎเดิม ถ้าผิดคือสาขาหลุดเน็ตและกู้จากระยะไกลไม่ได้',
-            logs: result
-        });
-    } catch (e) {
-        // ตกม้าตายตอนตรวจ = ยังไม่ได้แตะเราท์เตอร์เลย ต้องบอกให้ชัดว่าปลอดภัย
-        if (e && e.preflight) {
-            return res.status(400).json({ error: e.message, preflight: true });
-        }
-        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
-    }
-});
+// หมายเหตุ: POST /api/multiwan/apply ถูกลบออก 2026-09-05
+//
+// มันเขียน routing table + NAT ลงเราท์เตอร์ 131 บรรทัดโดย **ไม่มีการสำรองค่า
+// ไม่มี rollback ไม่มีการตรวจสอบหลังแก้** และรายงานว่า "สำเร็จ!" แม้ทำได้ไม่ครบ
+// (ไม่ได้ลง PCC และ failover ซึ่งเป็นสาระสำคัญทั้งหมดของ Multi-WAN)
+//
+// ตัวแทนคือ /api/multiwan/failover/* ซึ่งอ่านค่าจากเราท์เตอร์เอง สำรองก่อนแก้
+// ติดตั้ง scheduler กู้คืนบนเราท์เตอร์ก่อนลงมือ และถอนคืนทั้งหมดถ้า ping ไม่ผ่าน
+// ตอนที่ลบ ยังไม่มีสาขาไหนใช้ Multi-WAN จึงไม่มีใครเสียอะไร
 
 // ===================== Multi-WAN: สำรองอัตโนมัติ (อ่านของจริง → วางแผน → ลง) =====================
 //

@@ -1,6 +1,6 @@
 {
   "note": "รายชื่อ route ที่ต้องมีอยู่จริง — สร้างจาก server.js ตอนที่ระบบทำงานปกติ (2026-09-05 หลังกู้คืน). เพิ่ม route ใหม่ให้เพิ่มที่นี่ด้วย, ลบ route ต้องลบที่นี่พร้อมกันและอธิบายในคอมมิต",
-  "count": 123,
+  "count": 122,
   "routes": [
     "DELETE /api/mikrotik/dhcp/leases/:id",
     "DELETE /api/mikrotik/firewall/custom-rules/:id",
@@ -103,7 +103,6 @@
     "POST /api/mikrotik/telegram-alert/discover-chats",
     "POST /api/mikrotik/telegram-alert/test",
     "POST /api/multiwan",
-    "POST /api/multiwan/apply",
     "POST /api/multiwan/failover/apply",
     "POST /api/multiwan/failover/plan",
     "POST /api/multiwan/failover/remove",
