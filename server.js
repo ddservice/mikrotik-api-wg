@@ -26,6 +26,7 @@ const wgScript = require('./lib/wireguard-script');
 const routerLog = require('./lib/router-log');
 const routerHealth = require('./lib/router-health');
 const routerBackup = require('./lib/router-backup');
+const fwHarden = require('./lib/firewall-hardening');
 const r2 = require('./lib/r2');
 
 // ปลายทาง WireGuard ของ VPS — เดิม hardcode ไว้ในสคริปต์ตั้งแต่คอมมิตแรกและไม่มีใครตรวจ
@@ -5359,112 +5360,68 @@ app.post('/api/mikrotik/firewall/toggle', requireAuth(['admin', 'co-admin', 'use
 });
 
 // Generate RouterOS v7+ Security Firewall Protection Script (2026 Standard)
-app.post('/api/mikrotik/firewall/generate-security-script', requireAuth(['admin', 'co-admin']), (req, res) => {
-    const script = `# ======================================================
-# MikroTik RouterOS v7+ Hardened Firewall Security Preset (2026)
-# ======================================================
+app.post('/api/mikrotik/firewall/generate-security-script', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    // อ่านขา WAN จากเราท์เตอร์เพื่อใส่ลง interface-list ให้ถูกตัว
+    // ถ้าอ่านไม่ได้ก็ยังสร้างสคริปต์ได้ แต่จะใส่ตัวอย่างให้แก้เอง พร้อมบอกไว้ในสคริปต์
+    let wans = [];
+    try {
+        const state = await executeOnRouter(req, async (client) => ({
+            pppoeClients: await client.exec('/interface/pppoe-client/print').catch(() => []),
+            dhcpClients: await client.exec('/ip/dhcp-client/print').catch(() => [])
+        }));
+        wans = mwAnalyze.detectWans(state).map((w) => w.interface).filter(Boolean);
+    } catch (_) { /* ไม่มีข้อมูลก็ยังให้สคริปต์ไปแก้เองได้ */ }
 
-# 1. Address Lists for RFC1918 Private Subnets
-/ip/firewall/address-list
-add address=10.0.0.0/8 list=private_subnets comment="RFC1918 Private Subnets"
-add address=172.16.0.0/12 list=private_subnets comment="RFC1918 Private Subnets"
-add address=192.168.0.0/16 list=private_subnets comment="RFC1918 Private Subnets"
-
-# 2. Input Chain: Allow Established / Related
-/ip/firewall/filter
-add chain=input action=accept connection-state=established,related comment="Accept Established & Related (Input)"
-
-# 3. Input Chain: Drop Invalid Packets
-add chain=input action=drop connection-state=invalid comment="Drop Invalid Packets (Input)"
-
-# 4. Input Chain: Block Open DNS Resolver Exploits from WAN
-add chain=input action=drop protocol=udp dst-port=53 in-interface-list=WAN comment="Block Open DNS Resolver Attacks from WAN"
-add chain=input action=drop protocol=tcp dst-port=53 in-interface-list=WAN comment="Block Open DNS Resolver Attacks from WAN"
-
-# 5. Input Chain: Protect WinBox/SSH Brute Force Attacks (Stage 1-3 & Blacklist)
-add chain=input action=drop src-address-list=brute_force_blacklist comment="Drop Brute-Force Blacklisted IPs"
-add chain=input action=add-src-to-address-list address-list=brute_force_blacklist address-list-timeout=1d chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage3 comment="Brute-Force Stage 3 -> Blacklist 24h"
-add chain=input action=add-src-to-address-list address-list=bf_stage3 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage2 comment="Brute-Force Stage 2 -> Stage 3"
-add chain=input action=add-src-to-address-list address-list=bf_stage2 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp src-address-list=bf_stage1 comment="Brute-Force Stage 1 -> Stage 2"
-add chain=input action=add-src-to-address-list address-list=bf_stage1 address-list-timeout=1m chain=input dst-port=22,8291,80,443,8728 protocol=tcp comment="Brute-Force Stage 1"
-
-# 6. Forward Chain: Drop Invalid Packets & Protect LAN
-add chain=forward action=accept connection-state=established,related comment="Accept Established & Related (Forward)"
-add chain=forward action=drop connection-state=invalid comment="Drop Invalid Packets (Forward)"
-
-:put "--------------------------------------------------------"
-:put "RouterOS v7 Hardened Security Preset Applied Successfully!"
-:put "--------------------------------------------------------"
-`;
-    res.json({ script });
+    res.json({ script: fwHarden.buildScript(wans), wanInterfaces: wans });
 });
 
 // Apply RouterOS v7+ Hardened Security Firewall Rules Direct via API
 app.post('/api/mikrotik/firewall/apply-security-hardening', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        await executeOnRouter(req, async (client) => {
-            const existing = await client.exec('/ip/firewall/filter/print');
-            const hasBruteRule = existing.some(r => r.comment && r.comment.includes('Drop Brute-Force'));
+        const result = await executeOnRouter(req, async (client) => {
+            const [existingFilters, lists, members, pppoeClients, dhcpClients] = await Promise.all([
+                client.exec('/ip/firewall/filter/print'),
+                client.exec('/interface/list/print').catch(() => []),
+                client.exec('/interface/list/member/print').catch(() => []),
+                client.exec('/interface/pppoe-client/print').catch(() => []),
+                client.exec('/ip/dhcp-client/print').catch(() => [])
+            ]);
 
-            if (!hasBruteRule) {
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'drop',
-                    'connection-state': 'invalid',
-                    comment: 'Drop Invalid Packets (Input)'
-                });
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'drop',
-                    'src-address-list': 'brute_force_blacklist',
-                    comment: 'Drop Brute-Force Blacklisted IPs'
-                });
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'add-src-to-address-list',
-                    'address-list': 'brute_force_blacklist',
-                    'address-list-timeout': '1d',
-                    protocol: 'tcp',
-                    'dst-port': '22,8291,80,443,8728',
-                    'src-address-list': 'bf_stage3',
-                    comment: 'Brute-Force Stage 3 -> Blacklist 24h'
-                });
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'add-src-to-address-list',
-                    'address-list': 'bf_stage3',
-                    'address-list-timeout': '1m',
-                    protocol: 'tcp',
-                    'dst-port': '22,8291,80,443,8728',
-                    'src-address-list': 'bf_stage2',
-                    comment: 'Brute-Force Stage 2 -> Stage 3'
-                });
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'add-src-to-address-list',
-                    'address-list': 'bf_stage2',
-                    'address-list-timeout': '1m',
-                    protocol: 'tcp',
-                    'dst-port': '22,8291,80,443,8728',
-                    'src-address-list': 'bf_stage1',
-                    comment: 'Brute-Force Stage 1 -> Stage 2'
-                });
-                await client.exec('/ip/firewall/filter/add', {
-                    chain: 'input',
-                    action: 'add-src-to-address-list',
-                    'address-list': 'bf_stage1',
-                    'address-list-timeout': '1m',
-                    protocol: 'tcp',
-                    'dst-port': '22,8291,80,443,8728',
-                    comment: 'Brute-Force Stage 1'
-                });
+            if (fwHarden.alreadyInstalled(existingFilters)) {
+                return { skipped: true, message: 'เราท์เตอร์ตัวนี้มีชุดกฎนี้อยู่แล้ว ไม่ได้เพิ่มซ้ำ' };
             }
+
+            const wanInterfaces = mwAnalyze.detectWans({ pppoeClients, dhcpClients })
+                .map((w) => w.interface).filter(Boolean);
+
+            const plan = fwHarden.planApply({
+                existingFilters, wanInterfaces, existingLists: lists, existingMembers: members
+            });
+
+            for (const step of plan.steps) {
+                await client.exec(step.cmd, step.args);
+            }
+            return {
+                skipped: false, applied: plan.steps.length, rules: plan.ruleCount,
+                placedFirst: plan.placedFirst, wanInterfaces, notes: plan.notes
+            };
         });
 
-        db.addLog(req.user.username, 'ปรับแต่งความปลอดภัยราวเตอร์', 'เปิดใช้งานเกราะป้องกัน RouterOS v7 Hardened Security Preset');
-        res.json({ success: true, message: 'บังคับใช้เกราะป้องกันความปลอดภัย RouterOS v7+ สำเร็จ' });
+        if (result.skipped) return res.json({ success: true, ...result });
+
+        db.addLog(req.user.username, 'ปรับแต่งความปลอดภัยเราท์เตอร์',
+            `ติดตั้งชุดกฎ ${result.rules} ข้อ` +
+            (result.placedFirst ? ' ไว้บนสุดของ chain input' : ' (chain ว่าง จึงต่อท้ายตามปกติ)') +
+            (result.wanInterfaces.length ? ` · WAN: ${result.wanInterfaces.join(', ')}` : ' · ไม่พบขา WAN'));
+
+        res.json({
+            success: true,
+            message: `ติดตั้งชุดกฎความปลอดภัย ${result.rules} ข้อเรียบร้อย` +
+                     (result.placedFirst ? ' (วางไว้บนสุดของ chain input)' : ''),
+            ...result
+        });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: rosErrors.explain(err, { task: 'multiwan' }) });
     }
 });
 

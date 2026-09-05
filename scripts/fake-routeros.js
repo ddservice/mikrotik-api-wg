@@ -81,7 +81,10 @@ const db = {
                     'firmware-type': 'tile' }],
     health: [{ temperature: '42', voltage: '24.1' }],
     netwatch: [],
-    filter: [],
+    filter: [
+        { '.id': '*F1', chain: 'input', action: 'accept', 'connection-state': 'established,related' },
+        { '.id': '*F2', chain: 'input', action: 'drop', comment: 'drop everything else' }
+    ],
     scripts: [],
     ifaceLists: [],
     ifaceListMembers: [],
@@ -322,7 +325,13 @@ function handle(cmd, attrs) {
                 return err('no such item (place-before)');
             }
             const row = Object.assign({ '.id': nextId(), active: 'true' }, attrs);
-            table.push(row);
+            // RouterOS: place-before แทรกก่อนตำแหน่งที่ระบุ ไม่ใช่ต่อท้าย
+            if (attrs['place-before'] != null) {
+                const at = Number(attrs['place-before']);
+                table.splice(Number.isFinite(at) ? at : table.length, 0, row);
+            } else {
+                table.push(row);
+            }
             return done([`=ret=${row['.id']}`]);
         }
         if (op === 'set') {

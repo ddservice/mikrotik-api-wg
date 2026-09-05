@@ -501,6 +501,36 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (11)** — **The Hardened Security Preset installed successfully and protected
+  nothing.** Two independent silent failures, found by asking how RouterOS actually evaluates
+  what we send rather than by re-reading our own code.
+  - **Rule order.** It used plain `/ip/firewall/filter/add`, which **appends to the end of the
+    chain**. RouterOS evaluates `input` top-down and stops at the first terminating action, and
+    a configured router almost always ends that chain with a `drop`. Every rule we added landed
+    *below* it and was never reached. Now inserted with `place-before=0` — and because inserting
+    at 0 one at a time reverses the order, the rules are sent bottom-up so they land in the
+    right sequence. That sequence is not cosmetic: reversed, every attacker stays in `bf_stage1`
+    forever and nobody is ever blacklisted. `place-before` is omitted when the chain is empty,
+    since RouterOS rejects it there (same edge case Multi-WAN hit).
+  - **The DNS rules named an interface list that was never created.** `in-interface-list=WAN` is
+    accepted by RouterOS even when no such list exists, and then matches nothing — so the router
+    stayed an **open DNS resolver, usable to amplify DDoS traffic at third parties**, while the
+    UI reported it protected. The exact bug Multi-WAN found and fixed on 2026-08-31; the preset
+    never got the same treatment. The WAN interfaces are now detected from the router
+    (`mwAnalyze.detectWans`, already written), the list is created and populated first, and if
+    no WAN can be found the DNS rules are **skipped with an explanation** rather than installed
+    as decoration.
+  - Verified against a fixture whose `input` chain already ended in `drop everything else`:
+    the eight rules land at positions 0–7, **above** that drop, in exactly the intended order,
+    with the WAN list created from the detected `pppoe-out1` and `ether2`. Pressing again is
+    correctly skipped.
+  - `lib/firewall-hardening.js` (new) — 15 tests (**438 total**). The generated script also
+    creates the list now, and says plainly that pasted rules land at the bottom and must be
+    dragged above any existing drop rule.
+  - **Same failure class as the two before it** (Multi-WAN mangle, WireGuard listen-port): the
+    router accepts what we send, reports nothing wrong, and quietly does not do the thing. For a
+    security control this is worse than having none, because it stops anyone from looking.
+
 - **2026-09-05 (10)** — Router configs are now backed up **off the router**, nightly.
   - **The existing backup button was not disaster recovery.** `POST /api/mikrotik/system/backup`
     runs `/system/backup/save`, which writes a `.backup` file **onto the router itself**. If the
