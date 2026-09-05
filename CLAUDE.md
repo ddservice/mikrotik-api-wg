@@ -501,6 +501,31 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (4)** — Adding a site no longer needs a page refresh, and the WireGuard branch
+  of the flow stopped asking the operator to do the computer's job.
+  - **The refresh bug had a structural cause**: five components each fetched `/api/sites` and
+    kept their own copy (App, Settings, Logs, Admins, Voucher). Adding a site in Settings
+    updated only that page's array, so the branch picker in the top bar kept the stale one
+    until a full reload. Moved to one shared store in `api.js` (`sites`, `loadSites`,
+    `activeSiteName`); anything that changes a site calls `loadSites({ force: true })` and every
+    page sees it at once. Concurrent callers share one in-flight request instead of firing five.
+  - **The WireGuard IP is now assigned, not typed.** `nextFreeWireguardIp()` picks the next free
+    `10.10.88.x` — `.1` is reserved for the VPS and both `wireguardIp` *and* `host` are treated
+    as taken, since a tunnel site uses the same value in both. Typing one that belongs to
+    another branch is flagged **while typing**, naming the branch that holds it, instead of
+    being rejected by the server after Save.
+  - **One calculator, used by both screens.** The add-site form and the script generator each
+    had their own idea of "next free". Two implementations that disagree would hand out a
+    number the script does not use — a mismatch where every screen looks correct and the tunnel
+    silently never comes up. The setup modal's `usedIps` prop is gone with it, rather than left
+    as a parameter nothing reads.
+  - **Saving a new tunnel site opens the script step immediately.** Stopping at "saved" implied
+    the work was done when the branch could not connect yet — nothing reaches a router that has
+    no tunnel. The modal now reports which IP it created so Settings can continue the flow.
+  - Verified: only `api.js` reads `/api/sites` now (plus `SiteModal`'s POST), every consumer of
+    `sites.value` imports the shared one, no local copies remain, and no unused imports were
+    left behind.
+
 - **2026-09-05 (3)** — Closed the test gaps. **Every module in `lib/` now has a test**, and
   `server.js` finally has a runtime check.
   - `npm run smoke` (`scripts/smoke-routes.js`) boots the real server on port 3199 and requests

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
-import { apiFetch, activeSiteId, setActiveSiteId } from '../api.js';
+import { apiFetch, activeSiteId, setActiveSiteId, sites, loadSites } from '../api.js';
 import { toast } from '../toast.js';
 import SiteModal from './SiteModal.vue';
 import RouterOpsPanel from './RouterOpsPanel.vue';
@@ -18,7 +18,6 @@ const TABS = [
 const tab = ref('sites');
 
 // ---------- สาขา ----------
-const sites = ref([]);
 const siteStatus = ref({});      // siteId -> 'checking' | 'online' | 'offline'
 const loadingSites = ref(false);
 const siteModalOpen = ref(false);
@@ -51,11 +50,11 @@ function handshakeText(sec) {
     return `จับมือล่าสุด ${Math.floor(sec / 86400)} วันที่แล้ว`;
 }
 
-async function loadSites() {
+// โหลดรายชื่อสาขาใหม่จาก state กลาง — dropdown ด้านบนของแอปเห็นผลทันทีด้วย
+async function reloadSites() {
     loadingSites.value = true;
     try {
-        const data = await apiFetch('/api/sites');
-        sites.value = data.sites || [];
+        await loadSites({ force: true });
         loadWgPeers();
         checkAll();
     } catch (err) {
@@ -96,6 +95,18 @@ function openWireguard(s) {
     wgOpen.value = true;
 }
 
+// เพิ่มสาขา WireGuard เสร็จแล้วเปิดขั้นถัดไปให้เลย — สาขายังใช้งานไม่ได้จนกว่าจะรัน
+// สคริปต์บนเราท์เตอร์ การหยุดแค่ "บันทึกแล้ว" ทำให้คนคิดว่าเสร็จแล้วทั้งที่ยังไม่เสร็จ
+async function onSiteSaved(info) {
+    await reloadSites();
+    const ip = info && info.newWireguardIp;
+    if (!ip) return;
+    const created = sites.value.find((x) => x.wireguardIp === ip || x.host === ip);
+    if (!created) return;
+    wgSite.value = created;
+    wgOpen.value = true;
+}
+
 function openAddSite() {
     editingSite.value = null;
     siteModalOpen.value = true;
@@ -118,7 +129,7 @@ async function removeSite(s) {
     try {
         await apiFetch('/api/sites/' + encodeURIComponent(s.id), { method: 'DELETE' });
         toast.success(`ลบสาขา "${s.name}" แล้ว`);
-        await loadSites();
+        await reloadSites();
     } catch (err) {
         toast.error('ลบไม่สำเร็จ: ' + err.message);
     } finally {
@@ -400,7 +411,7 @@ watch(tab, (v) => {
 });
 
 onMounted(async () => {
-    await loadSites();
+    await reloadSites();
     lineSiteId.value = activeSiteId.value || (sites.value[0]?.id || '');
     loadTelegram();
     loadLine();
@@ -427,7 +438,7 @@ onMounted(async () => {
     <!-- ================= สาขา ================= -->
     <template v-if="tab === 'sites'">
         <div class="bar">
-            <button type="button" class="v2-btn ghost" :disabled="loadingSites" @click="loadSites">
+            <button type="button" class="v2-btn ghost" :disabled="loadingSites" @click="reloadSites">
                 <i class="fa-solid" :class="loadingSites ? 'fa-spinner fa-spin' : 'fa-rotate'"></i> ตรวจสถานะใหม่
             </button>
             <button type="button" class="v2-btn primary" @click="openAddSite">
@@ -887,11 +898,10 @@ onMounted(async () => {
     />
     <WireguardSetupModal
         :open="wgOpen" :site="wgSite"
-        :used-ips="sites.filter((x) => !wgSite || x.id !== wgSite.id).map((x) => x.wireguardIp)"
-        @close="wgOpen = false" @registered="loadSites"
+        @close="wgOpen = false" @registered="reloadSites"
     />
 
-    <SiteModal :open="siteModalOpen" :site="editingSite" @close="siteModalOpen = false" @saved="loadSites" />
+    <SiteModal :open="siteModalOpen" :site="editingSite" @close="siteModalOpen = false" @saved="onSiteSaved" />
 </template>
 
 <style scoped>

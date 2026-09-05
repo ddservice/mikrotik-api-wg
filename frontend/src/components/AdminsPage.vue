@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { apiFetch, currentUser } from '../api.js';
+import { apiFetch, currentUser, sites, loadSites } from '../api.js';
 import { CONFIGURABLE_MENUS } from '../menu.js';
 import { toast } from '../toast.js';
 import BaseModal from './BaseModal.vue';
@@ -12,7 +12,6 @@ const ROLES = [
 ];
 
 const users = ref([]);
-const sites = ref([]);
 const perms = ref({ 'co-admin': [], user: [] });
 const loading = ref(false);
 const busy = ref('');
@@ -28,11 +27,11 @@ async function load() {
     try {
         const [u, s, p] = await Promise.allSettled([
             apiFetch('/api/users'),
-            apiFetch('/api/sites'),
+            loadSites(),
             apiFetch('/api/settings/menu-permissions')
         ]);
         if (u.status === 'fulfilled') users.value = u.value || [];
-        if (s.status === 'fulfilled') sites.value = s.value?.sites || [];
+        // sites เป็น state กลาง loadSites() เติมให้เองแล้ว ไม่ต้องรับค่ากลับมาใส่
         if (p.status === 'fulfilled') {
             perms.value = {
                 'co-admin': p.value['co-admin'] || [],

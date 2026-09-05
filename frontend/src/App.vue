@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { apiFetch, token, currentUser, activeSiteId, setActiveSiteId, logout } from './api.js';
+import { apiFetch, token, currentUser, activeSiteId, setActiveSiteId, logout, sites, loadSites, activeSiteName } from './api.js';
 import { loadMenusForRole, canOpen, NOT_MIGRATED_YET } from './menu.js';
 import { currentRoute, navigate, DEFAULT_ROUTE } from './router.js';
 import LoginPage from './components/LoginPage.vue';
@@ -17,7 +17,6 @@ import FullUpgradeModal from './components/FullUpgradeModal.vue';
 import ToastHost from './components/ToastHost.vue';
 import GlobalSearch from './components/GlobalSearch.vue';
 
-const sites = ref([]);
 const upgradeOpen = ref(false);
 const upgradeMode = ref('full');
 const overviewRef = ref(null);
@@ -35,20 +34,12 @@ const resolvedRoute = computed(() => {
     return r;
 });
 
-async function loadSites() {
-    try {
-        const data = await apiFetch('/api/sites');
-        sites.value = data.sites || [];
-        if (!activeSiteId.value && data.activeSiteId) setActiveSiteId(data.activeSiteId);
-    } catch (err) {
-        loadError.value = err.message;
-    }
-}
-
 async function bootstrap() {
     loadError.value = '';
+    // sites เป็น state กลางใน api.js แล้ว — หน้าไหนเพิ่ม/แก้/ลบสาขาก็สั่งโหลดใหม่
+    // แล้ว dropdown ตรงนี้อัปเดตตามเองทันที ไม่ต้องรีเฟรชทั้งหน้า
     await Promise.all([
-        loadSites(),
+        loadSites({ force: true }).catch((err) => { loadError.value = err.message; }),
         loadMenusForRole(currentUser.value?.role || 'user')
     ]);
 }
@@ -76,13 +67,9 @@ async function doLogout() {
         // token หมดอายุฝั่ง server อยู่แล้วก็ไม่เป็นไร — เคลียร์ฝั่ง client ต่อได้เลย
     }
     logout();
-    sites.value = [];
 }
 
-const activeSiteName = computed(() => {
-    const s = sites.value.find((x) => x.id === activeSiteId.value);
-    return s ? s.name : '';
-});
+
 </script>
 
 <template>
@@ -104,7 +91,7 @@ const activeSiteName = computed(() => {
                     <i class="fa-solid fa-location-dot"></i>
                     <select
                         :value="activeSiteId"
-                        :title="activeSiteName"
+                        :title="activeSiteName()"
                         @change="setActiveSiteId($event.target.value)"
                     >
                         <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>

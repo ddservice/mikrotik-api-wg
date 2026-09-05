@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { apiFetch } from '../api.js';
+import { apiFetch, nextFreeWireguardIp, siteHoldingWireguardIp } from '../api.js';
 import { toast } from '../toast.js';
 import BaseModal from './BaseModal.vue';
 
@@ -11,6 +11,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'saved']);
 
 const isEdit = computed(() => !!props.site);
+let justCreatedWireguard = null;
 const saving = ref(false);
 const form = ref({});
 
@@ -28,9 +29,30 @@ watch(() => props.open, (isOpen) => {
         dnsLoggingEnabled: s?.dnsLoggingEnabled !== false
     };
     saving.value = false;
+    justCreatedWireguard = null;
+
+    // สาขาใหม่แบบ WireGuard: จ่ายหมายเลขว่างให้เลย ไม่ต้องให้คนไปไล่ดูเองว่าตัวไหนว่าง
+    // (แก้เองได้ แต่ค่าเริ่มต้นต้องถูกและไม่ซ้ำเสมอ)
+    if (!s && form.value.connectionType === 'wireguard' && !form.value.wireguardIp) {
+        form.value.wireguardIp = nextFreeWireguardIp();
+    }
 });
 
 const isWireguard = computed(() => form.value.connectionType === 'wireguard');
+
+// เปลี่ยนชนิดการเชื่อมต่อระหว่างกรอก — ถ้าเพิ่งเลือก WireGuard และยังไม่มีเลข ก็จ่ายให้
+watch(() => form.value.connectionType, (t) => {
+    if (t === 'wireguard' && !form.value.wireguardIp) {
+        form.value.wireguardIp = nextFreeWireguardIp(props.site?.id || null);
+    }
+});
+
+// เตือนทันทีที่พิมพ์ซ้ำกับสาขาอื่น ไม่ต้องรอกดบันทึกแล้วโดน server ปฏิเสธ
+// (ฝั่ง server ยังตรวจซ้ำอยู่ อันนี้เป็นแค่การบอกให้เร็วขึ้น ไม่ได้แทนกัน)
+const ipClash = computed(() => {
+    if (!isWireguard.value) return null;
+    return siteHoldingWireguardIp(form.value.wireguardIp, props.site?.id || null);
+});
 
 // สาขาที่ต่อผ่าน WireGuard ใช้ IP ในอุโมงค์เป็น host เสมอ
 // กรอกซ้ำสองช่องแล้วไม่ตรงกันคือต้นเหตุที่ต่อไม่ติดแบบหาสาเหตุยาก
@@ -41,6 +63,12 @@ watch(() => form.value.wireguardIp, (ip) => {
 async function save() {
     if (!form.value.name.trim()) return toast.error('ต้องระบุชื่อสาขา');
     if (!form.value.host.trim()) return toast.error('ต้องระบุ Host หรือ WireGuard IP');
+    if (ipClash.value) {
+        return toast.error(`WireGuard IP ${form.value.wireguardIp} ถูกใช้อยู่แล้วโดยสาขา "${ipClash.value.name}"`);
+    }
+    if (isWireguard.value && !/^10\.10\.88\.\d{1,3}$/.test(form.value.wireguardIp.trim())) {
+        return toast.error('WireGuard IP ต้องอยู่ในรูปแบบ 10.10.88.x');
+    }
 
     saving.value = true;
     try {
@@ -70,8 +98,11 @@ async function save() {
             }
             await apiFetch('/api/sites', { method: 'POST', body: JSON.stringify(body) });
             toast.success(`เพิ่มสาขา "${body.name}" แล้ว`);
+            // สาขา WireGuard ใหม่ยังต่อไม่ได้จนกว่าจะรันสคริปต์บนเราท์เตอร์
+            // บอกหน้าแม่ให้เปิดขั้นถัดไปต่อเลย ไม่ต้องให้คนหาปุ่มเอง
+            justCreatedWireguard = body.connectionType === 'wireguard' ? body.wireguardIp : null;
         }
-        emit('saved');
+        emit('saved', { newWireguardIp: justCreatedWireguard });
         emit('close');
     } catch (err) {
         toast.error(err.message);
@@ -105,10 +136,18 @@ async function save() {
 
         <div v-if="isWireguard" class="v2-field">
             <label>WireGuard IP <span class="req">*</span></label>
-            <input v-model="form.wireguardIp" class="v2-input mono" :disabled="saving" placeholder="เช่น 10.10.88.5">
-            <span class="v2-hint">
-                VPS เป็นฮับที่ <code>10.10.88.0/24</code> · แต่ละสาขาใช้ IP ไม่ซ้ำกัน ·
-                ระบบจะตั้ง Host ให้ตรงกับค่านี้อัตโนมัติ
+            <input
+                v-model="form.wireguardIp" class="v2-input mono" :disabled="saving"
+                :class="{ bad: ipClash }" placeholder="เช่น 10.10.88.5"
+            >
+            <span v-if="ipClash" class="v2-hint warn">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                หมายเลขนี้ถูกใช้อยู่แล้วโดยสาขา <strong>{{ ipClash.name }}</strong> — เลือกหมายเลขอื่น
+            </span>
+            <span v-else class="v2-hint">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                ระบบเลือกหมายเลขว่างถัดไปให้อัตโนมัติแล้ว (แก้เองได้)  ·
+                VPS เป็นฮับที่ <code>10.10.88.0/24</code> · Host จะถูกตั้งให้ตรงกับค่านี้เอง
             </span>
         </div>
 

@@ -10,14 +10,13 @@
  * และดูก่อนรันได้ — จงใจไม่ทำให้กดแล้วสั่งเราท์เตอร์โดยตรง
  */
 import { ref, watch, computed } from 'vue';
-import { apiFetch } from '../api.js';
+import { apiFetch, nextFreeWireguardIp, siteHoldingWireguardIp } from '../api.js';
 import { toast } from '../toast.js';
 import BaseModal from './BaseModal.vue';
 
 const props = defineProps({
     open: { type: Boolean, default: false },
-    site: { type: Object, default: null },
-    usedIps: { type: Array, default: () => [] }
+    site: { type: Object, default: null }
 });
 const emit = defineEmits(['close', 'registered']);
 
@@ -31,15 +30,12 @@ const err = ref('');
 const peer = ref(null);
 const manualKey = ref('');
 
-// เสนอ IP ว่างตัวถัดไปในวง 10.10.88.x ให้ ไม่ต้องไปไล่ดูเองว่าตัวไหนว่าง
-const suggestedIp = computed(() => {
-    const used = new Set(props.usedIps.filter(Boolean));
-    for (let i = 2; i < 250; i++) {
-        const ip = '10.10.88.' + i;
-        if (!used.has(ip)) return ip;
-    }
-    return '';
-});
+// ใช้ตัวคำนวณเดียวกับหน้าเพิ่มสาขา — ถ้าสองที่คิดเองคนละแบบแล้วเสนอเลขต่างกัน
+// จะได้สาขาที่ IP ในระบบไม่ตรงกับสคริปต์ที่รันไปบนเราท์เตอร์ ซึ่งหาสาเหตุยากมาก
+const suggestedIp = computed(() => nextFreeWireguardIp(props.site ? props.site.id : null));
+
+// เตือนถ้าหมายเลขที่กำลังจะใช้ชนกับสาขาอื่น (server ก็ตรวจซ้ำอีกชั้น)
+const ipClash = computed(() => siteHoldingWireguardIp(wireguardIp.value, props.site ? props.site.id : null));
 
 watch(() => props.open, (v) => {
     if (!v) return;
@@ -201,7 +197,11 @@ async function checkPeer() {
             <div class="v2-field">
                 <label>WireGuard IP ของสาขานี้ <span class="req">*</span></label>
                 <input v-model="wireguardIp" class="v2-input mono" placeholder="10.10.88.5">
-                <span class="v2-hint">
+                <span v-if="ipClash" class="v2-hint warn">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    ซ้ำกับสาขา <strong>{{ ipClash.name }}</strong> — รันสคริปต์ด้วยหมายเลขนี้จะทำให้สาขานั้นหลุด
+                </span>
+                <span v-else class="v2-hint">
                     ต้องไม่ซ้ำกับสาขาอื่น
                     <template v-if="suggestedIp">· ว่างถัดไป: <code>{{ suggestedIp }}</code></template>
                 </span>

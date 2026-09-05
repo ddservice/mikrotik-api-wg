@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { apiFetch, activeSiteId, currentUser, token } from '../api.js';
+import { apiFetch, activeSiteId, currentUser, token, sites, loadSites } from '../api.js';
 import { formatBytes } from '../format.js';
 import { toast } from '../toast.js';
 
@@ -46,7 +46,6 @@ const pppoeRooms = ref([]);
 // ตั้งค่าเริ่มต้นเป็นสาขาที่เลือกอยู่ ให้ตรงกับที่ตัวเลือกด้านบนบอก แต่ทำเป็น
 // dropdown ที่มองเห็นได้ ไม่ใช่กรองเงียบ ๆ แบบหน้าเดิม — ผู้ใช้ต้องรู้ว่ากำลังดูของสาขาไหน
 // และต้องเลือก "ทุกสาขา" ได้ เพราะการส่งข้อมูลตาม ม.26 บางครั้งขอมาทั้งระบบ
-const sites = ref([]);
 const siteFilter = ref('');          // '' = ทุกสาขา, อื่น ๆ = ชื่อสาขา
 const siteFilterReady = ref(false);
 
@@ -55,15 +54,13 @@ const siteFilterReady = ref(false);
 const SITE_FILTERABLE = ['dns', 'hotspot', 'pppoe'];
 const canFilterSite = computed(() => SITE_FILTERABLE.includes(tab.value));
 
-async function loadSites() {
+async function primeSiteFilter() {
     try {
-        const data = await apiFetch('/api/sites');
-        sites.value = data.sites || [];
+        await loadSites();
         const cur = sites.value.find((s) => s.id === activeSiteId.value);
         siteFilter.value = cur ? cur.name : '';
     } catch (_) {
         // อ่านรายชื่อสาขาไม่ได้ = ไม่มี dropdown ให้เลือก แต่ยังดู log รวมได้ตามปกติ
-        sites.value = [];
     } finally {
         siteFilterReady.value = true;
     }
@@ -137,7 +134,7 @@ async function load() {
 
 onMounted(async () => {
     // ต้องรู้ชื่อสาขาก่อนยิงครั้งแรก ไม่งั้นครั้งแรกจะได้ทุกสาขาแล้วค่อยกระพริบเป็นสาขาเดียว
-    await loadSites();
+    await primeSiteFilter();
     load();
 });
 

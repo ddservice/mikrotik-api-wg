@@ -8,7 +8,7 @@
  * ถ้าตั้งชื่อคลาสใหม่จะต้องเขียนกฎการพิมพ์ซ้ำอีกชุด และแบบพิมพ์จะเพี้ยนจากของเดิม
  */
 import { ref, computed, nextTick } from 'vue';
-import { apiFetch, activeSiteId } from '../api.js';
+import { apiFetch, loadSites, activeSiteName } from '../api.js';
 import { toast } from '../toast.js';
 import { formatBytes } from '../format.js';
 
@@ -70,9 +70,8 @@ async function primeDefaults() {
     }
     if (!siteName.value) {
         try {
-            const data = await apiFetch('/api/sites');
-            const s = (data.sites || []).find((x) => x.id === activeSiteId.value);
-            siteName.value = s ? s.name : '';
+            await loadSites();
+            siteName.value = activeSiteName();
         } catch (_) {
             // ไม่รู้ชื่อสาขาก็ยังสร้างคูปองได้ แค่ต้องพิมพ์หัวบัตรเอง
         }
