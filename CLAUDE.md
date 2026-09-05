@@ -501,6 +501,33 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (3)** — Closed the test gaps. **Every module in `lib/` now has a test**, and
+  `server.js` finally has a runtime check.
+  - `npm run smoke` (`scripts/smoke-routes.js`) boots the real server on port 3199 and requests
+    every route **unauthenticated** — a route that exists answers `401`, one that is gone
+    answers `404`. No token, no database writes, no router connections.
+  - **The first version of it was worthless, and proving that was the useful part.** It read
+    the route list out of `server.js` and then checked those routes answered — asking the file
+    under test what it should contain. Run against the actual broken commit (`e42ee7f`,
+    45 routes left) it reported **"✓ ผ่าน — 44 route ตอบครบ"**. The comparison list has to live
+    outside the thing being compared, so it now reads `test/routes.manifest.json`, committed
+    separately. Re-run against `e42ee7f`: **69 missing routes, exit 1.**
+  - Deliberately *not* part of `npm run check`: it boots a second server process, and on the
+    VPS that would run `syncAllWireguardPeersOnStartup` against the live `wg0` while production
+    is running. `check` stays safe to run anywhere; `smoke` is for a dev machine before pushing
+    changes to `server.js`.
+  - Added `test/script-env.test.js` and `test/r2.test.js`. **Corrected an earlier claim in this
+    log**: `multiwan-analyze` and `multiwan-plan` were never untested — five test files require
+    them. Only `r2` and `script-env` genuinely had none; the earlier count came from matching
+    test *filenames* against module names instead of looking at what the tests import.
+  - `script-env`'s one job is that a placeholder value must never reach `process.env` — the
+    2026-08-28 failure where production ran on Local JSON for weeks and lost DNS logs entirely.
+  - **A test that depended on a gitignored file was caught before it landed**: the first
+    version asserted `loadScriptEnv()` returns `false` "because `ecosystem.config.js` only has
+    placeholders". On this dev machine that file holds real R2 keys, so it returned `true`.
+    The assertion now checks the invariant that holds whatever the file contains — no
+    placeholder in `process.env` — instead of the file's contents. **335 tests.**
+
 - **2026-09-05 (2)** — v2's WireGuard setup told operators to do work the script already does.
   - `POST /api/wireguard/generate-script` returns `autoRegistered`, which means **"I registered
     the key you sent me"** — the manual path where the caller supplies `clientPublicKey`. v2
