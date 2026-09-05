@@ -178,9 +178,8 @@ app.use(express.json({
 //   UI_DEFAULT=v1 (ค่าเริ่มต้น)  "/" = หน้าเดิม
 //   UI_DEFAULT=v2                "/" = หน้าใหม่
 // ย้อนกลับได้ใน 10 วินาทีด้วยการแก้ค่าใน ecosystem.config.js แล้ว pm2 reload
-// ซึ่งสำคัญกว่าการเลือกค่าเริ่มต้นถูกตั้งแต่แรก
 //
-// ไม่ว่าตั้งค่าไหน /v1/ กับ /v2/ ก็ยังเข้าได้เสมอ คนที่คุ้นกับหน้าไหนจึงเปิดตรงนั้นได้เลย
+// ไม่ว่าตั้งค่าไหน /v1/ กับ /v2/ ก็ยังเข้าได้เสมอ
 const UI_DEFAULT = String(process.env.UI_DEFAULT || 'v1').toLowerCase() === 'v2' ? 'v2' : 'v1';
 
 const STATIC_OPTS = {
@@ -651,11 +650,9 @@ app.get('/api/hotspot-logs', requireAuth(['admin', 'co-admin']), async (req, res
 });
 
 // Export admin activity logs as CSV
-//
-// สตรีมทีละหน้าแทนการดึงทีเดียวด้วย limit 99999 — ของเดิมตัดข้อมูลทิ้งเงียบ ๆ
-// เมื่อมีเกิน 99,999 แถว และกองไฟล์ทั้งก้อนไว้ในหน่วยความจำก่อนส่ง
 app.get('/api/logs/export-csv', requireAuth(['admin']), async (req, res) => {
     const { search, from, to } = req.query;
+
     const headers = ['วันเวลา', 'ผู้ใช้งาน', 'การกระทำ', 'รายละเอียด'];
     const filename = `activity_log_${new Date().toISOString().slice(0,10)}.csv`;
 
@@ -904,12 +901,2413 @@ app.get('/api/pppoe-usage/export-csv', requireAuth(['admin', 'co-admin']), async
         });
         db.addLog(req.user.username, 'Export PPPoE Usage CSV', `Export PPPoE usage log จำนวน ${n} รายการ`);
     } catch (err) {
+        // header ถูกส่งไปแล้วตั้งแต่แถวแรก จึงเปลี่ยนเป็น 500 ไม่ได้ — ตัดสายให้ไฟล์เสีย
+        // ชัด ๆ ดีกว่าปล่อยไฟล์ที่ดูสมบูรณ์แต่ข้อมูลขาด
         console.error('[Export] PPPoE log ล้มเหลว:', err.message);
         res.destroy();
     } finally {
         done();
     }
 });
+
+
+// ==========================================
+// Dashboard Users CRUD APIs (Admin only)
+// ==========================================
+
+app.get('/api/users', requireAuth(['admin']), async (req, res) => {
+    try {
+        const allUsers = await db.getUsers();
+        const users = allUsers.map(u => ({
+            id: u.id,
+            username: u.username,
+            role: u.role,
+            name: u.name,
+            assignedSiteId: u.assignedSiteId || 'all'
+        }));
+        res.json(users);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/users', requireAuth(['admin']), async (req, res) => {
+    const { username, password, role, name, assignedSiteId } = req.body;
+    if (!username || !password || !role || !name) {
+        return res.status(400).json({ error: 'All fields are required' });
+    }
+    if (!['admin', 'co-admin', 'user'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+    }
+    try {
+        const newUser = await db.addUser(username, password, role, name, assignedSiteId || 'all');
+        db.addLog(req.user.username, 'เพิ่มบัญชีระบบ', 'เพิ่มบัญชี ' + username + ' (สิทธิ์: ' + role + ', ไซต์: ' + (assignedSiteId || 'all') + ')');
+        res.status(201).json(newUser);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.put('/api/users/:id', requireAuth(['admin']), async (req, res) => {
+    const { username, password, role, name, assignedSiteId } = req.body;
+    try {
+        const updated = await db.updateUser(req.params.id, { username, password, role, name, assignedSiteId });
+        
+        // If password changed or username changed, terminate that user's sessions
+        for (const [token, session] of activeSessions.entries()) {
+            if (session.user.id === req.params.id) {
+                if (password || username || role || assignedSiteId !== undefined) {
+                    activeSessions.delete(token); // Force log them out to re-authenticate
+                } else if (name) {
+                    session.user.name = name;
+                }
+            }
+        }
+        
+        persistSessionsNow();   // เตะ session ออกแล้วต้องมีผลข้ามการรีสตาร์ตด้วย
+        db.addLog(req.user.username, 'แก้ไขบัญชีระบบ', 'แก้ไขบัญชี ID ' + req.params.id + ' (ชื่อ: ' + (name || '') + ')');
+        res.json(updated);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.delete('/api/users/:id', requireAuth(['admin']), async (req, res) => {
+    try {
+        await db.deleteUser(req.params.id);
+        // Clean sessions
+        for (const [token, session] of activeSessions.entries()) {
+            if (session.user.id === req.params.id) {
+                activeSessions.delete(token);
+            }
+        }
+        persistSessionsNow();
+        db.addLog(req.user.username, 'ลบบัญชีระบบ', 'ลบบัญชี ID ' + req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// ==========================================
+// Router Settings Configurations & Multi-Site APIs
+// ==========================================
+
+// Get all sites and active site ID (Filtered by user permission)
+app.get('/api/sites', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const sitesData = await db.getSites();
+        const includeRouterCreds = req.user.role === 'admin';
+        const mapSite = (s) => sanitizeSitePublic(s, { includeRouterCreds });
+        if (isSiteLockedUser(req.user)) {
+            const allowedSite = sitesData.sites.find(s => s.id === req.user.assignedSiteId);
+            return res.json({
+                activeSiteId: req.user.assignedSiteId,
+                sites: allowedSite ? [mapSite(allowedSite)] : []
+            });
+        }
+        res.json({
+            activeSiteId: sitesData.activeSiteId,
+            sites: (sitesData.sites || []).map(mapSite)
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Switch active site (Validated against assigned permission)
+app.post('/api/sites/switch/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    if (isSiteLockedUser(req.user)) {
+        if (req.params.id !== req.user.assignedSiteId) {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์สลับไปใช้งานไซต์งานนี้' });
+        }
+    }
+    try {
+        const activeSite = await db.setActiveSite(req.params.id);
+        db.addLog(req.user.username, 'สลับไซต์งาน', 'สลับไปใช้งานไซต์งาน: ' + activeSite.name);
+        res.json({
+            success: true,
+            activeSite: sanitizeSitePublic(activeSite, { includeRouterCreds: req.user.role === 'admin' })
+        });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Get Multi-WAN configuration for current site
+app.get('/api/multiwan', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
+        const config = await db.getMultiWanConfig(siteId);
+        res.json(config);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Save Multi-WAN configuration for current site
+app.post('/api/multiwan', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
+        const updated = await db.saveMultiWanConfig(siteId, req.body);
+        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN', 'บันทึกการตั้งค่า Multi-WAN ประจำไซต์งาน');
+        res.json({ success: true, config: updated });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Helper to normalize WAN list from request payload
+function _parseWanLines(cfg) {
+    if (Array.isArray(cfg.wans) && cfg.wans.length > 0) {
+        return cfg.wans.map((w, idx) => ({
+            num: idx + 1,
+            id: w.id || `wan_${idx + 1}`,
+            name: w.name || `WAN ${idx + 1}`,
+            interface: w.interface || (idx === 0 ? 'pppoe-out1' : `ether${idx + 1}`),
+            type: w.type || (idx === 0 ? 'pppoe' : 'dhcp'),
+            gateway: w.gateway || (w.type === 'pppoe' ? '' : `192.168.${idx + 1}.1`),
+            speed: parseInt(w.speed) || 500,
+            weight: parseInt(w.weight) || 1,
+            dnsCheck: w.dnsCheck || (idx === 0 ? '8.8.8.8' : (idx === 1 ? '1.1.1.1' : `9.9.9.${idx + 1}`))
+        }));
+    }
+    // Backward compatibility fallback for legacy 2-WAN format
+    return [
+        { num: 1, id: 'wan_1', name: 'WAN 1', interface: cfg.wan1Interface || 'pppoe-out1', type: cfg.wan1Type || 'pppoe', gateway: '', speed: parseInt(cfg.wan1Speed) || 1000, weight: parseInt(cfg.wan1Weight) || 2, dnsCheck: cfg.dnsCheckWan1 || '8.8.8.8' },
+        { num: 2, id: 'wan_2', name: 'WAN 2', interface: cfg.wan2Interface || 'ether2-WAN2', type: cfg.wan2Type || 'dhcp', gateway: cfg.wan2Gateway || '192.168.2.1', speed: parseInt(cfg.wan2Speed) || 500, weight: parseInt(cfg.wan2Weight) || 1, dnsCheck: cfg.dnsCheckWan2 || '1.1.1.1' }
+    ];
+}
+
+// Generate Multi-WAN RouterOS v7 CLI Script (Dynamic N-WAN)
+app.post('/api/multiwan/generate-script', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const cfg = req.body;
+        const wans = _parseWanLines(cfg);
+        const totalWeight = wans.reduce((sum, w) => sum + (w.weight > 0 ? w.weight : 1), 0);
+        const vlan10 = cfg.pbrVlan10Subnet || '192.168.10.0/24';
+        const vlan20 = cfg.pbrVlan20Subnet || '192.168.20.0/24';
+        const tgToken = cfg.telegramToken || 'YOUR_TELEGRAM_BOT_TOKEN_HERE';
+        const tgChatId = cfg.telegramChatId || 'YOUR_TELEGRAM_CHAT_ID_HERE';
+
+        let script = `# ==============================================================================
+# Enterprise RouterOS v7+ Multi-WAN Setup Script (${wans.length}-WAN Dynamic)
+# Target Version: MikroTik RouterOS v7.10+
+# Generated by MT Management Web Dashboard
+# Total Configured WAN Lines: ${wans.length} | Total Weight Ratio: ${totalWeight}
+# ==============================================================================
+
+# 1. Routing Tables (RouterOS v7)
+`;
+        wans.forEach(w => {
+            script += `/routing table add name=to_WAN${w.num} fib\n`;
+        });
+
+        script += `\n# 2. Recursive Failover Routes (Fortinet Style)\n`;
+        wans.forEach(w => {
+            const gw = w.type === 'pppoe' ? w.interface : (w.gateway || w.interface);
+            script += `/ip route add dst-address=${w.dnsCheck}/32 gateway=${gw} scope=10 target-scope=10 comment="WAN${w.num} Host Check"\n`;
+            script += `/ip route add dst-address=0.0.0.0/0 gateway=${w.dnsCheck} check-gateway=ping distance=${w.num} scope=30 target-scope=11 comment="Default Primary WAN${w.num}"\n`;
+            script += `/ip route add dst-address=0.0.0.0/0 gateway=${w.dnsCheck} check-gateway=ping distance=1 routing-table=to_WAN${w.num} scope=30 target-scope=11 comment="Table to_WAN${w.num}"\n`;
+        });
+
+        script += `\n# 3. NAT Rules\n/ip firewall nat\n`;
+        wans.forEach(w => {
+            script += `add chain=srcnat out-interface=${w.interface} action=masquerade comment="Masquerade WAN${w.num}"\n`;
+        });
+        if (cfg.dnsHijack) {
+            script += `add chain=dstnat protocol=udp dst-port=53 in-interface-list=!WAN action=redirect to-ports=53 comment="Force DNS Hijack UDP"\n`;
+            script += `add chain=dstnat protocol=tcp dst-port=53 in-interface-list=!WAN action=redirect to-ports=53 comment="Force DNS Hijack TCP"\n`;
+        }
+        if (cfg.hairpinNat) {
+            script += `add chain=srcnat src-address=192.168.0.0/16 dst-address=192.168.0.0/16 action=masquerade comment="Hairpin NAT"\n`;
+        }
+
+        script += `\n# 4. Mangle: FastTrack Bypass, Sticky HTTPS, PBR, Weighted PCC\n/ip firewall mangle\n`;
+        if (cfg.fasttrackBypass) {
+            // กฎเดิมคือ `add chain=prerouting action=accept connection-state=new` ซึ่งผิด:
+            // action=accept ใน mangle หยุดประมวลผล chain นั้นทันที กฎที่เหลือทั้งหมด
+            // (Sticky 443, PBR และ PCC) จึงไม่เคยทำงาน = เปิดปุ่มนี้แล้วโหลดบาลานซ์ตาย
+            //
+            // สิ่งที่ต้องทำจริงคือกันไม่ให้ connection ถูก fasttrack ใน chain forward
+            // เพราะแพ็กเก็ตที่ fasttrack แล้วจะข้าม mangle ทำให้ routing mark ไม่ถูกใช้
+            // แลกมาด้วย throughput ที่ลดลงชัดเจนบน hEX / hAP ซึ่งพึ่ง FastTrack มาก
+            script += `/ip firewall filter\n`;
+            script += `# PCC ใช้ร่วมกับ FastTrack ไม่ได้ — แพ็กเก็ตที่ fasttrack แล้วจะข้าม mangle\n`;
+            script += `# ทำให้ routing mark ไม่ถูกใช้ และ traffic รั่วออก main table\n`;
+            script += `# ผลข้างเคียง: throughput ลดลงชัดเจนบน hEX / hAP\n`;
+            script += `disable [find action=fasttrack-connection]\n`;
+            script += `/ip firewall mangle\n`;
+        }
+        script += `add chain=prerouting protocol=tcp dst-port=443 connection-state=new dst-address-type=!local in-interface-list=!WAN action=mark-connection new-connection-mark=HTTPS_STICKY passthrough=yes comment="Sticky 443"\n\n`;
+
+        script += `# Policy-Based Routing (PBR Interface/Subnet Rules)\n`;
+        const pbrRules = (Array.isArray(cfg.pbrRules) && cfg.pbrRules.length > 0) ? cfg.pbrRules : [
+            { srcInterface: cfg.pbrVlan10Subnet || '192.168.10.0/24', targetWanNum: 1, note: 'PBR VLAN 10 -> WAN1' },
+            { srcInterface: cfg.pbrVlan20Subnet || '192.168.20.0/24', targetWanNum: 2, note: 'PBR VLAN 20 -> WAN2' }
+        ];
+        pbrRules.forEach(r => {
+            if (r.srcInterface) {
+                const isSubnet = r.srcInterface.includes('/') || (r.srcInterface.match(/^\d+\.\d+\.\d+\.\d+/));
+                const paramStr = isSubnet ? `src-address=${r.srcInterface}` : `in-interface=${r.srcInterface}`;
+                const targetWan = r.targetWanNum || 1;
+                const note = r.note || `PBR ${r.srcInterface} -> WAN${targetWan}`;
+                script += `add chain=prerouting ${paramStr} dst-address-type=!local action=mark-routing new-routing-mark=to_WAN${targetWan} passthrough=no comment="${note}"\n`;
+            }
+        });
+
+        script += `\n# Weighted PCC Load Balancing (${totalWeight} Total Streams Ratio)\n`;
+        script += `add chain=prerouting dst-address-type=local action=accept comment="Accept Local"\n`;
+
+        let currentStreamIdx = 0;
+        wans.forEach(w => {
+            const wWeight = w.weight > 0 ? w.weight : 1;
+            for (let i = 0; i < wWeight; i++) {
+                script += `add chain=prerouting in-interface-list=!WAN connection-mark=no-mark dst-address-type=!local per-connection-classifier=both-addresses-and-ports:${totalWeight}/${currentStreamIdx} action=mark-connection new-connection-mark=WAN${w.num}_CONN passthrough=yes comment="PCC ${totalWeight}/${currentStreamIdx} -> WAN${w.num}"\n`;
+                currentStreamIdx++;
+            }
+        });
+
+        script += `\n`;
+        wans.forEach(w => {
+            script += `add chain=prerouting connection-mark=WAN${w.num}_CONN in-interface-list=!WAN action=mark-routing new-routing-mark=to_WAN${w.num} passthrough=no comment="Routing WAN${w.num}"\n`;
+        });
+        script += `add chain=prerouting connection-mark=HTTPS_STICKY in-interface-list=!WAN action=mark-routing new-routing-mark=to_WAN1 passthrough=no comment="Routing Sticky HTTPS"\n`;
+        if (cfg.mssClamping) {
+            script += `add chain=forward protocol=tcp tcp-flags=syn action=change-mss new-mss=clamp-to-pmtu comment="MSS Clamping"\n`;
+        }
+
+        script += `\n# 5. Connection Tracking Optimization\n/ip firewall connection tracking set enabled=yes tcp-established-timeout=1h tcp-syn-sent-timeout=15s udp-timeout=10s\n`;
+
+        script += `\n# 6. Telegram Netwatch Alerting\n/tool netwatch\n`;
+        wans.forEach(w => {
+            script += `add host=${w.dnsCheck} type=icmp interval=5s timeout=1000ms comment="WAN${w.num} Netwatch" up-script="/tool fetch url=\\"https://api.telegram.org/bot${tgToken}/sendMessage?chat_id=${tgChatId}&text=%E2%9C%85+WAN${w.num}+ONLINE\\" keep-result=no" down-script="/tool fetch url=\\"https://api.telegram.org/bot${tgToken}/sendMessage?chat_id=${tgChatId}&text=%F0%9F%9A%A8+WAN${w.num}+OFFLINE\\" keep-result=no"\n`;
+        });
+
+        res.json({ script });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Directly Apply Multi-WAN configuration to MikroTik Router via API (Dynamic N-WAN)
+// admin เท่านั้น — เส้นทางนี้เขียน routing table / NAT / conntrack ลงเราท์เตอร์จริง
+// โดยไม่มีการสำรอง ไม่มีตัวถอนอัตโนมัติ และไม่ตรวจว่าหลังสั่งแล้วยังออกเน็ตได้
+// จึงอันตรายกว่า /failover/apply ที่มีครบทั้งสามอย่าง แต่เดิมกลับให้สิทธิ์หลวมกว่า
+app.post('/api/multiwan/apply', requireAuth(['admin']), async (req, res) => {
+    try {
+        const cfg = req.body;
+        const siteId = (req.user.role !== 'admin' && req.user.assignedSiteId && req.user.assignedSiteId !== 'all') ? req.user.assignedSiteId : (req.query.siteId || null);
+        
+        // Save config first
+        await db.saveMultiWanConfig(siteId, cfg);
+
+        const wans = _parseWanLines(cfg);
+
+        const result = await executeOnRouter(req, async (client) => {
+            const logs = [];
+
+            // 0. ตรวจก่อนสั่ง — ชื่อ interface ที่กรอกต้องมีอยู่จริงบนเราท์เตอร์
+            //
+            // ถ้าไม่ตรวจ RouterOS จะรับ mangle/route ที่อ้าง interface ที่ไม่มีอยู่ไว้เฉย ๆ
+            // แล้วเส้นทางนั้นก็ตายเงียบ ๆ โดยที่หน้าจอขึ้นว่าสำเร็จ ซึ่งเป็นอาการที่
+            // หาสาเหตุยากที่สุดเวลาอินเทอร์เน็ตสาขาล่ม
+            const existing = await client.exec('/interface/print');
+            const names = new Set(existing.map((i) => String(i.name || '')).filter(Boolean));
+            const missing = wans
+                .map((w) => w.interface)
+                .filter((n) => n && !names.has(n));
+            if (missing.length > 0) {
+                const err = new Error(
+                    `ไม่มี interface ชื่อ ${missing.join(', ')} บนเราท์เตอร์ตัวนี้ — ` +
+                    `ยังไม่ได้สั่งอะไรลงไปเลย
+` +
+                    `interface ที่มีจริง: ${[...names].join(', ')}`
+                );
+                err.preflight = true;
+                throw err;
+            }
+            logs.push(`ตรวจชื่อ interface ครบ ${wans.length} สาย`);
+
+            // 1. Check & Add Routing Tables (RouterOS v7)
+            try {
+                const tables = await client.exec('/routing/table/print');
+                for (const w of wans) {
+                    const tableName = `to_WAN${w.num}`;
+                    if (!tables.some(t => t.name === tableName)) {
+                        await client.exec('/routing/table/add', { name: tableName, fib: '' });
+                        logs.push(`สร้าง Routing Table: ${tableName}`);
+                    }
+                }
+            } catch (e) {
+                /* ignore */
+            }
+
+            // 2. Setup Host Check Routes
+            try {
+                const routes = await client.exec('/ip/route/print');
+                for (const r of routes) {
+                    if (r.comment && r.comment.includes('Host Check')) {
+                        await client.exec('/ip/route/remove', { '.id': r['.id'] });
+                    }
+                }
+                for (const w of wans) {
+                    const gw = w.type === 'pppoe' ? w.interface : (w.gateway || w.interface);
+                    await client.exec('/ip/route/add', {
+                        'dst-address': `${w.dnsCheck}/32`,
+                        gateway: gw,
+                        scope: '10',
+                        'target-scope': '10',
+                        comment: `WAN${w.num} Host Check`
+                    });
+                    logs.push(`ตั้งค่า Host Check Route WAN${w.num} (${w.dnsCheck})`);
+                }
+            } catch (e) {
+                logs.push(`ข้อผิดพลาด Routes: ${e.message}`);
+            }
+
+            // 3. Setup NAT Rules
+            try {
+                const nats = await client.exec('/ip/firewall/nat/print');
+                for (const w of wans) {
+                    if (!nats.some(n => n['out-interface'] === w.interface && n.action === 'masquerade')) {
+                        await client.exec('/ip/firewall/nat/add', {
+                            chain: 'srcnat',
+                            'out-interface': w.interface,
+                            action: 'masquerade',
+                            comment: `Masquerade WAN${w.num}`
+                        });
+                    }
+                }
+                logs.push(`ตั้งค่า Outbound NAT (Masquerade) ทั้งหมด ${wans.length} WAN`);
+            } catch (e) {
+                logs.push(`ข้อผิดพลาด NAT: ${e.message}`);
+            }
+
+            // 4. Connection Tracking Optimization
+            try {
+                await client.exec('/ip/firewall/connection/tracking/set', {
+                    enabled: 'yes',
+                    'tcp-established-timeout': '1h',
+                    'tcp-syn-sent-timeout': '15s',
+                    'udp-timeout': '10s'
+                });
+                logs.push('ปรับตั้งค่า Connection Tracking Optimization');
+            } catch (e) { /* ignore */ }
+
+            return logs;
+        });
+
+        // ปุ่มนี้ลงให้เฉพาะชั้นเตรียมพื้น ไม่ได้ลง PCC กับ failover ซึ่งเป็นตัวกระจายโหลด
+        // และตัวสลับสายจริง ๆ — ของสองอย่างนั้นเขียนทับ mangle/route ที่มีอยู่เดิม
+        // ถ้าพลาดคือสาขาหลุดเน็ตทั้งสาขาและกู้จากระยะไกลไม่ได้ จึงให้ผ่านสคริปต์
+        // ที่คนดูก่อนวางได้เท่านั้น (ดูหัวข้อ Multi-WAN ใน CLAUDE.md)
+        const pending = [
+            'กระจายโหลด PCC (mangle mark-connection / mark-routing)',
+            'เส้นทางสำรองอัตโนมัติ (failover routes + check-gateway)'
+        ];
+        db.addLog(req.user.username, 'ตั้งค่า Multi-WAN (ชั้นเตรียมพื้น)',
+            `ลงตารางเส้นทาง/NAT/conntrack ให้ ${wans.length} สาย — ยังไม่ได้ลง PCC และ failover`);
+        res.json({
+            success: true,
+            partial: true,
+            message: `ลงชั้นเตรียมพื้นให้ ${wans.length} สายแล้ว (ตารางเส้นทาง, NAT, Connection Tracking)`,
+            pending,
+            pendingNote: 'ยังใช้กระจายโหลดไม่ได้จนกว่าจะรันสคริปต์เต็มจากปุ่ม "สร้างสคริปต์" ' +
+                         'ซึ่งมีทั้ง PCC และเส้นทางสำรอง — จงใจให้คนดูก่อนวางเอง เพราะสองส่วนนี้' +
+                         'เขียนทับกฎเดิม ถ้าผิดคือสาขาหลุดเน็ตและกู้จากระยะไกลไม่ได้',
+            logs: result
+        });
+    } catch (e) {
+        // ตกม้าตายตอนตรวจ = ยังไม่ได้แตะเราท์เตอร์เลย ต้องบอกให้ชัดว่าปลอดภัย
+        if (e && e.preflight) {
+            return res.status(400).json({ error: e.message, preflight: true });
+        }
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// ===================== Multi-WAN: สำรองอัตโนมัติ (อ่านของจริง → วางแผน → ลง) =====================
+//
+// แยกเป็น 4 เส้นทางโดยตั้งใจ ให้ "อ่าน" กับ "เขียน" ไม่ปนกัน คนกดดูได้ว่าจะเกิดอะไร
+// ก่อนที่จะมีอะไรถูกแตะจริง — เพราะงานนี้พลาดแล้วสาขาหลุดเน็ตและกู้จากระยะไกลไม่ได้
+
+/** อ่านสภาพจริงจากเราท์เตอร์ ไม่เขียนอะไรเลย */
+async function readMultiWanState(client) {
+    const [interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
+           dns, dhcpNetworks, filter, ifaceLists, ifaceListMembers] = await Promise.all([
+        client.exec('/interface/print'),
+        client.exec('/interface/pppoe-client/print').catch(() => []),
+        client.exec('/ip/dhcp-client/print').catch(() => []),
+        client.exec('/ip/route/print'),
+        client.exec('/ip/firewall/mangle/print').catch(() => []),
+        client.exec('/ip/firewall/nat/print').catch(() => []),
+        client.exec('/ip/address/print').catch(() => []),
+        // DNS: ต้องรู้ว่าเราท์เตอร์เป็น resolver ให้ลูกข่ายอยู่แล้วหรือยัง
+        // และ DHCP แจก DNS ตัวไหนออกไป — เป็นสาเหตุที่ failover สำเร็จแล้ว
+        // ลูกค้ายังบอกว่าเน็ตไม่ได้
+        client.exec('/ip/dns/print').catch(() => []),
+        client.exec('/ip/dhcp-server/network/print').catch(() => []),
+        client.exec('/ip/firewall/filter/print').catch(() => []),
+        // กฎที่อ้าง in-interface-list=WAN จะไม่ทำงานเลยถ้า list นั้นไม่มีอยู่จริง
+        client.exec('/interface/list/print').catch(() => []),
+        client.exec('/interface/list/member/print').catch(() => [])
+    ]);
+    return { interfaces, pppoeClients, dhcpClients, routes, mangle, nat, addresses,
+             dns, dhcpNetworks, filter, ifaceLists, ifaceListMembers };
+}
+
+// 1) วิเคราะห์ — อ่านอย่างเดียว ปลอดภัยเสมอ
+app.get('/api/multiwan/analyze', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const speeds = {};
+        if (req.query.speeds) {
+            try { Object.assign(speeds, JSON.parse(req.query.speeds)); } catch (_) { /* ไม่มีก็ไม่เป็นไร */ }
+        }
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            return mwAnalyze.analyzeState(state, { speeds });
+        });
+        res.json({ success: true, analysis: out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 2) ดูแผน — ยังไม่เขียนอะไร แค่บอกว่าจะทำอะไรบ้างและย้อนกลับยังไง
+app.post('/api/multiwan/failover/plan', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const { order, checkHosts, speeds, dnsResilience } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts, dnsResilience });
+            return { analysis, plan, rollbackScript: mwPlan.buildRollbackScript(plan) };
+        });
+        res.json({ success: true, ...out });
+    } catch (e) {
+        if (e && e.alreadyInstalled) {
+            return res.status(409).json({ error: e.message, alreadyInstalled: true });
+        }
+        res.status(400).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// สาขาที่กำลังลง Multi-WAN อยู่ตอนนี้
+//
+// ถ้าสองคนกดพร้อมกัน ทั้งคู่จะสำรองค่า ฝากตัวถอนคนละตัว แล้วลงเส้นทางซ้ำกัน
+// ผลคือได้ default route ซ้ำ NAT ซ้ำ และตัวถอนสองตัวที่ทำงานทับกัน —
+// สภาพที่แก้ยากกว่าการห้ามตั้งแต่แรกมาก
+const multiwanApplying = new Set();
+
+// 3) ลงจริง — admin เท่านั้น เพราะพลาดแล้วทั้งสาขาหลุด
+app.post('/api/multiwan/failover/apply', requireAuth(['admin']), async (req, res) => {
+    const lockKey = resolveSiteIdFromReq(req) || '__active__';
+    if (multiwanApplying.has(lockKey)) {
+        return res.status(409).json({
+            error: 'สาขานี้กำลังมีการติดตั้ง Multi-WAN อยู่ กรุณารอให้เสร็จก่อน — ' +
+                   'การลงซ้อนกันจะทำให้ได้เส้นทางและตัวถอนซ้ำซ้อน ซึ่งแก้ยากกว่ามาก',
+            busy: true
+        });
+    }
+    multiwanApplying.add(lockKey);
+    try {
+        const { order, checkHosts, speeds, rollbackSeconds, skipBackup, dnsResilience } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const plan = mwPlan.buildFailoverPlan(analysis, { order, checkHosts, dnsResilience });
+            const r = await mwApply.applyFailover({
+                client, plan,
+                rollbackSeconds: Number(rollbackSeconds) || undefined,
+                skipBackup: !!skipBackup
+            });
+            // แนบ plan กับคำแนะนำไปด้วย เพื่อประกอบข้อความแจ้งเตือนข้างล่าง
+            return Object.assign(r, { plan, mode: analysis.recommendation.title });
+        });
+
+        // แจ้งทีมแอดมินว่าลงอะไรไปบ้าง พร้อม IP ของทุก line
+        //
+        // IP ฝั่ง WAN คือสิ่งแรกที่ต้องใช้เวลาโทรแจ้ง ISP หรือเวลาต้องเปิด port forward
+        // และเป็นสิ่งที่หาจากระยะไกลยากที่สุดถ้าไม่ได้จดไว้ตอนติดตั้ง
+        if (out.success) {
+            const cfgForName = await Promise.resolve(
+                db.getConfig(resolveSiteIdFromReq(req))
+            ).catch(() => null);
+            sendOpsAlert(mwPlan.buildSuccessAlert({
+                siteName: (cfgForName && cfgForName.name) || '-',
+                plan: out.plan,
+                mode: out.mode,
+                checks: out.checks
+            }), 'multiwan').catch(() => { /* แจ้งเตือนล้มเหลวต้องไม่ทำให้การติดตั้งพัง */ });
+        }
+
+        db.addLog(req.user.username,
+            out.success ? 'ลง Multi-WAN สำรองอัตโนมัติ' : 'ลง Multi-WAN ไม่สำเร็จ (ถอนคืนแล้ว)',
+            out.success
+                ? `ลงสำเร็จ ${out.applied} ขั้น สำรองไว้ที่ ${out.backupName || '-'}`
+                : `ล้มเหลว: ${out.error} — ถอนคืน ${out.rolledBack ? 'สำเร็จ' : 'ไม่สำเร็จ'}`);
+
+        delete out.plan;   // หน้าเว็บมีแผนอยู่แล้วจากขั้น preview ไม่ต้องส่งซ้ำ
+        res.status(out.success ? 200 : 500).json(out);
+    } catch (e) {
+        if (e && e.alreadyInstalled) {
+            return res.status(409).json({ error: e.message, alreadyInstalled: true });
+        }
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    } finally {
+        multiwanApplying.delete(lockKey);
+    }
+});
+
+
+// PCC: คำนวณสัดส่วนจาก bandwidth จริง แล้วสร้างสคริปต์ให้คนเอาไปวางเอง
+//
+// จงใจไม่มีปุ่ม apply สำหรับ PCC — ต่างจาก failover ตรงที่ PCC ต้องเขียนทับ mangle
+// และต้องปิดหรือยกเว้น FastTrack ซึ่งลด throughput ลงชัดเจนบนฮาร์ดแวร์ที่ใช้อยู่
+// การตัดสินใจแลกนั้นควรเป็นของคน ไม่ใช่ของปุ่ม
+app.post('/api/multiwan/pcc/script', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { order, speeds } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state, { speeds: speeds || {} });
+            const names = (Array.isArray(order) && order.length)
+                ? order.filter((n) => analysis.usable.some((w) => w.interface === n))
+                : (analysis.recommendation.order || analysis.usable.map((w) => w.interface));
+
+            const lines = names.map((n) => analysis.usable.find((w) => w.interface === n));
+            const mbps = lines.map((w) => (speeds || {})[w.interface]);
+            const weights = pccWeights.pccWeights(mbps);
+            if (!weights) {
+                const e = new Error(
+                    'ต้องกรอก bandwidth ของทุก line ก่อน จึงจะคำนวณสัดส่วน PCC ได้ — ' +
+                    'ใส่ค่าที่ตรงกับแพ็กเกจจริงของแต่ละ line'
+                );
+                e.needSpeeds = true;
+                throw e;
+            }
+            return { analysis, lines, weights, mbps };
+        });
+
+        // ประกอบ cfg ให้ตรงรูปแบบที่ตัวสร้างสคริปต์เดิมรับอยู่แล้ว
+        // ค่าทุกตัวมาจากที่อ่านได้จริงบนเราท์เตอร์ ไม่ได้ให้คนพิมพ์เอง
+        const cfg = {
+            wans: out.lines.map((w, i) => ({
+                id: 'wan_' + (i + 1),
+                name: 'WAN ' + (i + 1),
+                interface: w.interface,
+                type: w.kind,
+                gateway: w.gatewayIsInterface ? '' : (w.gateway || ''),
+                speed: out.mbps[i],
+                weight: out.weights[i],
+                dnsCheck: mwPlan.DEFAULT_CHECK_HOSTS[i % mwPlan.DEFAULT_CHECK_HOSTS.length]
+            })),
+            fasttrackBypass: true   // PCC ใช้ร่วมกับ FastTrack ไม่ได้
+        };
+
+        res.json({
+            success: true,
+            weights: out.weights,
+            weightsExplained: pccWeights.describeWeights(
+                out.lines.map((w) => w.interface), out.weights),
+            wans: cfg.wans,
+            cfg
+        });
+    } catch (e) {
+        if (e && e.needSpeeds) return res.status(400).json({ error: e.message, needSpeeds: true });
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+// 4) ถอนออกทีหลัง — จับจากคอมเมนต์กำกับ ไม่แตะของที่ไม่ใช่ของระบบนี้
+app.post('/api/multiwan/failover/remove', requireAuth(['admin']), async (req, res) => {
+    const lockKey = resolveSiteIdFromReq(req) || '__active__';
+    if (multiwanApplying.has(lockKey)) {
+        return res.status(409).json({
+            error: 'สาขานี้กำลังติดตั้ง Multi-WAN อยู่ ถอนตอนนี้จะชนกัน กรุณารอให้เสร็จก่อน',
+            busy: true
+        });
+    }
+    try {
+        const out = await executeOnRouter(req, async (client) => {
+            const state = await readMultiWanState(client);
+            const analysis = mwAnalyze.analyzeState(state);
+            return mwApply.removeAll(client, analysis.usable);
+        });
+        db.addLog(req.user.username, 'ถอน Multi-WAN สำรองอัตโนมัติ',
+            `ถอนเส้นทาง ${out.routes} เส้น NAT ${out.nat} ข้อ`);
+        res.json({ success: true, removed: out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'multiwan' }) });
+    }
+});
+
+
+
+// Helper for VPS WireGuard Peer Management
+//
+// NOTE: these shell out to `sudo wg`/`sudo wg-quick`, which requires the OS
+// user running this Node process to have passwordless sudo rights for those
+// two binaries (see /etc/sudoers.d/ setup) — without it, sudo silently fails
+// (no TTY to prompt for a password). Errors here are intentionally left to
+// propagate (not swallowed with `|| true`) so callers/route handlers can
+// report the real failure instead of a false "success".
+/**
+ * ลบ peer ที่ถือ IP นี้อยู่ออกจาก wg0
+ *
+ * @param {string} wireguardIp  IP ในอุโมงค์ เช่น 10.10.88.3
+ * @param {string} [keepPubKey] ถ้าระบุ จะ "ไม่ลบ" peer ที่คีย์ตรงกับค่านี้
+ *
+ * ทำไมต้องมี keepPubKey: การลบแล้วสร้าง peer ใหม่ทำให้ endpoint และสถานะ handshake
+ * หายไปทั้งหมด อุโมงค์จะขาดจนกว่าเราท์เตอร์ปลายทาง (ซึ่งอยู่หลัง NAT และเป็นฝ่าย
+ * เริ่มเชื่อมต่อ) จะส่ง keepalive มาใหม่ ซึ่งกินเวลาหลายนาที
+ *
+ * อาการจริงที่เจอ 2026-08-30: syncAllWireguardPeersOnStartup เรียก registerVpsPeer
+ * ทุกครั้งที่ server สตาร์ต ซึ่งลบแล้วสร้าง peer ใหม่ทุกรอบ ทำให้ทุก pm2 reload
+ * ทำให้สาขาที่เก็บ public key ไว้ (มีแค่ A4-Residence) หลุดไปสองสามนาที และเป็น
+ * ที่มาของแจ้งเตือน "Offline แล้วกลับมาใน 1 นาที" ที่เจอซ้ำ ๆ โดยไม่รู้สาเหตุ
+ *
+ * `wg set wg0 peer <key> allowed-ips <ip>/32` กับ peer ที่มีอยู่แล้วเป็นการอัปเดต
+ * ในที่เดิม ไม่แตะ endpoint จึงไม่ต้องลบก่อน — ลบเฉพาะ peer ที่คีย์ไม่ตรงเท่านั้น
+ */
+function cleanupVpsPeerByIp(wireguardIp, keepPubKey) {
+    if (!wireguardIp) return;
+    const keep = keepPubKey ? String(keepPubKey).trim() : null;
+    const { execSync } = require('child_process');
+    const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+    const lines = dump.split('\n');
+    const targetIpStr = wireguardIp.trim() + '/32';
+    for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 4) {
+            const pubKey = parts[0];
+            const allowedIps = parts[3];
+            if (allowedIps && allowedIps.includes(targetIpStr)) {
+                if (keep && pubKey === keep) continue;   // คีย์ถูกต้องอยู่แล้ว ปล่อยไว้ อย่าทำให้อุโมงค์ขาด
+                execSync(`sudo wg set wg0 peer "${pubKey}" remove`, { encoding: 'utf8' });
+            }
+        }
+    }
+}
+
+function registerVpsPeer(wireguardIp, clientPublicKey) {
+    if (!wireguardIp || !clientPublicKey) return;
+    // ส่งคีย์ที่กำลังจะตั้งไปด้วย เพื่อไม่ให้ลบ peer ที่ถูกต้องอยู่แล้วทิ้ง
+    cleanupVpsPeerByIp(wireguardIp, clientPublicKey);
+    const { execSync } = require('child_process');
+    execSync(`sudo wg set wg0 peer "${clientPublicKey.trim()}" allowed-ips ${wireguardIp.trim()}/32`, { encoding: 'utf8' });
+    execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
+}
+
+// Auto-sync all WireGuard peers from database to wg0 on startup
+(async function syncAllWireguardPeersOnStartup() {
+    try {
+        const sitesData = await db.getSites();
+        if (sitesData && sitesData.sites) {
+            for (const s of sitesData.sites) {
+                if (s.connectionType === 'wireguard' && s.wireguardPublicKey && s.wireguardIp) {
+                    try {
+                        registerVpsPeer(s.wireguardIp, s.wireguardPublicKey);
+                        console.log(`[WireGuard Sync] Registered peer ${s.name} (${s.wireguardIp}) on VPS`);
+                    } catch (_) {}
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[WireGuard Startup Sync Notice]:', err.message);
+    }
+})();
+
+// Add new site (Admin only)
+app.post('/api/sites', requireAuth(['admin']), async (req, res) => {
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Name is required' });
+    }
+    try {
+        const newSite = await db.addSite({ name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled });
+        if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
+            try {
+                registerVpsPeer(wireguardIp, wireguardPublicKey);
+            } catch (wgErr) {
+                console.error('[WireGuard] Failed to register VPS peer for new site', name, ':', wgErr.message);
+                db.addLog('System Auto', 'WireGuard Peer ลงทะเบียนล้มเหลว', `ไซต์ ${name}: ${wgErr.message}`);
+            }
+        }
+        db.addLog(req.user.username, 'เพิ่มไซต์งานใหม่', 'เพิ่มไซต์งาน ' + name + ' (IP: ' + newSite.host + ')');
+        res.status(201).json(newSite);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Update site (Admin only)
+app.put('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
+    const { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled } = req.body;
+    try {
+        const updated = await db.updateSite(req.params.id, { name, host, port, username, password, connectionType, wireguardIp, wireguardPublicKey, dnsLoggingEnabled });
+        if (connectionType === 'wireguard' && wireguardPublicKey && wireguardIp) {
+            try {
+                registerVpsPeer(wireguardIp, wireguardPublicKey);
+            } catch (wgErr) {
+                console.error('[WireGuard] Failed to register VPS peer for site', updated.name, ':', wgErr.message);
+                db.addLog('System Auto', 'WireGuard Peer ลงทะเบียนล้มเหลว', `ไซต์ ${updated.name}: ${wgErr.message}`);
+            }
+        }
+        db.addLog(req.user.username, 'แก้ไขไซต์งาน', 'แก้ไขข้อมูลไซต์งาน: ' + updated.name);
+        res.json(updated);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Generate WireGuard Setup Script for MikroTik
+app.post('/api/wireguard/generate-script', requireAuth(['admin']), async (req, res) => {
+    const { wireguardIp, vpsPublicKey, clientPublicKey, port, siteId } = req.body;
+    const targetIp = wireguardIp || '10.10.88.2';
+    const targetPort = parseInt(port) || 8728;
+    let autoRegistered = false;
+
+    // Guard against generating a script for an IP another site already owns —
+    // the site-save validation (addSite/updateSite) catches this too, but only
+    // if the admin actually saves before generating; this route is reachable
+    // (and the script copyable to a real router) independently of saving, so
+    // it needs its own check. Root-caused a real IP collision this session
+    // (two different routers both configured for 10.10.88.2).
+    try {
+        const sitesData = await db.getSites();
+        const dup = (sitesData.sites || []).find(s => s.id !== siteId && (s.wireguardIp === targetIp || s.host === targetIp));
+        if (dup) {
+            return res.status(400).json({ error: `WireGuard IP ${targetIp} ถูกใช้อยู่แล้วโดยไซต์ "${dup.name}" กรุณาเลือก IP อื่น` });
+        }
+    } catch (e) {
+        // Fail-open on the check itself (e.g. DB hiccup) — don't block script
+        // generation over a transient error unrelated to the actual collision.
+    }
+
+    if (clientPublicKey && clientPublicKey.trim()) {
+        try {
+            registerVpsPeer(targetIp, clientPublicKey);
+            autoRegistered = true;
+            db.addLog(req.user.username, 'ลงทะเบียน WireGuard Peer อัตโนมัติ', `ลงทะเบียนคีย์สำหรับ IP ${targetIp}`);
+        } catch (e) {}
+    }
+    
+    let pubKey = vpsPublicKey;
+    if (!pubKey) {
+        try {
+            const { execSync } = require('child_process');
+            pubKey = execSync('wg show wg0 public-key 2>/dev/null || sudo wg show wg0 public-key 2>/dev/null', { encoding: 'utf8' }).trim();
+        } catch (e) {}
+    }
+    if (!pubKey) {
+        try {
+            const candidatePaths = [
+                '/etc/wireguard/publickey',
+                path.join(__dirname, 'vps_publickey.txt'),
+                path.join(__dirname, 'publickey')
+            ];
+            for (const p of candidatePaths) {
+                if (fs.existsSync(p)) {
+                    pubKey = fs.readFileSync(p, 'utf8').trim();
+                    if (pubKey) break;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to read VPS public key:', e.message);
+        }
+    }
+    if (!pubKey) {
+        return res.status(500).json({ error: 'ไม่สามารถอ่าน VPS WireGuard Public Key ได้ — ตรวจสอบว่า wg0 ทำงานอยู่และ sudoers ตั้งค่าถูกต้อง (ลองรัน: sudo -n wg show wg0 public-key)' });
+    }
+
+    // Auto-registration callback: if PUBLIC_APP_URL is configured, embed a
+    // /tool/fetch call in the script that POSTs the router's freshly-generated
+    // public key straight back to us — no manual copy-paste needed. Falls back
+    // to the existing fully-manual Step 2 flow if not configured.
+    let callbackScriptBlock = '';
+    if (process.env.PUBLIC_APP_URL) {
+        const token = crypto.randomBytes(24).toString('hex');
+        wgRegistrationTokens.set(token, { wireguardIp: targetIp, siteId: siteId || null, expiresAt: Date.now() + WG_TOKEN_TTL_MS });
+        persistWgTokens();   // ต้องเขียนทันที — เราท์เตอร์อาจโทรกลับมาภายในไม่กี่วินาที
+        callbackScriptBlock = `
+# 7. Auto-register this router's key with the dashboard (no manual copy-paste needed)
+# Sent as a plain HTTP header, not a JSON body (avoids any string-escaping
+# issues). Confirmed live on RouterOS 7.2.2: assigning the key to a
+# ":local pubkey [...]" variable first silently loses the value — call
+# [/interface/wireguard/get ... public-key] directly inline instead, which
+# works correctly.
+/tool/fetch url="${process.env.PUBLIC_APP_URL}/api/wireguard/callback-register?token=${token}" http-method=post http-header-field=("X-Public-Key: " . [/interface/wireguard/get [find name=wg-gatekeeper] public-key]) output=none
+:put "Public Key auto-registered to dashboard!"`;
+    } else {
+        console.warn('[WireGuard] PUBLIC_APP_URL not set — script will not self-register, Step 2 manual paste is required.');
+    }
+
+    const script = `# ======================================================
+# MikroTik RouterOS WireGuard Setup Script (MT Management)
+# Targeted IP: ${targetIp}
+# API Port: ${targetPort}
+# VPS Endpoint: 157.85.108.84:51820
+# ======================================================
+
+# 1. Clear existing interface, peers, and IP if any — removing the interface
+# does NOT cascade-delete its peers/addresses on this RouterOS version, so
+# they'd otherwise accumulate as orphaned "unknown"-interface entries on every
+# re-run of this script. This router only ever has the one VPS Hub Server
+# peer, so it's safe to clear all WireGuard peers/addresses unconditionally.
+/interface/wireguard/peers/remove [find]
+/ip/address/remove [find comment="WireGuard VPN IP"]
+/interface/wireguard/remove [find name=wg-gatekeeper]
+
+# 2. Add WireGuard interface
+/interface/wireguard/add name=wg-gatekeeper listen-port=13231 comment="MT Management WireGuard"
+
+# 3. Add IP Address
+/ip/address/add address=${targetIp}/24 interface=wg-gatekeeper comment="WireGuard VPN IP"
+
+# 4. Add VPS Server Peer
+/interface/wireguard/peers/add interface=wg-gatekeeper endpoint-address="157.85.108.84" endpoint-port=51820 allowed-address=10.10.88.0/24 persistent-keepalive=25s comment="VPS Hub Server" public-key="${pubKey}"
+
+# 5. Security Hardening (Lock API Service to VPN Subnet Only & Set Custom Port)
+/ip/service/set api address=10.10.88.0/24 port=${targetPort} disabled=no
+/ip/service/disable api-ssl
+
+# 6. Display Result
+:put "--------------------------------------------------------"
+:put "WireGuard Interface & Security Hardening Completed!"
+:put "Your Router WireGuard Public Key is:"
+:put [/interface/wireguard/get [find name=wg-gatekeeper] public-key]
+:put "--------------------------------------------------------"
+${callbackScriptBlock}
+`;
+
+    res.json({ script, wireguardIp: targetIp, autoRegistered });
+});
+
+// Callback endpoint the generated RouterOS script hits via /tool/fetch to
+// self-register its public key — no requireAuth (the router can't do our
+// session auth), security instead comes from the token being random,
+// single-use, and only created moments earlier by an authenticated admin
+// action (see generate-script above). Still covered by the global apiLimiter.
+//
+// The public key arrives as a plain X-Public-Key header, not a JSON body —
+// two earlier attempts at building a JSON body string inside the RouterOS
+// script (inline interpolation, then string concatenation) both silently
+// produced empty/malformed output, confirmed live via diagnostic logging.
+// A raw header value sidesteps RouterOS's string-escaping quirks entirely.
+// TEMPORARY diagnostic route — echoes back everything received (method,
+// headers, raw body) so we can see exactly what RouterOS's /tool/fetch
+// actually transmits, instead of continuing to guess blind. Point a
+// standalone /tool/fetch test at this URL directly (not through the full
+// generated script) to isolate the transport layer from script logic.
+// Safe to remove once the real callback-register issue is resolved.
+// TEMPORARY diagnostic route — disabled in production unless ENABLE_WG_DEBUG=1.
+// Echoes request details; never leave open on a public VPS.
+app.all('/api/wireguard/debug-echo', express.text({ type: () => true }), (req, res) => {
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_WG_DEBUG !== '1') {
+        return res.status(404).json({ error: 'Not found' });
+    }
+    const info = {
+        method: req.method,
+        query: req.query,
+        headers: req.headers,
+        rawBody: req.body
+    };
+    console.log('[wg-debug-echo]', JSON.stringify(info, null, 2));
+    res.json({ received: info });
+});
+
+app.post('/api/wireguard/callback-register', async (req, res) => {
+    const token = req.query.token;
+    const publicKey = req.headers['x-public-key'];
+    console.log('[wg-callback] X-Public-Key header:', publicKey ? '(present, len=' + publicKey.length + ')' : '(missing)');
+    if (!token || !publicKey) {
+        return res.status(400).json({ error: 'token and publicKey are required' });
+    }
+    const entry = wgRegistrationTokens.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+        return res.status(401).json({ error: 'Token invalid or expired' });
+    }
+    wgRegistrationTokens.delete(token); // single-use
+    persistWgTokens();   // ใช้ไปแล้วต้องใช้ซ้ำไม่ได้ แม้ server จะรีสตาร์ต
+    try {
+        registerVpsPeer(entry.wireguardIp, publicKey);
+        if (entry.siteId) {
+            // Best-effort — db.updateSite is sync in JSON mode, async in Supabase
+            // mode, and either can throw/reject (e.g. unknown siteId); don't let
+            // that fail the whole registration.
+            try {
+                const maybePromise = db.updateSite(entry.siteId, { wireguardPublicKey: publicKey });
+                if (maybePromise && typeof maybePromise.catch === 'function') maybePromise.catch(() => {});
+            } catch (e) {}
+        }
+        db.addLog('MikroTik Auto-Callback', 'ลงทะเบียน WireGuard Peer อัตโนมัติ', `IP ${entry.wireguardIp}`);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Check live connection status of a site's WireGuard peer (handshake/traffic)
+app.get('/api/wireguard/peer-status', requireAuth(['admin']), (req, res) => {
+    const wireguardIp = req.query.wireguardIp;
+    if (!wireguardIp) {
+        return res.status(400).json({ error: 'wireguardIp is required' });
+    }
+    try {
+        const { execSync } = require('child_process');
+        const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+        const targetIpStr = wireguardIp.trim() + '/32';
+        const lines = dump.trim().split('\n').slice(1); // skip interface line (only 4 fields)
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 8 && parts[3] && parts[3].includes(targetIpStr)) {
+                const handshake = parseInt(parts[4]) || 0; // unix epoch seconds, 0 = never
+                return res.json({
+                    connected: handshake > 0,
+                    endpoint: parts[2] && parts[2] !== '(none)' ? parts[2] : null,
+                    lastHandshakeSecondsAgo: handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null,
+                    transferRx: parseInt(parts[5]) || 0,
+                    transferTx: parseInt(parts[6]) || 0
+                });
+            }
+        }
+        res.json({ connected: false, endpoint: null, lastHandshakeSecondsAgo: null, transferRx: 0, transferTx: 0 });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Bulk version of the above — one wg0 read, returns every WireGuard peer's
+// real endpoint IP (the router's actual public IP:port it's connecting
+// from) keyed by its tunnel IP, so the Sites Management page can show the
+// real source IP for every site in one call instead of one request per site.
+app.get('/api/wireguard/all-peers-status', requireAuth(['admin']), (req, res) => {
+    try {
+        const { execSync } = require('child_process');
+        const dump = execSync('sudo wg show wg0 dump', { encoding: 'utf8' });
+        const lines = dump.trim().split('\n').slice(1); // skip interface line
+        const peers = {};
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 8) continue;
+            const ipMatch = (parts[3] || '').match(/^(\d{1,3}(?:\.\d{1,3}){3})\/32/);
+            if (!ipMatch) continue;
+            const handshake = parseInt(parts[4]) || 0;
+            peers[ipMatch[1]] = {
+                endpoint: parts[2] && parts[2] !== '(none)' ? parts[2] : null,
+                connected: handshake > 0,
+                lastHandshakeSecondsAgo: handshake > 0 ? Math.floor(Date.now() / 1000) - handshake : null,
+                transferRx: parseInt(parts[5]) || 0,
+                transferTx: parseInt(parts[6]) || 0
+            };
+        }
+        res.json(peers);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Register MikroTik Peer into VPS WireGuard automatically
+app.post('/api/wireguard/register-peer', requireAuth(['admin']), (req, res) => {
+    const { clientPublicKey, wireguardIp } = req.body;
+    if (!clientPublicKey || !wireguardIp) {
+        return res.status(400).json({ error: 'Client Public Key and WireGuard IP are required' });
+    }
+    try {
+        registerVpsPeer(wireguardIp, clientPublicKey);
+        db.addLog(req.user.username, 'ลงทะเบียน WireGuard Peer', `ลงทะเบียนคีย์สำหรับ IP ${wireguardIp}`);
+        res.json({ success: true, message: 'ลงทะเบียน Peer บน VPS สำเร็จ (พร้อมล้างค่าคีย์เก่า)' });
+    } catch (err) {
+        res.status(500).json({ error: `ไม่สามารถลงทะเบียน Peer บน VPS ได้: ${err.message}` });
+    }
+});
+
+// Remove Peer from VPS WireGuard manually
+app.post('/api/wireguard/remove-peer', requireAuth(['admin']), (req, res) => {
+    const { wireguardIp } = req.body;
+    if (!wireguardIp) {
+        return res.status(400).json({ error: 'WireGuard IP is required' });
+    }
+    try {
+        cleanupVpsPeerByIp(wireguardIp);
+        const { execSync } = require('child_process');
+        execSync('sudo wg-quick save wg0', { encoding: 'utf8' });
+        db.addLog(req.user.username, 'ลบ WireGuard Peer', `ลบ Peer สำหรับ IP ${wireguardIp} บน VPS`);
+        res.json({ success: true, message: `ล้างค่า WireGuard Peer สำหรับ IP ${wireguardIp} บน VPS เรียบร้อยแล้ว` });
+    } catch (err) {
+        res.status(500).json({ error: `ไม่สามารถล้างค่า Peer บน VPS ได้: ${err.message}` });
+    }
+});
+
+// Generate Uninstall Script for MikroTik
+app.post('/api/wireguard/generate-uninstall-script', requireAuth(['admin']), (req, res) => {
+    const script = `# ======================================================
+# MikroTik RouterOS WireGuard Clean-up / Uninstall Script
+# ======================================================
+
+# 1. Remove WireGuard Interface and associated IPs/Peers
+/interface/wireguard/remove [find name=wg-gatekeeper]
+/ip/address/remove [find comment="WireGuard VPN IP"]
+
+:put "--------------------------------------------------------"
+:put "WireGuard Interface & Configuration Removed Successfully!"
+:put "--------------------------------------------------------"
+`;
+    res.json({ script });
+});
+
+
+
+// Delete site (Admin only)
+app.delete('/api/sites/:id', requireAuth(['admin']), async (req, res) => {
+    try {
+        await db.deleteSite(req.params.id);
+        db.addLog(req.user.username, 'ลบไซต์งาน', 'ลบไซต์งาน ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Legacy single config endpoints (backward compatible)
+app.get('/api/config', requireAuth(['admin']), async (req, res) => {
+    try {
+        const config = await db.getConfig();
+        res.json({
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            hasPassword: !!config.password
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/config', requireAuth(['admin']), async (req, res) => {
+    const { host, port, username, password } = req.body;
+    if (!host || !username) {
+        return res.status(400).json({ error: 'Host and Username are required' });
+    }
+    try {
+        const existingConfig = await db.getConfig();
+        const newConfig = {
+            host,
+            port: parseInt(port) || 8728,
+            username,
+            password: password !== undefined ? password : existingConfig.password
+        };
+        await db.saveConfig(newConfig);
+        db.addLog(req.user.username, 'ตั้งค่าเราท์เตอร์', 'อัปเดตข้อมูลเชื่อมโยงเราท์เตอร์ IP: ' + host);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ==========================================
+// MikroTik Router API Proxy Routes
+// ==========================================
+
+// Check router connection test (supports ?siteId= or header)
+app.get('/api/mikrotik/test-connection', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const siteId = req.query.siteId || req.headers?.['x-site-id'];
+    try {
+        await executeOnRouter(siteId, async (client) => {
+            await client.exec('/system/resource/print');
+        });
+        res.json({ success: true, message: 'Connected successfully' });
+    } catch (err) {
+        res.status(500).json({ error: `Connection failed: ${err.message}` });
+    }
+});
+
+// Deep Diagnostic Endpoint for Router Connection (Step-by-step root cause analysis)
+app.get('/api/mikrotik/diagnose-site', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const siteId = req.query.siteId || req.headers['x-site-id'];
+    try {
+        const config = await db.getConfig(siteId);
+        // ตรรกะทั้งหมดอยู่ที่ lib/site-diagnostics.js — ใช้ร่วมกับ scripts/check-sites.js
+        // เดิมเขียนซ้ำกันคนละแบบสามที่ ทำให้เกณฑ์ตัดสิน (เช่น handshake เก่าแค่ไหน)
+        // เพี้ยนกันไปเรื่อยและหน้าเว็บกับ CLI ตอบไม่ตรงกัน
+        const result = await siteDiagnostics.diagnose({
+            config,
+            runOnRouter: (fn) => executeOnRouter(fn, siteId),
+            readWgDump: () => {
+                try {
+                    return require('child_process')
+                        .execSync('sudo -n wg show wg0 dump', { encoding: 'utf8', timeout: 8000 });
+                } catch (_) {
+                    return null;   // ไม่มีสิทธิ์ = ข้ามชั้นนั้น ไม่ใช่ถือว่าไม่มี peer
+                }
+            }
+        });
+        res.json({ success: result.success, site: sanitizeSitePublic ? sanitizeSitePublic(config) : config, steps: result.steps });
+    } catch (err) {
+        res.status(500).json({ success: false, steps: [], error: err.message });
+    }
+});
+
+// Helper to fetch official MikroTik latest versions from upgrade.mikrotik.com and fleet intelligence
+let _mikrotikLatestVersions = { v7: '7.24.1', v6: '6.49.20', lastFetched: 0 };
+
+function compareSemver(v1, v2) {
+    // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if v1 == v2
+    if (!v1 || !v2 || v1 === 'N/A' || v2 === 'N/A') return 0;
+    const clean1 = String(v1).replace(/^v/i, '').split(/[\s-]+/)[0];
+    const clean2 = String(v2).replace(/^v/i, '').split(/[\s-]+/)[0];
+    const p1 = clean1.split('.').map(n => parseInt(n) || 0);
+    const p2 = clean2.split('.').map(n => parseInt(n) || 0);
+    const maxLen = Math.max(p1.length, p2.length);
+    for (let i = 0; i < maxLen; i++) {
+        const num1 = p1[i] || 0;
+        const num2 = p2[i] || 0;
+        if (num1 > num2) return 1;
+        if (num1 < num2) return -1;
+    }
+    return 0;
+}
+
+async function getOfficialMikrotikLatestVersions() {
+    const now = Date.now();
+    if (now - _mikrotikLatestVersions.lastFetched < 3600000) {
+        return _mikrotikLatestVersions;
+    }
+    function fetchUrl(url) {
+        return new Promise((resolve) => {
+            // option `timeout` ของ https.get ตั้งแค่ idle timeout ของ socket
+            // มัน "ไม่" ยกเลิก request ให้เอง ต้อง destroy เองใน event 'timeout'
+            // ไม่งั้นถ้า upgrade.mikrotik.com ช้าหรือถูกบล็อก promise นี้จะไม่ resolve
+            // แล้ว /api/mikrotik/status จะค้างทั้ง endpoint (บั๊กแบบเดียวกับ routeros.js)
+            const req = https.get(url, { timeout: 3500 }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(data.trim().split(/\s+/)[0] || null));
+            });
+            req.on('timeout', () => { req.destroy(); resolve(null); });
+            req.on('error', () => resolve(null));
+        });
+    }
+
+    try {
+        const [v7, v6] = await Promise.all([
+            fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.7'),
+            fetchUrl('https://upgrade.mikrotik.com/routeros/LATEST.6')
+        ]);
+        if (v7 && compareSemver(v7, _mikrotikLatestVersions.v7) > 0) _mikrotikLatestVersions.v7 = v7;
+        if (v6 && compareSemver(v6, _mikrotikLatestVersions.v6) > 0) _mikrotikLatestVersions.v6 = v6;
+    } catch (_) {
+    } finally {
+        // ตั้งเวลาไว้เสมอแม้ดึงไม่สำเร็จ ไม่งั้นทุก request จะไปลองใหม่
+        // แล้วรอ 3.5 วินาทีต่อครั้ง ทำให้หน้า Overview ช้าโดยไม่จำเป็น
+        _mikrotikLatestVersions.lastFetched = now;
+    }
+    return _mikrotikLatestVersions;
+}
+
+// 1. Overview System Resource status
+app.get('/api/mikrotik/status', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const officialVersions = await getOfficialMikrotikLatestVersions();
+        const stats = await executeOnRouter(req, async (client) => {
+            const resources = await client.exec('/system/resource/print');
+            const routerboard = await client.exec('/system/routerboard/print');
+            let health = [];
+            try {
+                health = await client.exec('/system/health/print');
+            } catch (e) {}
+            
+            const r = resources[0] || {};
+            const rb = routerboard[0] || {};
+            
+            let tempVal = null;
+            let voltVal = null;
+
+            if (Array.isArray(health)) {
+                for (const item of health) {
+                    if (item.name) {
+                        const n = String(item.name).toLowerCase();
+                        if (n.includes('temp') && item.value && !tempVal) {
+                            tempVal = `${item.value}°C`;
+                        }
+                        if (n.includes('voltage') && item.value && !voltVal) {
+                            voltVal = `${item.value}V`;
+                        }
+                    }
+                    if (item.temperature && !tempVal) tempVal = `${item.temperature}°C`;
+                    if (item['cpu-temperature'] && !tempVal) tempVal = `${item['cpu-temperature']}°C`;
+                    if (item.voltage && !voltVal) voltVal = `${(parseFloat(item.voltage) / (parseFloat(item.voltage) > 100 ? 10 : 1)).toFixed(1)}V`;
+                }
+            } else if (typeof health === 'object' && health !== null) {
+                if (health.temperature) tempVal = `${health.temperature}°C`;
+                if (health['cpu-temperature']) tempVal = `${health['cpu-temperature']}°C`;
+                if (health.voltage) voltVal = `${(parseFloat(health.voltage) / (parseFloat(health.voltage) > 100 ? 10 : 1)).toFixed(1)}V`;
+            }
+            
+            const currentVer = r.version ? r.version.split(' ')[0] : 'N/A';
+            const isV6 = (r.version || '').startsWith('6');
+
+            // Fleet intelligence: remember highest version seen across fleet
+            if (currentVer !== 'N/A') {
+                if (isV6) {
+                    if (compareSemver(currentVer, _mikrotikLatestVersions.v6) > 0) _mikrotikLatestVersions.v6 = currentVer;
+                } else {
+                    if (compareSemver(currentVer, _mikrotikLatestVersions.v7) > 0) _mikrotikLatestVersions.v7 = currentVer;
+                }
+            }
+
+            const latestKnown = isV6 ? _mikrotikLatestVersions.v6 : _mikrotikLatestVersions.v7;
+            const isNew = !!(latestKnown && currentVer !== 'N/A' && compareSemver(latestKnown, currentVer) > 0);
+
+            return {
+                uptime: r.uptime || 'N/A',
+                version: r.version || 'N/A',
+                currentVersion: currentVer,
+                latestVersion: isNew ? latestKnown : currentVer,
+                hasUpdate: isNew,
+                cpuLoad: r['cpu-load'] ? `${r['cpu-load']}%` : 'N/A',
+                freeMemory: r['free-memory'] ? parseInt(r['free-memory']) : 0,
+                totalMemory: r['total-memory'] ? parseInt(r['total-memory']) : 0,
+                cpu: r.cpu || 'N/A',
+                boardName: r['board-name'] || 'N/A',
+                model: rb.model || r['board-name'] || 'MikroTik Router',
+                serialNumber: rb['serial-number'] || 'N/A',
+                currentFirmware: rb['current-firmware'] || r.version || 'N/A',
+                upgradeFirmware: rb['upgrade-firmware'] || 'N/A',
+                factoryFirmware: rb['factory-firmware'] || 'N/A',
+                temperature: tempVal,
+                voltage: voltVal
+            };
+        });
+        res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Check RouterOS updates
+app.get('/api/mikrotik/system/update-check', requireAuth(['admin']), async (req, res) => {
+    try {
+        const officialVersions = await getOfficialMikrotikLatestVersions();
+        const result = await executeOnRouter(req, async (client) => {
+            const updates = await client.exec('/system/package/update/check-for-updates', {}, { timeoutMs: 60000 });
+            const resources = await client.exec('/system/resource/print');
+            const u = updates[0] || {};
+            const r = resources[0] || {};
+            const installed = u['installed-version'] || u['current-version'] || (r.version ? r.version.split(' ')[0] : 'N/A');
+            const isV6 = (installed || '').startsWith('6');
+            let latest = u['latest-version'] || (isV6 ? officialVersions.v6 : officialVersions.v7) || 'N/A';
+            const isNewAvailable = compareSemver(latest, installed) > 0;
+            
+            return {
+                channel: u.channel || 'stable',
+                installedVersion: installed,
+                latestVersion: latest,
+                isNewAvailable: isNewAvailable,
+                status: isNewAvailable ? (u.status || 'New version is available') : 'System is already up to date'
+            };
+        });
+        res.json(result);
+    } catch (err) {
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Install RouterOS update (with Auto-Backup Safety Guard)
+app.post('/api/mikrotik/system/update-install', requireAuth(['admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            // Safety Step: Save backup snapshot on router before updating
+            try {
+                const nowStr = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_' + Date.now();
+                await client.exec('/system/backup/save', { name: `pre-upgrade-${nowStr}` }, { timeoutMs: 120000 });
+            } catch (backupErr) {
+                console.warn('[Update Safety Guard] Auto-backup notice:', backupErr.message);
+            }
+            await client.exec('/system/package/update/install', {}, { timeoutMs: 300000, expectDisconnect: true });
+        });
+        db.addLog(req.user.username, 'อัปเดต RouterOS (Auto-Backup)', 'สร้างไฟล์สำรองอัตโนมัติและสั่งติดตั้ง RouterOS เวอร์ชันใหม่พร้อมรีบูต');
+        res.json({ success: true, message: 'สำรองคอนฟิกอัตโนมัติและสั่งดาวน์โหลด/ติดตั้ง RouterOS เรียบร้อยแล้ว เราท์เตอร์จะทำการรีบูตใน 1-2 นาที' });
+    } catch (err) {
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Upgrade RouterBOARD Firmware
+app.post('/api/mikrotik/system/firmware-upgrade', requireAuth(['admin']), async (req, res) => {
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            await client.exec('/system/routerboard/upgrade', {}, { timeoutMs: 120000 });
+            const rb = await client.exec('/system/routerboard/print');
+            return rb[0] || {};
+        });
+        db.addLog(req.user.username, 'อัปเกรด RouterBOARD Firmware', 'สั่งอัปเกรด Firmware สำเร็จ (ต้องการรีบูตเพื่อให้มีผล)');
+        res.json({ success: true, message: 'อัปเกรด RouterBOARD Firmware เรียบร้อยแล้ว กรุณารีบูตเราท์เตอร์เพื่อให้ Firmware ใหม่เริ่มทำงาน', routerboard: result });
+    } catch (err) {
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Full System Upgrade Stage 2: Firmware Upgrade + Automated Final Reboot
+app.post('/api/mikrotik/system/full-upgrade-stage2', requireAuth(['admin']), async (req, res) => {
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            await client.exec('/system/routerboard/upgrade', {}, { timeoutMs: 120000 });
+            const rb = await client.exec('/system/routerboard/print');
+            // Trigger reboot after 1.5s
+            setTimeout(async () => {
+                try {
+                    await executeOnRouter(req, async (c2) => {
+                        await c2.exec('/system/reboot', {}, { timeoutMs: 15000, expectDisconnect: true });
+                    });
+                } catch (_) {}
+            }, 1500);
+            return rb[0] || {};
+        });
+        db.addLog(req.user.username, 'อัปเกรด Firmware อัตโนมัติ (Stage 2)', 'สั่งอัปเกรด RouterBOARD Firmware พร้อมรีบูตอัตโนมัติ');
+        res.json({ success: true, message: 'สั่งอัปเกรด RouterBOARD Firmware พร้อมสั่งรีบูตเรียบร้อยแล้ว', routerboard: result });
+    } catch (err) {
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'upgrade', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Reboot Router
+app.post('/api/mikrotik/system/reboot', requireAuth(['admin']), async (req, res) => {
+    try {
+        executeOnRouter(req, async (client) => {
+            await client.exec('/system/reboot', {}, { timeoutMs: 15000, expectDisconnect: true });
+        }).catch(() => {});
+        db.addLog(req.user.username, 'รีบูตเราท์เตอร์', 'สั่ง Reboot เราท์เตอร์ผ่านแดชบอร์ด');
+        res.json({ success: true, message: 'สั่งรีบูตเราท์เตอร์เรียบร้อยแล้ว ระบบกำลังเริ่มต้นใหม่ใน 30-60 วินาที' });
+    } catch (err) {
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'reboot', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Flush DNS Cache
+app.post('/api/mikrotik/system/flush-dns', requireAuth(['admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/dns/cache/flush');
+        });
+        db.addLog(req.user.username, 'ล้าง DNS Cache', 'สั่ง Flush DNS Cache บนเราท์เตอร์สำเร็จ');
+        res.json({ success: true, message: 'ล้าง DNS Cache บนเราท์เตอร์สำเร็จเรียบร้อย' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Ping Test
+app.post('/api/mikrotik/system/ping-test', requireAuth(['admin']), async (req, res) => {
+    try {
+        const host = req.body.host || '8.8.8.8';
+        const count = req.body.count || '4';
+        const result = await executeOnRouter(req, async (client) => {
+            return await client.exec('/ping', { address: host, count: String(count) }, { timeoutMs: (count + 15) * 1000 });
+        });
+        res.json({ success: true, host, count, results: result });
+    } catch (err) {
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'nettest', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Quick Router Backup (.backup)
+app.post('/api/mikrotik/system/backup', requireAuth(['admin']), async (req, res) => {
+    try {
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const name = (req.body.name || `backup-${dateStr}`).replace(/[^a-zA-Z0-9_-]/g, '');
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/system/backup/save', { name }, { timeoutMs: 120000 });
+        });
+        db.addLog(req.user.username, 'สำรองคอนฟิกเราท์เตอร์', `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์สำเร็จ`);
+        res.json({ success: true, message: `สร้างไฟล์สำรอง ${name}.backup บนเราท์เตอร์เรียบร้อยแล้ว` });
+    } catch (err) {
+        // แปลง error ดิบของ RouterOS ให้บอกว่าต้องไปแก้อะไรที่ไหน
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'backup', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Network Speed & Jitter Quality Test
+app.post('/api/mikrotik/system/quality-test', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const targetHost = req.body.target || '1.1.1.1'; // Cloudflare DNS
+        const result = await executeOnRouter(req, async (client) => {
+            const pings = await client.exec('/ping', { address: targetHost, count: '6' }, { timeoutMs: 30000 });
+            const times = [];
+            let lost = 0;
+            (pings || []).forEach(p => {
+                if (p.time) {
+                    const ms = parseFloat(p.time.replace('ms', ''));
+                    if (!isNaN(ms)) times.push(ms);
+                } else if (p.status === 'timeout' || p.packetLoss) {
+                    lost++;
+                }
+            });
+
+            const count = (pings || []).length || 6;
+            const min = times.length > 0 ? Math.min(...times) : 0;
+            const max = times.length > 0 ? Math.max(...times) : 0;
+            const avg = times.length > 0 ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : 0;
+            const packetLossPct = count > 0 ? Math.round(((count - times.length) / count) * 100) : 0;
+            const jitter = times.length > 1 ? (max - min).toFixed(1) : 0;
+
+            let quality = 'ดีเยี่ยม (Excellent)';
+            let qualityScore = 'A+';
+            if (packetLossPct > 10 || avg > 80) {
+                quality = 'สัญญาณมีปัญหา (Poor)';
+                qualityScore = 'D';
+            } else if (packetLossPct > 0 || avg > 40) {
+                quality = 'ปานกลาง (Fair)';
+                qualityScore = 'B';
+            } else if (avg > 25) {
+                quality = 'ดี (Good)';
+                qualityScore = 'A';
+            }
+
+            return {
+                target: targetHost,
+                count,
+                minMs: min,
+                maxMs: max,
+                avgMs: avg,
+                jitterMs: jitter,
+                packetLoss: `${packetLossPct}%`,
+                quality,
+                qualityScore,
+                pings
+            };
+        });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        const cfg = await Promise.resolve(db.getConfig(req.query.siteId || req.headers['x-site-id'])).catch(() => ({}));
+        res.status(500).json({
+            error: rosErrors.explain(err, { task: 'nettest', username: cfg.username, siteName: cfg.name }),
+            permissionIssue: rosErrors.isPermissionError(err)
+        });
+    }
+});
+
+// Global Search across all sites (Hotspot users, PPPoE rooms, sites, configs)
+app.get('/api/search/global', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    if (!q || q.length < 2) return res.json({ results: [] });
+
+    const results = [];
+    try {
+        const sitesData = await db.getSites();
+        const allowedSites = isSiteLockedUser(req.user) 
+            ? (sitesData.sites || []).filter(s => s.id === req.user.assignedSiteId)
+            : (sitesData.sites || []);
+
+        for (const s of allowedSites) {
+            // Match Site Name / IP
+            if (s.name.toLowerCase().includes(q) || (s.wireguardIp && s.wireguardIp.includes(q)) || (s.host && s.host.includes(q))) {
+                results.push({
+                    type: 'site',
+                    category: 'ไซต์งาน / สาขา',
+                    title: s.name,
+                    subtitle: `IP: ${s.host} (WireGuard: ${s.wireguardIp || '-'})`,
+                    siteId: s.id,
+                    siteName: s.name,
+                    icon: 'fa-solid fa-server',
+                    action: 'switch-site'
+                });
+            }
+
+            // Search Hotspot users and PPPoE for each site
+            try {
+                const config = await db.getConfig(s.id);
+                if (!config.host || !config.username) continue;
+                
+                // Hotspot Users
+                // ดึงจากเราท์เตอร์โดยตรง — Hotspot user ไม่ได้เก็บใน DB (แก้ 2026-08-28:
+                // เดิมเรียก db.getHotspotUsers() ซึ่งไม่มีอยู่จริงในทั้ง db.js และ db-supabase.js
+                // TypeError เลยถูก catch(_){} กลืน ทำให้ Global Search คืนแต่ผลลัพธ์ประเภทไซต์)
+                const hotspotUsers = await executeOnRouter(async (client) => {
+                    const rows = await client.exec('/ip/hotspot/user/print');
+                    return rows.map(u => ({
+                        username: u.name,
+                        profile: u.profile || '',
+                        comment: u.comment || '',
+                        macAddress: u['mac-address'] || '',
+                        disabled: u.disabled === 'true'
+                    }));
+                }, s.id).catch(() => []);
+                for (const u of (hotspotUsers || [])) {
+                    if ((u.username && u.username.toLowerCase().includes(q)) || (u.comment && u.comment.toLowerCase().includes(q)) || (u.macAddress && u.macAddress.toLowerCase().includes(q))) {
+                        results.push({
+                            type: 'hotspot',
+                            category: `Hotspot (${s.name})`,
+                            title: u.username,
+                            subtitle: `โปรไฟล์: ${u.profile || '-'} | สถานะ: ${u.disabled ? 'ปิดใช้งาน' : 'พร้อมใช้'} | คอมเมนต์: ${u.comment || '-'}`,
+                            siteId: s.id,
+                            siteName: s.name,
+                            icon: 'fa-solid fa-wifi',
+                            targetPage: 'page-hotspot-users'
+                        });
+                        if (results.length >= 30) break;
+                    }
+                }
+
+                // PPPoE Secrets
+                const pppoeSecrets = await executeOnRouter(async (client) => {
+                    return await client.exec('/ppp/secret/print');
+                }, s.id).catch(() => []);
+                for (const p of (pppoeSecrets || [])) {
+                    if ((p.name && p.name.toLowerCase().includes(q)) || (p.comment && p.comment.toLowerCase().includes(q)) || (p['remote-address'] && p['remote-address'].includes(q))) {
+                        results.push({
+                            type: 'pppoe',
+                            category: `ห้องพัก PPPoE (${s.name})`,
+                            title: p.name,
+                            subtitle: `โปรไฟล์: ${p.profile || '-'} | IP: ${p['remote-address'] || '-'} | คอมเมนต์: ${p.comment || '-'}`,
+                            siteId: s.id,
+                            siteName: s.name,
+                            icon: 'fa-solid fa-door-closed',
+                            targetPage: 'page-pppoe-users'
+                        });
+                        if (results.length >= 30) break;
+                    }
+                }
+            } catch (_) {}
+            if (results.length >= 30) break;
+        }
+
+        res.json({ results: results.slice(0, 25) });
+    } catch (err) {
+        res.status(500).json({ error: err.message, results: [] });
+    }
+});
+
+// 2. Read interface list and stats (for real-time traffic graph)
+app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const interfaces = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/interface/print');
+            return list.map(item => ({
+                id: item['.id'],
+                name: item.name,
+                type: item.type,
+                running: item.running === 'true',
+                disabled: item.disabled === 'true',
+                // Accumulative stats (in bytes)
+                rxByte: parseInt(item['rx-byte']) || 0,
+                txByte: parseInt(item['tx-byte']) || 0,
+                comment: item.comment || ''
+            }));
+        });
+        res.json(interfaces);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// Hotspot Management APIs (Admin and Co-Admin)
+// ==========================================
+
+// Read Hotspot users
+app.get('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const users = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/ip/hotspot/user/print');
+            return list.map(item => {
+                let userPassword = item.password || item['plain-password'] || item.pass || item.secret || '';
+                if (!userPassword) {
+                    for (const k of Object.keys(item)) {
+                        if (k.toLowerCase().includes('pass') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('pwd')) {
+                            if (item[k]) {
+                                userPassword = item[k];
+                                break;
+                            }
+                        }
+                    }
+                }
+                return {
+                    id: item['.id'],
+                    name: item.name,
+                    password: userPassword,
+                    profile: item.profile,
+                    uptime: item.uptime || '0s',
+                    bytesIn: parseInt(item['bytes-in']) || 0,
+                    bytesOut: parseInt(item['bytes-out']) || 0,
+                    limitUptime: item['limit-uptime'] || 'Unlimited',
+                    limitBytesTotal: parseInt(item['limit-bytes-total']) || 0,
+                    disabled: item.disabled === 'true',
+                    comment: item.comment || ''
+                };
+            });
+        });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// Create Hotspot user
+app.post('/api/mikrotik/hotspot/users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, password, profile, limitUptime, limitBytesTotal, comment } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            const params = {
+                name,
+                password: password || '',
+                profile: profile || 'default',
+                comment: comment || 'Added by Web Dashboard'
+            };
+            if (limitUptime) params['limit-uptime'] = limitUptime;
+            if (limitBytesTotal) params['limit-bytes-total'] = limitBytesTotal;
+            
+            return await client.exec('/ip/hotspot/user/add', params);
+        });
+        db.addLog(req.user.username, 'เพิ่มบัญชี Hotspot', 'เพิ่มผู้ใช้ ' + name + ' (โปรไฟล์: ' + profile + ')');
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit Hotspot user
+// Also doubles as the "renew / top-up" endpoint for an existing username: RouterOS
+// never resets the accumulated `uptime` counter on its own, so re-applying a fresh
+// limit-uptime to a coupon that already has usage history makes it look instantly
+// expired. `resetCounters`/`recreate` (both opt-in, off by default so a plain
+// cosmetic edit doesn't wipe usage stats) fix that — see CLAUDE.md "Renewing an
+// existing Hotspot username" for the full explanation.
+app.put('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, password, profile, limitUptime, limitBytesTotal, comment, resetCounters, recreate } = req.body;
+    try {
+        const result = await executeOnRouter(req, async (client) => {
+            // Renewal: kick any active session first so RouterOS doesn't keep counting
+            // uptime against a user record we're about to reset/replace underneath it.
+            if ((resetCounters || recreate) && name) {
+                try {
+                    const active = await client.exec('/ip/hotspot/active/print');
+                    for (const s of active.filter(a => a.user === name)) {
+                        await client.exec('/ip/hotspot/active/remove', { '.id': s['.id'] });
+                    }
+                } catch (e) { /* not fatal — continue applying the new limits */ }
+            }
+
+            if (recreate) {
+                // Delete + recreate: simplest way to guarantee a fully clean uptime/byte
+                // counter, recommended for single-use coupon codes.
+                await client.exec('/ip/hotspot/user/remove', { '.id': req.params.id });
+                const addParams = {
+                    name,
+                    password: password || '',
+                    profile: profile || 'default',
+                    comment: comment || ''
+                };
+                if (limitUptime) addParams['limit-uptime'] = limitUptime;
+                if (limitBytesTotal) addParams['limit-bytes-total'] = limitBytesTotal;
+                return await client.exec('/ip/hotspot/user/add', addParams);
+            }
+
+            if (resetCounters) {
+                // /ip/hotspot/user/reset-counters zeroes uptime + bytes-in/out for this
+                // user — must run BEFORE the new limit-uptime is applied below, or the
+                // still-accumulated old uptime gets compared against the new (often
+                // smaller) limit and the user is treated as already expired.
+                try {
+                    await client.exec('/ip/hotspot/user/reset-counters', { numbers: req.params.id });
+                } catch (e) { /* older RouterOS may reject this if the user never logged in yet */ }
+            }
+
+            const params = {
+                '.id': req.params.id,
+                name,
+                profile: profile || 'default',
+                comment: comment || ''
+            };
+            if (password !== undefined) params.password = password;
+
+            // Set limit properties (empty value removes limits in RouterOS depending on version,
+            // but setting limit-uptime="0" or "00:00:00" might clear it, or leaving it out is standard)
+            params['limit-uptime'] = limitUptime || '00:00:00';
+            params['limit-bytes-total'] = limitBytesTotal || 0;
+
+            return await client.exec('/ip/hotspot/user/set', params);
+        });
+        const renewSuffix = recreate ? ' [ต่ออายุ: ลบและสร้างใหม่]' : (resetCounters ? ' [ต่ออายุ: รีเซ็ตเวลาใช้งาน]' : '');
+        db.addLog(req.user.username, 'แก้ไขบัญชี Hotspot', 'แก้ไขผู้ใช้ ID: ' + req.params.id + ' เป็นชื่อ ' + name + ' (โปรไฟล์: ' + profile + ')' + renewSuffix);
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Quick Renew Hotspot user (1-Click Renew & Reset Counters)
+app.post('/api/mikrotik/hotspot/users/:id/renew', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, limitUptime, limitBytesTotal } = req.body;
+    try {
+        await executeOnRouter(req, async (client) => {
+            // 1. Kick active sessions for this username
+            if (name) {
+                try {
+                    const active = await client.exec('/ip/hotspot/active/print');
+                    for (const s of active.filter(a => a.user === name)) {
+                        await client.exec('/ip/hotspot/active/remove', { '.id': s['.id'] });
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            // 2. Reset counters (uptime & bytes)
+            try {
+                await client.exec('/ip/hotspot/user/reset-counters', { numbers: req.params.id });
+            } catch (e) { /* ignore */ }
+
+            // 3. Update limit-uptime / limit-bytes if specified
+            const setParams = { '.id': req.params.id };
+            if (limitUptime !== undefined) setParams['limit-uptime'] = limitUptime;
+            if (limitBytesTotal !== undefined) setParams['limit-bytes-total'] = limitBytesTotal;
+
+            if (Object.keys(setParams).length > 1) {
+                await client.exec('/ip/hotspot/user/set', setParams);
+            }
+        });
+
+        db.addLog(req.user.username, 'ต่ออายุคูปอง Hotspot', `ต่ออายุ/รีเซ็ตเวลาบัญชี ID: ${req.params.id} (${name || ''})`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete Hotspot user
+app.delete('/api/mikrotik/hotspot/users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            try {
+                const users = await client.exec('/ip/hotspot/user/print');
+                const target = users.find(u => u['.id'] === req.params.id);
+                if (target) {
+                    let userPassword = target.password || target['plain-password'] || target.pass || target.secret || '';
+                    if (!userPassword) {
+                        for (const k of Object.keys(target)) {
+                            if (k.toLowerCase().includes('pass') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('pwd')) {
+                                if (target[k]) { userPassword = target[k]; break; }
+                            }
+                        }
+                    }
+                    const siteConfig = await db.getConfig(req.user.assignedSiteId !== 'all' ? req.user.assignedSiteId : req.query?.siteId);
+                    const siteName = siteConfig.name || 'Default';
+                    const uptimeMs = parseUptimeToMs(target.uptime);
+                    const limitMs = parseUptimeToMs(target['limit-uptime']);
+                    const isExpired = (limitMs > 0 && uptimeMs >= limitMs) || (target.comment || '').toLowerCase().includes('expired') || (target.comment || '').toLowerCase().includes('หมดอายุ');
+
+                    await db.archiveDeletedHotspotUser({
+                        username: target.name,
+                        password: userPassword,
+                        profile: target.profile || 'default',
+                        limitUptime: target['limit-uptime'] || '',
+                        limitBytesTotal: target['limit-bytes-total'] || 0,
+                        comment: target.comment || '',
+                        siteName: siteName,
+                        deletedBy: req.user.username,
+                        reason: isExpired ? 'expired' : 'manual_delete'
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to archive user before deletion:', e);
+            }
+
+            await client.exec('/ip/hotspot/user/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบบัญชี Hotspot', 'ลบผู้ใช้ ID: ' + req.params.id + ' (จัดเก็บเข้าประวัติแล้ว)');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read Archived / Deleted Hotspot Users
+app.get('/api/mikrotik/hotspot/archived-users', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const forcedSite = await resolveForcedSiteName(req, req.query.siteName);
+        const options = {
+            search: req.query.search,
+            siteName: forcedSite === '__no_access__' ? 'NONE' : forcedSite,
+            page: req.query.page,
+            limit: req.query.limit
+        };
+        const data = await db.getArchivedHotspotUsers(options);
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Restore Archived Hotspot User (Re-create on RouterOS)
+app.post('/api/mikrotik/hotspot/archived-users/:id/restore', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const { username, password, profile, limitUptime, limitBytesTotal, comment, removeFromArchive } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'Username is required' });
+        }
+
+        const result = await executeOnRouter(req, async (client) => {
+            const params = {
+                name: username,
+                password: password || '',
+                profile: profile || 'default',
+                comment: comment || 'Restored from Archived Coupons'
+            };
+            if (limitUptime) params['limit-uptime'] = limitUptime;
+            if (limitBytesTotal) params['limit-bytes-total'] = limitBytesTotal;
+
+            return await client.exec('/ip/hotspot/user/add', params);
+        });
+
+        if (removeFromArchive !== false) {
+            await db.deleteArchivedHotspotUser(req.params.id);
+        }
+
+        db.addLog(req.user.username, 'คืนค่าบัญชี Hotspot', `สร้างบัญชีเดิมกลับเข้า MikroTik: ${username} (โปรไฟล์: ${profile || 'default'})`);
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete single item from Archived Hotspot Users
+app.delete('/api/mikrotik/hotspot/archived-users/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const success = await db.deleteArchivedHotspotUser(req.params.id);
+        if (success) {
+            db.addLog(req.user.username, 'ลบประวัติคูปอง', `ลบรายการประวัติคูปอง ID: ${req.params.id}`);
+        }
+        res.json({ success });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Clear all items from Archived Hotspot Users
+app.delete('/api/mikrotik/hotspot/archived-users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const forcedSite = await resolveForcedSiteName(req, req.query.siteName);
+        const siteToClear = forcedSite === '__no_access__' ? 'NONE' : forcedSite;
+        const count = await db.clearArchivedHotspotUsers(siteToClear);
+        db.addLog(req.user.username, 'ล้างประวัติคูปองทั้งหมด', `ล้างประวัติคูปองที่หมดอายุ/ถูกลบจำนวน ${count} รายการ`);
+        res.json({ success: true, count });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// Read Hotspot active sessions
+app.get('/api/mikrotik/hotspot/active', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const active = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/ip/hotspot/active/print');
+            return list.map(item => ({
+                id: item['.id'],
+                user: item.user,
+                address: item.address,
+                macAddress: item['mac-address'],
+                uptime: item.uptime || '0s',
+                bytesIn: parseInt(item['bytes-in']) || 0,
+                bytesOut: parseInt(item['bytes-out']) || 0,
+                loginBy: item['login-by'] || ''
+            }));
+        });
+        res.json(active);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Kick Active User
+app.delete('/api/mikrotik/hotspot/active/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/hotspot/active/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'เตะผู้ใช้ Hotspot', 'ตัดการเชื่อมต่อเซสชัน ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read User Profiles
+app.get('/api/mikrotik/hotspot/profiles', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const profiles = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/ip/hotspot/user/profile/print');
+            return list.map(item => ({
+                id: item['.id'],
+                name: item.name,
+                sharedUsers: item['shared-users'] || '1',
+                rateLimit: item['rate-limit'] || 'Unlimited',
+                sessionTimeout: item['session-timeout'] || '00:00:00',
+                idleTimeout: item['idle-timeout'] || 'none'
+            }));
+        });
+        res.json(profiles);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create User Profile
+app.post('/api/mikrotik/hotspot/profiles', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, rateLimit, sharedUsers, sessionTimeout } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Profile name is required' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            const params = {
+                name,
+                'shared-users': String(sharedUsers || '1')
+            };
+            if (rateLimit) params['rate-limit'] = rateLimit;
+            if (sessionTimeout) params['session-timeout'] = sessionTimeout;
+            await client.exec('/ip/hotspot/user/profile/add', params);
+        });
+        db.addLog(req.user.username, 'เพิ่มโปรไฟล์ Hotspot', 'เพิ่มโปรไฟล์ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit User Profile
+app.put('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    const { name, rateLimit, sharedUsers, sessionTimeout } = req.body;
+    try {
+        await executeOnRouter(req, async (client) => {
+            const params = {
+                '.id': req.params.id,
+                name,
+                'shared-users': String(sharedUsers || '1'),
+                'rate-limit': rateLimit || '',
+                'session-timeout': sessionTimeout || '00:00:00'
+            };
+            await client.exec('/ip/hotspot/user/profile/set', params);
+        });
+        db.addLog(req.user.username, 'แก้ไขโปรไฟล์ Hotspot', 'แก้ไขโปรไฟล์ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete User Profile
+app.delete('/api/mikrotik/hotspot/profiles/:id', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ip/hotspot/user/profile/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบโปรไฟล์ Hotspot', 'ลบโปรไฟล์ ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// PPPoE Room Account Management APIs (Admin, Co-Admin — billing tool, not general-user-facing)
+// ==========================================
+
+// Read PPPoE room accounts
+app.get('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const users = await executeOnRouter(req, async (client) => {
+            const [secrets, active, pppoeLogsData] = await Promise.all([
+                client.exec('/ppp/secret/print'),
+                client.exec('/ppp/active/print').catch(() => []),
+                // db.js is sync; db-supabase.js returns a Promise — normalize both
+                Promise.resolve(db.getPppoeUsageLogs({ limit: 1000 })).catch(() => ({ logs: [] }))
+            ]);
+
+            const activeMap = new Map();
+            (active || []).forEach(a => {
+                if (a.service === 'pppoe' && a.name) {
+                    activeMap.set(a.name, a);
+                }
+            });
+
+            const lastLogMap = new Map();
+            ((pppoeLogsData && pppoeLogsData.logs) || []).forEach(l => {
+                if (l.username && l.timestamp) {
+                    const currentLast = lastLogMap.get(l.username);
+                    if (!currentLast || new Date(l.timestamp) > new Date(currentLast)) {
+                        lastLogMap.set(l.username, l.timestamp);
+                    }
+                }
+            });
+
+            return secrets
+                .filter(item => item.service === 'pppoe')
+                .map(item => {
+                    const activeSession = activeMap.get(item.name);
+                    const isOnline = !!activeSession;
+                    const lastLogTime = lastLogMap.get(item.name);
+                    const routerLastOut = item['last-logged-out'];
+
+                    return {
+                        id: item['.id'],
+                        name: item.name,
+                        password: item.password || '',
+                        profile: item.profile,
+                        disabled: item.disabled === 'true',
+                        comment: item.comment || '',
+                        isOnline: isOnline,
+                        currentUptime: isOnline ? (activeSession.uptime || '0s') : null,
+                        lastLoggedOut: routerLastOut || lastLogTime || null
+                    };
+                });
+        });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create PPPoE room account
+app.post('/api/mikrotik/pppoe/users', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, password, profile, comment } = req.body;
+    if (!name || !password) {
+        return res.status(400).json({ error: 'ต้องระบุชื่อห้องและรหัสผ่าน' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ppp/secret/add', {
+                name, password,
+                profile: profile || 'default',
+                service: 'pppoe',
+                comment: comment || ''
+            });
+        });
+        db.addLog(req.user.username, 'เพิ่มบัญชี PPPoE', 'เพิ่มห้อง ' + name + ' (แพ็กเกจ: ' + (profile || 'default') + ')');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit PPPoE room account (also used to enable/disable a room)
+app.put('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, password, profile, comment, disabled } = req.body;
+    try {
+        await executeOnRouter(req, async (client) => {
+            const params = {
+                '.id': req.params.id,
+                name,
+                profile: profile || 'default',
+                comment: comment || ''
+            };
+            if (password !== undefined && password !== '') params.password = password;
+            if (disabled !== undefined) params.disabled = disabled ? 'yes' : 'no';
+            await client.exec('/ppp/secret/set', params);
+        });
+        db.addLog(req.user.username, 'แก้ไขบัญชี PPPoE', 'แก้ไขห้อง ID: ' + req.params.id + ' เป็นชื่อ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete PPPoE room account
+app.delete('/api/mikrotik/pppoe/users/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ppp/secret/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบบัญชี PPPoE', 'ลบห้อง ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read PPPoE live sessions
+// NOTE: /ppp/active/print does NOT expose live bytes-in/bytes-out (unlike
+// /ip/hotspot/active/print, which does) — RouterOS only tracks per-session
+// traffic on the dynamic interface it creates for each connection, named
+// "<pppoe-USERNAME>". We look that interface up in /interface/print and
+// pull rx-byte/tx-byte from there instead.
+app.get('/api/mikrotik/pppoe/active', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const active = await executeOnRouter(req, async (client) => {
+            const [list, interfaces] = await Promise.all([
+                client.exec('/ppp/active/print'),
+                client.exec('/interface/print')
+            ]);
+            const ifaceByName = new Map(interfaces.map(i => [i.name, i]));
+            return list
+                .filter(item => item.service === 'pppoe')
+                .map(item => {
+                    const iface = resolvePppoeIface(ifaceByName, item.name);
+                    return {
+                        id: item['.id'],
+                        name: item.name,
+                        address: item.address || '',
+                        uptime: item.uptime || '0s',
+                        callerId: item['caller-id'] || '',
+                        bytesIn: iface ? (parseInt(iface['rx-byte']) || 0) : 0,
+                        bytesOut: iface ? (parseInt(iface['tx-byte']) || 0) : 0
+                    };
+                });
+        });
+        res.json(active);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Suspend or reactivate a PPPoE room account by username — used for the
+// "quick lock" button on the live-status table so staff can cut off a room
+// on the spot (e.g. non-payment) without going through the account editor.
+// Suspending also kicks any live session so the effect is immediate.
+app.patch('/api/mikrotik/pppoe/users/by-name/:name/suspend', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { suspend } = req.body;
+    if (typeof suspend !== 'boolean') {
+        return res.status(400).json({ error: 'ต้องระบุค่า suspend เป็น true หรือ false' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            const secrets = await client.exec('/ppp/secret/print');
+            const secret = secrets.find(item => item.service === 'pppoe' && item.name === req.params.name);
+            if (!secret) throw new Error(`ไม่พบบัญชีห้อง "${req.params.name}"`);
+            await client.exec('/ppp/secret/set', { '.id': secret['.id'], disabled: suspend ? 'yes' : 'no' });
+
+            if (suspend) {
+                const activeList = await client.exec('/ppp/active/print');
+                const session = activeList.find(item => item.service === 'pppoe' && item.name === req.params.name);
+                if (session) await client.exec('/ppp/active/remove', { '.id': session['.id'] });
+            }
+        });
+        db.addLog(req.user.username, suspend ? 'ระงับการใช้งาน PPPoE' : 'ปลดล็อกการใช้งาน PPPoE', `ห้อง ${req.params.name}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Disconnect a PPPoE session
+app.delete('/api/mikrotik/pppoe/active/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ppp/active/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ตัดการเชื่อมต่อ PPPoE', 'ตัดเซสชัน ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read PPPoE packages (profiles)
+app.get('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const profiles = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/ppp/profile/print');
+            return list.map(item => ({
+                id: item['.id'],
+                name: item.name,
+                rateLimit: item['rate-limit'] || 'Unlimited',
+                localAddress: item['local-address'] || '',
+                remoteAddress: item['remote-address'] || '',
+                // Idle/session timeout: cleans up dead/zombie sessions automatically
+                // (e.g. a room's router loses power without a clean PPP terminate)
+                // instead of them sitting connected forever.
+                idleTimeout: (item['idle-timeout'] && item['idle-timeout'] !== 'none') ? item['idle-timeout'] : '',
+                sessionTimeout: (item['session-timeout'] && item['session-timeout'] !== 'none') ? item['session-timeout'] : ''
+            }));
+        });
+        res.json(profiles);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create PPPoE package
+app.post('/api/mikrotik/pppoe/profiles', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'ต้องระบุชื่อแพ็กเกจ' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            const params = { name, 'only-one': 'yes' };
+            if (rateLimit) params['rate-limit'] = rateLimit;
+            if (localAddress) params['local-address'] = localAddress;
+            if (remoteAddress) params['remote-address'] = remoteAddress;
+            if (idleTimeout) params['idle-timeout'] = idleTimeout;
+            if (sessionTimeout) params['session-timeout'] = sessionTimeout;
+            await client.exec('/ppp/profile/add', params);
+        });
+        db.addLog(req.user.username, 'เพิ่มแพ็กเกจ PPPoE', 'เพิ่มแพ็กเกจ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Edit PPPoE package
+app.put('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { name, rateLimit, localAddress, remoteAddress, idleTimeout, sessionTimeout } = req.body;
+    try {
+        await executeOnRouter(req, async (client) => {
+            const params = { '.id': req.params.id, name };
+            if (rateLimit) params['rate-limit'] = rateLimit;
+            if (localAddress) params['local-address'] = localAddress;
+            if (remoteAddress) params['remote-address'] = remoteAddress;
+            // Always set explicitly (not conditionally) so clearing the field in
+            // the edit form actually clears it on the router instead of leaving
+            // a stale value from before.
+            params['idle-timeout'] = idleTimeout || 'none';
+            params['session-timeout'] = sessionTimeout || 'none';
+            await client.exec('/ppp/profile/set', params);
+        });
+        db.addLog(req.user.username, 'แก้ไขแพ็กเกจ PPPoE', 'แก้ไขแพ็กเกจ ' + name);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete PPPoE package
+app.delete('/api/mikrotik/pppoe/profiles/:id', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        await executeOnRouter(req, async (client) => {
+            await client.exec('/ppp/profile/remove', { '.id': req.params.id });
+        });
+        db.addLog(req.user.username, 'ลบแพ็กเกจ PPPoE', 'ลบแพ็กเกจ ID: ' + req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read PPPoE server (service) settings, e.g. keepalive-timeout — separate from
+// /ppp/profile, this lives on /interface/pppoe-server/server (the service
+// itself, created once per site by the setup script below). Assumes one
+// PPPoE server instance per site, which is what the setup script creates.
+app.get('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const settings = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/interface/pppoe-server/server/print');
+            if (!list.length) return null;
+            const server = list[0];
+            return {
+                id: server['.id'],
+                serviceName: server['service-name'] || '',
+                interfaceName: server.interface || '',
+                keepaliveTimeout: server['keepalive-timeout'] || ''
+            };
+        });
+        res.json(settings || {});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update PPPoE server keepalive-timeout — lets a dead peer (room router that
+// lost power without a clean disconnect) get detected and cleared faster,
+// without re-running the whole one-time setup script.
+app.put('/api/mikrotik/pppoe/server-settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { keepaliveTimeout } = req.body;
+    if (!keepaliveTimeout) {
+        return res.status(400).json({ error: 'ต้องระบุค่า Keepalive Timeout' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/interface/pppoe-server/server/print');
+            if (!list.length) throw new Error('ไม่พบ PPPoE Server บนเราท์เตอร์นี้ (ต้องตั้งค่าเซิร์ฟเวอร์ก่อนผ่านสคริปต์ตั้งค่า)');
+            await client.exec('/interface/pppoe-server/server/set', { '.id': list[0]['.id'], 'keepalive-timeout': keepaliveTimeout });
+        });
+        db.addLog(req.user.username, 'แก้ไขการตั้งค่า PPPoE Server', `keepalive-timeout = ${keepaliveTimeout}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Generate PPPoE Server Setup Script for MikroTik (one-time per-site setup, run once in WinBox)
+app.post('/api/mikrotik/pppoe/generate-script', requireAuth(['admin']), (req, res) => {
+    const { interfaceName, vlanId, poolStart, poolEnd, serverAddress, keepaliveTimeout } = req.body;
+    if (!interfaceName || !poolStart || !poolEnd || !serverAddress) {
+        return res.status(400).json({ error: 'ต้องระบุ Interface, IP Pool (ต้น-ปลาย) และ Server Address ให้ครบ' });
+    }
+    const keepalive = keepaliveTimeout || '10';
+
+    const targetInterface = vlanId ? `vlan-pppoe-${vlanId}` : interfaceName;
+    const vlanStepBlock = vlanId ? `
+# 1. Create VLAN interface for the room-facing switch port
+/interface/vlan/add name=${targetInterface} vlan-id=${vlanId} interface=${interfaceName} comment="PPPoE Rooms VLAN"
+` : '';
+    const poolStepNum = vlanId ? 2 : 1;
+    const serverStepNum = poolStepNum + 1;
+    const resultStepNum = serverStepNum + 1;
+
+    const script = `# ======================================================
+# MikroTik PPPoE Server Setup Script (MT Management)
+# Interface: ${targetInterface}
+# IP Pool: ${poolStart} - ${poolEnd}
+# Server Address: ${serverAddress}
+# ======================================================
+${vlanStepBlock}
+# ${poolStepNum}. Create IP Pool for PPPoE room clients
+/ip/pool/add name=pppoe-pool ranges=${poolStart}-${poolEnd} comment="PPPoE Room Clients"
+
+# ${serverStepNum}. Enable PPPoE Server
+/interface/pppoe-server/server/add service-name=mt-pppoe interface=${targetInterface} default-profile=default one-session-per-host=yes keepalive-timeout=${keepalive} disabled=no
+
+# ${resultStepNum}. Display Result
+:put "--------------------------------------------------------"
+:put "PPPoE Server Enabled Successfully!"
+:put "Interface: ${targetInterface}"
+:put "NOTE: Create at least one Package (PPP Profile) from the dashboard's PPPoE page before adding room accounts."
+:put "--------------------------------------------------------"
+`;
+
+    res.json({ script });
+});
+
 
 // Helper for cleaning expired users
 async function runExpiredCleanup(logUsername = 'System Auto', reqOrSiteId = null) {
