@@ -501,6 +501,70 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (12)** — Six things reported from the live UI. Two of them were features that
+  told the operator what was wrong and then offered no way to act on it, which is the theme.
+  - **Multi-WAN "กด Read แล้วไงต่อ เหมือนกดมาเพื่อดูเฉย ๆ" — correct, it was a dead end.** On
+    this operator's router `analyzeState()` returns the `existing-mark-routing` blocker, so
+    `canFailover` is false, so the Review-plan button never renders. What is left on screen is
+    several tables and a red box saying "ต้องปิดหรือลบกฎชุดนี้ก่อน". The system already knew
+    which rules and which `.id`s — and was still sending the operator to WinBox to find them.
+    - A **ขั้นต่อไป** panel now always has an answer: blocked, ready, plan built, applied, or
+      failed, each with the single action that moves it forward. Previously the next step
+      existed only in the reader's head.
+    - `POST /api/multiwan/mangle/conflicts` (`disable` | `restore`, admin). **Disables, never
+      deletes**, tags each rule `[DDS-OFF]` and keeps the original comment inside the tag, so a
+      restore returns the rule to exactly what it was **even if this system is gone** — the same
+      reasoning as storing the DNS restore data on the router. Restore touches only tagged rules,
+      so a rule the customer disabled themselves is never switched back on.
+    - Both re-read the mangle table afterwards and report what is still conflicting or still
+      tagged. RouterOS accepting a command is not evidence that it did anything; that has been
+      the recurring failure in this project and it gets checked now rather than assumed.
+    - The confirm dialog says plainly that disabling PCC puts traffic that was spread over two
+      lines back onto one, so the branch **gets slower immediately**. It is a real change, not a
+      preparation step, and the wording should not suggest otherwise.
+    - Verified through real HTTP against a new `pcc-conflict` fixture: blocked (3 conflicts) →
+      disable (`changed 3, stillConflicting 0`) → `canFailover: true` → restore (`changed 3,
+      stillTagged 0`) → blocked again with the same 3. Bad action 400, no token 401.
+  - **Block list was dated, and had the ordering bug that was just fixed elsewhere.** Moved out
+    of `server.js` into `lib/firewall-services.js` (anything inside `server.js` cannot be
+    unit-tested) and brought to 2026: X/Discord/Snapchat/Reddit, Twitch/Kick/Bigo,
+    Max/Prime/TrueID, Mobile Legends/CoD Mobile/Valorant/Wuthering Waves, PSN/Xbox/Nintendo,
+    Shopee/Lazada/Temu, gambling, and mining pools that still exist (`coinhive` closed in 2019).
+    - **VPN is the one that matters most.** Without it every other category is void the moment a
+      customer installs a VPN app, because the destination IP becomes the VPN's. Worth stating
+      the limit too: a domain list cannot block every VPN on earth, only the well-known ones.
+    - **The drop rule was appended to the end of chain `forward`.** On a router with a broad
+      `accept` above it the rule is never reached — the UI says blocked while the site still
+      loads. Same silent-success class as the Hardened Preset fix in (11). It now inserts above
+      the first `accept`/`fasttrack-connection` in the chain, and omits `place-before` entirely
+      when the chain is empty, which RouterOS rejects.
+    - The v2 page kept its own copy of the service keys; a typo there produced `Invalid service`
+      at click time with nothing catching it at build. A test reads the `.vue` file and compares
+      — **verified it fails on a deliberate rename**, then passes again. Also asserted: no
+      duplicate `listName`, `comment` or domain across services, since a shared domain means
+      unblocking one service deletes another's address-list entries.
+  - **ผู้ใช้ที่ถูกลบ/กู้คืน showed every branch at once.** The panel never sent a site filter, so
+    an operator looking at one branch saw deleted coupons from all of them. Sends `?siteName=`,
+    reloads on site switch, and has a dropdown to widen it deliberately. Audited the rest of the
+    endpoints afterwards — this was the last one with the problem.
+  - **เมนูที่แต่ละบทบาทมองเห็น listed 5 of 8 menus.** Seeing 5 with no explanation reads as
+    "the rest are missing", when in fact Overview is always visible and the two admin pages can
+    never be granted. All 8 are listed now, the fixed ones marked as such, plus select-all per
+    role and a live count.
+  - **หน้า DHCP** — "แจกอัตโนมัติ" was a translation of a term nobody uses in WinBox; it says
+    `DHCP` / `Static` like the router does. The table collapses to 8 rows with a "ดูอีก N" button
+    and gained bound/static/dynamic filters.
+  - **Storage tab** answered "is anything wrong" only after reading the whole page. Four vitals
+    at the top (VPS disk, database, off-site copy, ม.26 collection) with status stripes; the
+    detail below is unchanged. The database card leads with days-until-full rather than the
+    total, because the total says where you are and the rate says how long you have. Per-site
+    breakdown was rendering a block for every table at once; it is one section with a picker now.
+  - Chrome extension was not connected this session, so none of the UI was clicked through.
+    The storage vitals were verified instead by extracting the function out of the `.vue` file
+    and running it against the live `/api/mikrotik/storage` payload — 4 cards, correct values and
+    levels, no undefined access, which is the failure that would otherwise appear only at render
+    time. **23 new tests (459 total), 123 routes.**
+
 - **2026-09-05 (11)** — **The Hardened Security Preset installed successfully and protected
   nothing.** Two independent silent failures, found by asking how RouterOS actually evaluates
   what we send rather than by re-reading our own code.
