@@ -621,7 +621,8 @@ function _defaultTelegramAlertConfig() {
         chatId: '',
         alertOffline: true,
         alertOnline: true,
-        alertStorage: true
+        alertStorage: true,
+        alertHealth: true
     };
 }
 
@@ -636,7 +637,8 @@ async function getTelegramAlertConfig() {
                 chatId: data.chatId || '',
                 alertOffline: data.alertOffline !== false,
                 alertOnline: data.alertOnline !== false,
-                alertStorage: data.alertStorage !== false
+                alertStorage: data.alertStorage !== false,
+                alertHealth: data.alertHealth !== false
             };
         }
         // ยังไม่เคยตั้งค่า — ยืมค่าที่กรอกไว้ในหน้า Multi-WAN มาเป็นค่าเริ่มต้น
@@ -661,7 +663,8 @@ async function saveTelegramAlertConfig(config) {
             chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
             alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
             alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline,
-            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage
+            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage,
+            alertHealth: config.alertHealth !== undefined ? !!config.alertHealth : current.alertHealth
         };
         await supabase.from('app_settings').upsert({ key: 'telegram_alert_config', value: updated, updated_at: new Date().toISOString() });
         return updated;

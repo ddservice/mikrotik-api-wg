@@ -138,7 +138,7 @@ async function removeSite(s) {
 }
 
 // ---------- Telegram ----------
-const tg = ref({ enabled: false, hasBotToken: false, botTokenPreview: '', chatId: '', alertOffline: true, alertOnline: true, alertStorage: true });
+const tg = ref({ enabled: false, hasBotToken: false, botTokenPreview: '', chatId: '', alertOffline: true, alertOnline: true, alertStorage: true, alertHealth: true });
 const tgToken = ref('');
 const tgBusy = ref('');
 const tgChats = ref(null);
@@ -157,7 +157,8 @@ function tgPayload() {
         chatId: String(tg.value.chatId || '').trim(),
         alertOffline: tg.value.alertOffline,
         alertOnline: tg.value.alertOnline,
-        alertStorage: tg.value.alertStorage
+        alertStorage: tg.value.alertStorage,
+        alertHealth: tg.value.alertHealth
     };
     // ส่ง token เฉพาะตอนกรอกใหม่ ช่องว่าง = ใช้ตัวเดิมที่บันทึกไว้
     if (tgToken.value.trim()) body.botToken = tgToken.value.trim();
@@ -594,6 +595,7 @@ onMounted(async () => {
                 <label class="chk"><input v-model="tg.alertOffline" type="checkbox"> แจ้งเมื่อเราท์เตอร์ Offline</label>
                 <label class="chk"><input v-model="tg.alertOnline" type="checkbox"> แจ้งเมื่อกลับมาออนไลน์</label>
                 <label class="chk"><input v-model="tg.alertStorage" type="checkbox"> แจ้งเมื่อพื้นที่เก็บข้อมูลใกล้เต็ม</label>
+                <label class="chk"><input v-model="tg.alertHealth" type="checkbox"> แจ้งเมื่อเราท์เตอร์มีเรื่องต้องดูแล (ตรวจทุกวัน 08:30 น. เฉพาะเรื่องร้ายแรง)</label>
             </div>
 
             <div class="actions">

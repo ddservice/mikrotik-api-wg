@@ -24,6 +24,7 @@ const dnsStore = require('./lib/dns-log-store');
 const { streamCsv, forEachPage, forEachPageReverse, csvRow } = require('./lib/csv-export');
 const wgScript = require('./lib/wireguard-script');
 const routerLog = require('./lib/router-log');
+const routerHealth = require('./lib/router-health');
 
 // ปลายทาง WireGuard ของ VPS — เดิม hardcode ไว้ในสคริปต์ตั้งแต่คอมมิตแรกและไม่มีใครตรวจ
 // ตั้งผ่าน env ได้แล้ว ถ้า VPS ย้าย IP จะได้แก้ที่เดียวโดยไม่ต้องแก้โค้ด
@@ -2517,119 +2518,28 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
 // คือเราท์เตอร์แต่ละตัวมีของที่เราไม่รู้เสมอ
 // ==========================================
 app.get('/api/mikrotik/health-check', requireAuth(['admin', 'co-admin']), async (req, res) => {
-    const findings = [];
-    const add = (severity, title, detail, action) => findings.push({ severity, title, detail, action });
-
     try {
-        const data = await executeOnRouter(req, async (client) => {
-            const [resource, logs, ifaces, leases] = await Promise.all([
-                client.exec('/system/resource/print').catch(() => []),
-                client.exec('/log/print').catch(() => []),
-                client.exec('/interface/print').catch(() => []),
-                client.exec('/ip/dhcp-server/lease/print').catch(() => [])
-            ]);
-            let health = [];
-            try { health = await client.exec('/system/health/print'); } catch (_) {}
-            return { resource: resource[0] || {}, logs, ifaces, leases, health: health[0] || {} };
-        });
-
-        const r = data.resource;
-
-        // ---- หน่วยความจำ ----
-        const freeMem = parseInt(r['free-memory'], 10) || 0;
-        const totalMem = parseInt(r['total-memory'], 10) || 0;
-        if (totalMem > 0) {
-            const freePct = Math.round((freeMem / totalMem) * 100);
-            if (freePct < 10) {
-                add('critical', 'หน่วยความจำเหลือน้อยมาก',
-                    `เหลือ ${freePct}% (${Math.round(freeMem / 1048576)} MB จาก ${Math.round(totalMem / 1048576)} MB)`,
-                    'เราท์เตอร์อาจค้างหรือรีบูตเอง — ลดขนาด log buffer หรือปิดฟีเจอร์ที่ไม่ได้ใช้');
-            } else if (freePct < 25) {
-                add('warning', 'หน่วยความจำเริ่มน้อย', `เหลือ ${freePct}%`,
-                    'ยังใช้งานได้ แต่ควรเฝ้าดู ถ้าลดลงเรื่อย ๆ แปลว่ามีอะไรกินหน่วยความจำเพิ่มขึ้น');
-            }
-        }
-
-        // ---- พื้นที่เก็บข้อมูล ----
-        const freeHdd = parseInt(r['free-hdd-space'], 10) || 0;
-        const totalHdd = parseInt(r['total-hdd-space'], 10) || 0;
-        if (totalHdd > 0 && (freeHdd / totalHdd) < 0.1) {
-            add('critical', 'พื้นที่เก็บข้อมูลบนเราท์เตอร์ใกล้เต็ม',
-                `เหลือ ${Math.round(freeHdd / 1024)} KB จาก ${Math.round(totalHdd / 1024)} KB`,
-                'ลบไฟล์เก่าในเมนู Files โดยเฉพาะไฟล์สำรองและ log ที่ไม่ใช้แล้ว');
-        }
-
-        // ---- CPU ----
-        const cpu = parseInt(r['cpu-load'], 10) || 0;
-        if (cpu >= 90) {
-            add('critical', 'CPU ทำงานเต็มกำลัง', `โหลด ${cpu}%`,
-                'เน็ตจะช้าและหน่วง — ตรวจว่ามีการโจมตี มีลูปในเครือข่าย หรือเปิด PCC/queue มากเกินกำลังรุ่นนี้');
-        } else if (cpu >= 70) {
-            add('warning', 'CPU ทำงานหนัก', `โหลด ${cpu}%`, 'เฝ้าดูว่าลดลงไหมหลังชั่วโมงเร่งด่วน');
-        }
-
-        // ---- อุณหภูมิ ----
-        const temp = parseInt(data.health.temperature, 10) || 0;
-        if (temp >= 70) {
-            add('critical', 'อุณหภูมิสูงเกินไป', `${temp}°C`,
-                'ตรวจการระบายอากาศและฝุ่นที่พัดลม อุณหภูมิสูงเรื้อรังทำให้อุปกรณ์พังเร็ว');
-        } else if (temp >= 60) {
-            add('warning', 'อุณหภูมิค่อนข้างสูง', `${temp}°C`, 'ตรวจการระบายอากาศรอบตัวเครื่อง');
-        }
-
-        // ---- log ที่เราท์เตอร์บันทึกไว้ ----
-        const logSummary = routerLog.summarize(data.logs);
-        logSummary.groups
-            .filter((g) => g.severity !== 'info' && g.title)
-            .slice(0, 6)
-            .forEach((g) => {
-                add(g.severity, g.title,
-                    `${g.meaning} · เกิด ${g.count} ครั้ง (ล่าสุด ${g.lastTime || '-'})`,
-                    g.action);
-            });
-
-        // ---- พอร์ตที่ลิงก์หลุด ----
-        const downPorts = (data.ifaces || []).filter((i) =>
-            String(i.disabled) !== 'true' && String(i.running) === 'false' &&
-            String(i.type || '').startsWith('ether'));
-        if (downPorts.length) {
-            add('warning', 'มีพอร์ตที่ไม่มีสัญญาณ',
-                downPorts.map((i) => i.name).join(', '),
-                'ปกติถ้าไม่ได้เสียบสายไว้ แต่ถ้าเป็นพอร์ตที่ควรมีอุปกรณ์ต่ออยู่ ให้ตรวจสายและปลายทาง');
-        }
-
-        // ---- DHCP ----
-        const bound = (data.leases || []).filter((l) => String(l.status).toLowerCase() === 'bound').length;
-        if ((data.leases || []).length > 0 && bound === 0) {
-            add('warning', 'ไม่มีเครื่องไหนได้รับ IP จาก DHCP เลย',
-                `มี lease ${data.leases.length} รายการแต่ไม่มีตัวไหน bound`,
-                'ตรวจว่า DHCP server ยังเปิดอยู่และ pool ยังมี IP เหลือ');
-        }
-
-        const rank = { critical: 0, warning: 1, info: 2 };
-        findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
-
-        res.json({
-            checkedAt: new Date().toISOString(),
-            router: {
-                version: r.version || '', boardName: r['board-name'] || '',
-                uptime: r.uptime || '', cpuLoad: cpu,
-                freeMemoryMb: Math.round(freeMem / 1048576),
-                totalMemoryMb: Math.round(totalMem / 1048576),
-                temperature: temp || null
-            },
-            findings,
-            counts: {
-                critical: findings.filter((f) => f.severity === 'critical').length,
-                warning: findings.filter((f) => f.severity === 'warning').length
-            },
-            logSummary: { total: logSummary.total, counts: logSummary.counts },
-            healthy: findings.length === 0
-        });
+        const state = await readRouterHealthState(req);
+        res.json(Object.assign({ checkedAt: new Date().toISOString() }, routerHealth.analyzeHealth(state)));
     } catch (err) {
         res.status(500).json({ error: rosErrors.explain(err, { task: 'nettest' }) });
     }
 });
+
+/** อ่านทุกอย่างที่ analyzeHealth ต้องใช้ ในการเชื่อมต่อครั้งเดียว */
+async function readRouterHealthState(reqOrSiteId) {
+    return await executeOnRouter(reqOrSiteId, async (client) => {
+        const [resource, logs, ifaces, leases] = await Promise.all([
+            client.exec('/system/resource/print').catch(() => []),
+            client.exec('/log/print').catch(() => []),
+            client.exec('/interface/print').catch(() => []),
+            client.exec('/ip/dhcp-server/lease/print').catch(() => [])
+        ]);
+        let health = [];
+        try { health = await client.exec('/system/health/print'); } catch (_) {}
+        return { resource: resource[0] || {}, logs, ifaces, leases, health: health[0] || {} };
+    });
+}
 
 // ==========================================
 // DHCP — ดู lease ทั้งหมดโดยไม่ต้องเปิด WinBox
@@ -3640,6 +3550,7 @@ async function sendOpsAlert(text, kind) {
         if (kind === 'offline' && cfg.alertOffline === false) return false;
         if (kind === 'online' && cfg.alertOnline === false) return false;
         if (kind === 'storage' && cfg.alertStorage === false) return false;
+        if (kind === 'health' && cfg.alertHealth === false) return false;
         // multiwan ยังไม่มีสวิตช์ในหน้าตั้งค่า จึงส่งเป็นค่าเริ่มต้น
         // เขียนเป็น === false ไว้ เพื่อให้เพิ่มสวิตช์ทีหลังได้โดยไม่ต้องแก้ตรงนี้
         if (kind === 'multiwan' && cfg.alertMultiwan === false) return false;
@@ -4290,7 +4201,8 @@ function sanitizeTelegramConfig(cfg) {
         chatId: cfg.chatId || '',
         alertOffline: cfg.alertOffline !== false,
         alertOnline: cfg.alertOnline !== false,
-        alertStorage: cfg.alertStorage !== false
+        alertStorage: cfg.alertStorage !== false,
+        alertHealth: cfg.alertHealth !== false
     };
 }
 
@@ -4960,6 +4872,56 @@ setInterval(async () => {
             `${report.issues.map((i) => i.area + ' — ' + i.message).join('; ')}${sent ? '' : ' (ส่ง Telegram ไม่ได้)'}`);
     } catch (e) {
         console.error('[Storage] ตรวจพื้นที่ไม่สำเร็จ:', e.message || e);
+    }
+}, 60000);
+
+// ===================== ตรวจสุขภาพเราท์เตอร์ทุกสาขาวันละครั้ง =====================
+//
+// ปุ่ม "ตรวจเลย" มีอยู่แล้ว แต่ต้องมีคนนึกได้ว่าต้องกด ปัญหาอย่างพื้นที่ใกล้เต็ม
+// อุณหภูมิสูง หรือมี DHCP แปลกปลอมในวง ไม่มีใครไปกดดูจนกว่าจะมีคนบ่นว่าเน็ตมีปัญหา
+// ซึ่งตอนนั้นก็สายไปแล้ว
+//
+// 08:30 — หลังงานตรวจพื้นที่ 08:00 เพื่อไม่ให้แจ้งเตือนสองอย่างมาชนกัน
+// และเป็นเวลาที่มีคนอ่านแล้วลงมือแก้ได้จริง ต่างจากตอนกลางดึก
+//
+// ส่งเฉพาะเรื่อง "ร้ายแรง" — ระดับ "ควรดู" ไม่ควรเด้งเข้าโทรศัพท์ทุกวัน
+// ไม่งั้นคนจะปิดการแจ้งเตือนทิ้ง แล้วเรื่องจริงก็จะไม่ถึงตาเหมือนกัน
+//
+// ถ้ายังไม่แก้ก็เตือนซ้ำทุกวัน เหมือนงานตรวจพื้นที่ ด้วยเหตุผลเดียวกัน:
+// ปัญหาพวกนี้ไม่หายไปเอง และการเงียบหลังเตือนครั้งแรกคือสาเหตุที่มันถูกลืม
+let lastHealthCheckDate = '';
+setInterval(async () => {
+    try {
+        const bkk = bangkokNow();
+        if (bkk.hhmm !== '08:30' || lastHealthCheckDate === bkk.dateStr) return;
+        lastHealthCheckDate = bkk.dateStr;
+
+        const sitesData = await db.getSites();
+        for (const site of (sitesData.sites || [])) {
+            try {
+                const state = await readRouterHealthState(site.id);
+                const report = routerHealth.analyzeHealth(state);
+
+                if (report.healthy) {
+                    console.log(`[Health] ${site.name}: ปกติดี`);
+                    continue;
+                }
+                console.warn(`[Health] ${site.name}: ร้ายแรง ${report.counts.critical}, ควรดู ${report.counts.warning}`);
+
+                const text = routerHealth.formatAlert(site.name, report);
+                if (!text) continue;   // มีแต่ระดับ "ควรดู" — ไม่ต้องรบกวน
+
+                const sent = await sendOpsAlert(text, 'health');
+                db.addLog('System Auto', 'เตือนสุขภาพเราท์เตอร์',
+                    `${site.name}: ${report.findings.filter((f) => f.severity === 'critical')
+                        .map((f) => f.title).join('; ')}${sent ? '' : ' (ส่ง Telegram ไม่ได้)'}`);
+            } catch (e) {
+                // สาขาหนึ่งล่มต้องไม่ทำให้สาขาที่เหลือไม่ถูกตรวจ
+                console.warn(`[Health] ${site.name}: ตรวจไม่ได้ — ${e.message}`);
+            }
+        }
+    } catch (e) {
+        console.error('[Health] งานตรวจสุขภาพล้มเหลว:', e.message || e);
     }
 }, 60000);
 

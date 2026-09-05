@@ -501,6 +501,30 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (9)** — The health check now runs itself, daily, per site, into Telegram.
+  - The button existed but somebody had to think to press it. A disk filling up, a rising
+    temperature or a rogue DHCP server on the LAN goes unnoticed until a customer complains —
+    by which point it is already the bad day.
+  - **Extracted `lib/router-health.js` first.** Two callers now need the same answer: the button
+    a person presses, and the job that decides on its own whether to wake someone up. Written
+    twice, they drift, and once the two disagree people stop trusting both. `server.js` reads
+    the router and passes the state in; all the judgement lives in the pure module, with the
+    thresholds in one table.
+  - **Only critical findings are sent.** "Worth a look" items stay on the page. If a phone buzzes
+    every morning about an unplugged `ether5`, the alerts get muted, and then the one that
+    mattered is muted too — **an alert channel nobody reads is worse than no alert channel.**
+    A test asserts a healthy router produces zero findings and `formatAlert()` returns null, and
+    another asserts warning-only reports also stay silent.
+  - Runs at **08:30**, after the 08:00 storage check so two alerts do not collide, and at an hour
+    when someone can act on it. Repeats daily while unresolved, same reasoning as the storage
+    monitor: these problems do not fix themselves, and going quiet after the first message is
+    how they get forgotten. One site failing to answer does not stop the others being checked.
+  - `alertHealth` added to **both** DB layers and the Telegram settings tab, defaulting on.
+  - 20 new tests (**406 total**) covering each threshold and its boundaries, a router with no
+    temperature sensor (must not read as 0°C), ports disabled on purpose (not a fault), a site
+    with no DHCP at all, and a flood of unknown log lines not being allowed to crowd out
+    everything else.
+
 - **2026-09-05 (8)** — Reading the router's own log, and a one-button health check.
   - **`lib/router-log.js`** turns RouterOS log lines into something an operator can act on.
     MikroTik's log says *what happened* in terse English but never *what it means* or *what to

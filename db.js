@@ -847,7 +847,8 @@ function _defaultTelegramAlertConfig() {
         chatId: '',
         alertOffline: true,
         alertOnline: true,
-        alertStorage: true
+        alertStorage: true,
+        alertHealth: true
     };
 }
 
@@ -863,7 +864,8 @@ function getTelegramAlertConfig() {
                 chatId: cfg.chatId || '',
                 alertOffline: cfg.alertOffline !== false,
                 alertOnline: cfg.alertOnline !== false,
-                alertStorage: cfg.alertStorage !== false
+                alertStorage: cfg.alertStorage !== false,
+                alertHealth: cfg.alertHealth !== false
             };
         }
         // ยังไม่เคยตั้งค่า — ยืมค่าจากหน้า Multi-WAN มาเป็นค่าเริ่มต้น แต่ยังไม่เปิดใช้งาน
@@ -888,7 +890,8 @@ function saveTelegramAlertConfig(config) {
             chatId: config.chatId !== undefined ? String(config.chatId).trim() : current.chatId,
             alertOffline: config.alertOffline !== undefined ? !!config.alertOffline : current.alertOffline,
             alertOnline: config.alertOnline !== undefined ? !!config.alertOnline : current.alertOnline,
-            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage
+            alertStorage: config.alertStorage !== undefined ? !!config.alertStorage : current.alertStorage,
+            alertHealth: config.alertHealth !== undefined ? !!config.alertHealth : current.alertHealth
         };
         data.telegram_alert_config = updated;
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
