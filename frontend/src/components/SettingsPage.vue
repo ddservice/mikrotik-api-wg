@@ -316,6 +316,62 @@ function shortDate(iso) {
     return isNaN(d) ? '—' : d.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
+// สรุปสี่ตัวเลขที่ตอบคำถาม "ตอนนี้โอเคไหม" ได้ทันทีโดยไม่ต้องเลื่อนหน้า
+//
+// หน้าเดิมมีข้อมูลครบแต่วางเรียงกันยาวเป็นหน้าเดียว ต้องอ่านทั้งหน้าถึงจะรู้ว่า
+// มีอะไรต้องทำหรือเปล่า ซึ่งกลับหัวกับสิ่งที่คนเปิดหน้านี้มาถาม
+const vitals = computed(() => {
+    if (!st.value) return [];
+    const v = [];
+    const d = st.value.disk;
+    v.push(d.available
+        ? { key: 'disk', label: 'ดิสก์ VPS', icon: 'fa-solid fa-hard-drive',
+            value: d.usedPercent + '%', sub: 'เหลือ ' + d.human.available, level: d.level }
+        : { key: 'disk', label: 'ดิสก์ VPS', icon: 'fa-solid fa-hard-drive',
+            value: '—', sub: 'อ่านค่าไม่ได้', level: 'warn' });
+
+    const db = st.value.database;
+    v.push({
+        key: 'db', label: 'ฐานข้อมูล', icon: 'fa-solid fa-database',
+        value: db.backend === 'supabase' ? (db.quotaPercent + '%') : db.human,
+        // วันที่จะเต็มคือตัวเลขที่บอกว่าต้องรีบแค่ไหน ยอดรวมบอกแค่ปัจจุบัน
+        sub: db.daysUntilFull !== null && db.backend === 'supabase'
+            ? (db.daysUntilFull <= 0 ? 'เกินโควตาแล้ว' : 'เต็มในอีก ~' + db.daysUntilFull + ' วัน')
+            : (db.totalRows || 0).toLocaleString() + ' แถว',
+        level: db.daysUntilFull !== null && db.daysUntilFull <= 7 ? 'critical'
+            : db.daysUntilFull !== null && db.daysUntilFull <= 30 ? 'warn' : 'ok'
+    });
+
+    const r2 = st.value.r2;
+    v.push({
+        key: 'r2', label: 'สำเนานอกเครื่อง', icon: 'fa-solid fa-cloud',
+        value: r2.configured && !r2.error ? r2.human : '—',
+        sub: !r2.configured ? 'ยังไม่ได้ตั้งค่า' : r2.error ? 'เชื่อมต่อไม่ได้' : r2.objects.toLocaleString() + ' ไฟล์',
+        level: !r2.configured || r2.error ? 'warn' : 'ok'
+    });
+
+    const dl = st.value.dnsLogging;
+    if (dl && dl.totalCount) {
+        v.push({
+            key: 'dns', label: 'เก็บประวัติเข้าเว็บ (ม.26)', icon: 'fa-solid fa-globe',
+            value: dl.enabledCount + '/' + dl.totalCount,
+            sub: dl.enabledCount === dl.totalCount ? 'เก็บครบทุกสาขา' : 'มีสาขาที่ปิดอยู่',
+            level: dl.enabledCount === dl.totalCount ? 'ok' : 'warn'
+        });
+    }
+    return v;
+});
+
+// ตารางไหนบ้างที่มีข้อมูลแยกสาขา — เลือกดูทีละตาราง ดีกว่าเทออกมาทั้งหมด
+const bySiteTables = computed(() =>
+    ((st.value && st.value.database.tables) || []).filter((t) => t.bySite && t.bySite.length));
+const bySitePick = ref('');
+const bySiteRows = computed(() => {
+    const list = bySiteTables.value;
+    if (!list.length) return null;
+    return list.find((t) => t.table === bySitePick.value) || list[0];
+});
+
 // แถวของ DNS ในตาราง — ใช้โชว์อัตราโตข้าง ๆ สวิตช์ ให้เห็นผลของการกดทันที
 const dnsTable = computed(() =>
     (st.value?.database?.tables || []).find((t) => t.table === 'dns_query_logs') || null
@@ -693,6 +749,15 @@ onMounted(async () => {
         <div v-if="!st && stBusy === 'load'" class="sub">กำลังตรวจ…</div>
 
         <template v-else-if="st">
+            <!-- สี่ตัวเลขที่ตอบว่า "ตอนนี้โอเคไหม" โดยไม่ต้องเลื่อนอ่านทั้งหน้า -->
+            <div class="vitals">
+                <div v-for="v in vitals" :key="v.key" class="vital" :class="v.level">
+                    <div class="v-top"><i :class="v.icon"></i> {{ v.label }}</div>
+                    <div class="v-num">{{ v.value }}</div>
+                    <div class="v-sub">{{ v.sub }}</div>
+                </div>
+            </div>
+
             <!-- เรื่องที่ต้องทำ อยู่บนสุดเสมอ ถ้าไม่มีก็บอกว่าไม่มี ไม่ปล่อยให้เดา -->
             <div v-if="!st.issues.length" class="v2-callout ok">
                 <i class="fa-solid fa-circle-check"></i>
@@ -873,19 +938,23 @@ onMounted(async () => {
                     </table>
                 </div>
 
-                <!-- แยกตามสาขา: เห็นว่าสาขาไหนกินที่มากที่สุด -->
-                <template v-for="t in st.database.tables" :key="'s-' + t.table">
-                    <div v-if="t.bySite && t.bySite.length" class="sitebreak">
-                        <div class="sub strong">{{ t.label }} แยกตามสาขา</div>
-                        <div v-for="b in t.bySite" :key="b.siteName" class="dirrow">
-                            <span>
-                                {{ b.siteName }}
-                                <span v-if="b.unmatched" class="badge warn" title="ชื่อนี้ไม่อยู่ในทะเบียนสาขาแล้ว — เป็นข้อมูลเก่าจากตอนที่ยังใช้ชื่อเดิม">ชื่อเดิม</span>
-                            </span>
-                            <span class="mono">{{ b.rows.toLocaleString() }}</span>
-                        </div>
+                <!-- แยกตามสาขา: เลือกดูทีละตาราง — เดิมเทออกมาทุกตารางพร้อมกัน
+                     กลายเป็นรายการยาวที่ไม่มีใครอ่านจนจบ -->
+                <div v-if="bySiteRows" class="sitebreak">
+                    <div class="sbhead">
+                        <span class="sub strong">แยกตามสาขา</span>
+                        <select v-model="bySitePick" class="v2-input sm">
+                            <option v-for="t in bySiteTables" :key="t.table" :value="t.table">{{ t.label }}</option>
+                        </select>
                     </div>
-                </template>
+                    <div v-for="b in bySiteRows.bySite" :key="b.siteName" class="dirrow">
+                        <span>
+                            {{ b.siteName }}
+                            <span v-if="b.unmatched" class="badge warn" title="ชื่อนี้ไม่อยู่ในทะเบียนสาขาแล้ว — เป็นข้อมูลเก่าจากตอนที่ยังใช้ชื่อเดิม">ชื่อเดิม</span>
+                        </span>
+                        <span class="mono">{{ b.rows.toLocaleString() }}</span>
+                    </div>
+                </div>
             </div>
         </template>
     </template>
@@ -908,6 +977,25 @@ onMounted(async () => {
 
 <style scoped>
 /* ---- พื้นที่เก็บข้อมูล ---- */
+.vitals {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 10px; margin-bottom: 14px;
+}
+.vital {
+    background: var(--v2-surface); border: 1px solid var(--v2-border);
+    border-left: 3px solid var(--v2-border);
+    border-radius: var(--v2-radius); padding: 12px 14px;
+}
+.vital.ok       { border-left-color: var(--v2-success); }
+.vital.warn     { border-left-color: var(--v2-warn); }
+.vital.critical { border-left-color: var(--v2-danger); }
+.v-top { font-size: .74rem; color: var(--v2-text-muted); display: flex; align-items: center; gap: 6px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-num { font-size: 1.55rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.vital.warn .v-num     { color: var(--v2-warn); }
+.vital.critical .v-num { color: var(--v2-danger); }
+.v-sub { font-size: .74rem; color: var(--v2-text-muted); }
+.sbhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .growth { margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: .82rem;
           background: var(--v2-primary-soft); color: var(--v2-primary); display: flex; align-items: center; gap: 8px; }
 .growth.urgent { background: var(--v2-warn-soft); color: var(--v2-warn); }
