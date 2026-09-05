@@ -5,6 +5,7 @@ import { formatUptime, formatMegabytes } from '../format.js';
 import StatCard from './StatCard.vue';
 import InterfacesPanel from './InterfacesPanel.vue';
 import DhcpPanel from './DhcpPanel.vue';
+import HealthCheckPanel from './HealthCheckPanel.vue';
 
 const POLL_MS = 10000;
 
@@ -257,6 +258,7 @@ const emit = defineEmits(['open-upgrade', 'open-firmware-upgrade']);
         />
     </div>
 
+    <HealthCheckPanel />
     <InterfacesPanel />
     <DhcpPanel />
 </template>

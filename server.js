@@ -23,6 +23,7 @@ const pccWeights = require('./lib/pcc-weights');
 const dnsStore = require('./lib/dns-log-store');
 const { streamCsv, forEachPage, forEachPageReverse, csvRow } = require('./lib/csv-export');
 const wgScript = require('./lib/wireguard-script');
+const routerLog = require('./lib/router-log');
 
 // ปลายทาง WireGuard ของ VPS — เดิม hardcode ไว้ในสคริปต์ตั้งแต่คอมมิตแรกและไม่มีใครตรวจ
 // ตั้งผ่าน env ได้แล้ว ถ้า VPS ย้าย IP จะได้แก้ที่เดียวโดยไม่ต้องแก้โค้ด
@@ -2502,6 +2503,131 @@ app.get('/api/mikrotik/interfaces', requireAuth(['admin', 'co-admin', 'user']), 
         res.json(interfaces);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// ตรวจสุขภาพเราท์เตอร์ปุ่มเดียว
+//
+// รวมทุกอย่างที่ระบบรู้อยู่แล้วให้จบในคำขอเดียว แล้วสรุปเป็น "เจอ N เรื่อง / ทำอะไรต่อ"
+// แทนที่จะให้คนไปเปิดดูทีละหน้าแล้วประกอบภาพเอง
+//
+// ทุกอย่างในนี้เป็นการอ่านล้วน ไม่แก้ค่าอะไรบนเราท์เตอร์เลย จึงกดได้โดยไม่ต้องกลัว
+// ส่วนการ "แก้ให้อัตโนมัติ" จงใจไม่ทำ — บทเรียนจากเคส mangle เดิมและพอร์ต WireGuard ชน
+// คือเราท์เตอร์แต่ละตัวมีของที่เราไม่รู้เสมอ
+// ==========================================
+app.get('/api/mikrotik/health-check', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const findings = [];
+    const add = (severity, title, detail, action) => findings.push({ severity, title, detail, action });
+
+    try {
+        const data = await executeOnRouter(req, async (client) => {
+            const [resource, logs, ifaces, leases] = await Promise.all([
+                client.exec('/system/resource/print').catch(() => []),
+                client.exec('/log/print').catch(() => []),
+                client.exec('/interface/print').catch(() => []),
+                client.exec('/ip/dhcp-server/lease/print').catch(() => [])
+            ]);
+            let health = [];
+            try { health = await client.exec('/system/health/print'); } catch (_) {}
+            return { resource: resource[0] || {}, logs, ifaces, leases, health: health[0] || {} };
+        });
+
+        const r = data.resource;
+
+        // ---- หน่วยความจำ ----
+        const freeMem = parseInt(r['free-memory'], 10) || 0;
+        const totalMem = parseInt(r['total-memory'], 10) || 0;
+        if (totalMem > 0) {
+            const freePct = Math.round((freeMem / totalMem) * 100);
+            if (freePct < 10) {
+                add('critical', 'หน่วยความจำเหลือน้อยมาก',
+                    `เหลือ ${freePct}% (${Math.round(freeMem / 1048576)} MB จาก ${Math.round(totalMem / 1048576)} MB)`,
+                    'เราท์เตอร์อาจค้างหรือรีบูตเอง — ลดขนาด log buffer หรือปิดฟีเจอร์ที่ไม่ได้ใช้');
+            } else if (freePct < 25) {
+                add('warning', 'หน่วยความจำเริ่มน้อย', `เหลือ ${freePct}%`,
+                    'ยังใช้งานได้ แต่ควรเฝ้าดู ถ้าลดลงเรื่อย ๆ แปลว่ามีอะไรกินหน่วยความจำเพิ่มขึ้น');
+            }
+        }
+
+        // ---- พื้นที่เก็บข้อมูล ----
+        const freeHdd = parseInt(r['free-hdd-space'], 10) || 0;
+        const totalHdd = parseInt(r['total-hdd-space'], 10) || 0;
+        if (totalHdd > 0 && (freeHdd / totalHdd) < 0.1) {
+            add('critical', 'พื้นที่เก็บข้อมูลบนเราท์เตอร์ใกล้เต็ม',
+                `เหลือ ${Math.round(freeHdd / 1024)} KB จาก ${Math.round(totalHdd / 1024)} KB`,
+                'ลบไฟล์เก่าในเมนู Files โดยเฉพาะไฟล์สำรองและ log ที่ไม่ใช้แล้ว');
+        }
+
+        // ---- CPU ----
+        const cpu = parseInt(r['cpu-load'], 10) || 0;
+        if (cpu >= 90) {
+            add('critical', 'CPU ทำงานเต็มกำลัง', `โหลด ${cpu}%`,
+                'เน็ตจะช้าและหน่วง — ตรวจว่ามีการโจมตี มีลูปในเครือข่าย หรือเปิด PCC/queue มากเกินกำลังรุ่นนี้');
+        } else if (cpu >= 70) {
+            add('warning', 'CPU ทำงานหนัก', `โหลด ${cpu}%`, 'เฝ้าดูว่าลดลงไหมหลังชั่วโมงเร่งด่วน');
+        }
+
+        // ---- อุณหภูมิ ----
+        const temp = parseInt(data.health.temperature, 10) || 0;
+        if (temp >= 70) {
+            add('critical', 'อุณหภูมิสูงเกินไป', `${temp}°C`,
+                'ตรวจการระบายอากาศและฝุ่นที่พัดลม อุณหภูมิสูงเรื้อรังทำให้อุปกรณ์พังเร็ว');
+        } else if (temp >= 60) {
+            add('warning', 'อุณหภูมิค่อนข้างสูง', `${temp}°C`, 'ตรวจการระบายอากาศรอบตัวเครื่อง');
+        }
+
+        // ---- log ที่เราท์เตอร์บันทึกไว้ ----
+        const logSummary = routerLog.summarize(data.logs);
+        logSummary.groups
+            .filter((g) => g.severity !== 'info' && g.title)
+            .slice(0, 6)
+            .forEach((g) => {
+                add(g.severity, g.title,
+                    `${g.meaning} · เกิด ${g.count} ครั้ง (ล่าสุด ${g.lastTime || '-'})`,
+                    g.action);
+            });
+
+        // ---- พอร์ตที่ลิงก์หลุด ----
+        const downPorts = (data.ifaces || []).filter((i) =>
+            String(i.disabled) !== 'true' && String(i.running) === 'false' &&
+            String(i.type || '').startsWith('ether'));
+        if (downPorts.length) {
+            add('warning', 'มีพอร์ตที่ไม่มีสัญญาณ',
+                downPorts.map((i) => i.name).join(', '),
+                'ปกติถ้าไม่ได้เสียบสายไว้ แต่ถ้าเป็นพอร์ตที่ควรมีอุปกรณ์ต่ออยู่ ให้ตรวจสายและปลายทาง');
+        }
+
+        // ---- DHCP ----
+        const bound = (data.leases || []).filter((l) => String(l.status).toLowerCase() === 'bound').length;
+        if ((data.leases || []).length > 0 && bound === 0) {
+            add('warning', 'ไม่มีเครื่องไหนได้รับ IP จาก DHCP เลย',
+                `มี lease ${data.leases.length} รายการแต่ไม่มีตัวไหน bound`,
+                'ตรวจว่า DHCP server ยังเปิดอยู่และ pool ยังมี IP เหลือ');
+        }
+
+        const rank = { critical: 0, warning: 1, info: 2 };
+        findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
+
+        res.json({
+            checkedAt: new Date().toISOString(),
+            router: {
+                version: r.version || '', boardName: r['board-name'] || '',
+                uptime: r.uptime || '', cpuLoad: cpu,
+                freeMemoryMb: Math.round(freeMem / 1048576),
+                totalMemoryMb: Math.round(totalMem / 1048576),
+                temperature: temp || null
+            },
+            findings,
+            counts: {
+                critical: findings.filter((f) => f.severity === 'critical').length,
+                warning: findings.filter((f) => f.severity === 'warning').length
+            },
+            logSummary: { total: logSummary.total, counts: logSummary.counts },
+            healthy: findings.length === 0
+        });
+    } catch (err) {
+        res.status(500).json({ error: rosErrors.explain(err, { task: 'nettest' }) });
     }
 });
 

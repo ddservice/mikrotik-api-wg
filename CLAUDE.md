@@ -501,6 +501,38 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-05 (8)** — Reading the router's own log, and a one-button health check.
+  - **`lib/router-log.js`** turns RouterOS log lines into something an operator can act on.
+    MikroTik's log says *what happened* in terse English but never *what it means* or *what to
+    do*, so someone who does not work in RouterOS daily cannot tell a routine line from a real
+    problem — which ends with nobody reading it at all.
+  - **Every rule must answer three questions: what happened, what it means, what to do next.**
+    A test asserts all three fields are present and non-trivial on every rule, because a warning
+    you cannot act on is noise, and noise is what buries the one alert that mattered. Covers the
+    lines that actually show up: failed logins, a rogue DHCP server, link down, PPPoE auth
+    failure and disconnects, unexpected reboots, bridge loops, out of memory, DNS failures, full
+    disk.
+  - **Frequency changes meaning.** Two failed logins is someone mistyping; sixty is someone
+    working through a password list. Identical text, different problem — so a group past its
+    threshold is escalated to critical and the count is put into the explanation. Repeats are
+    grouped into one row rather than listed line by line, because real logs are the same event
+    hundreds of times over and reading them one line at a time hides how many *distinct*
+    problems there actually are.
+  - **Unknown lines are not guessed at.** No matching rule means no advice — severity still
+    comes from the `topics` field, but `action` stays null. Inventing a fix for a message we do
+    not recognise is worse than saying nothing.
+  - **`GET /api/mikrotik/health-check`** — one request that reads CPU, memory, disk,
+    temperature, the router's log, dead ports and DHCP, then returns findings sorted worst
+    first, each with its own suggested action. Read-only: it changes nothing on the router, so
+    it is safe to press at any time.
+  - **Deliberately no "fix it for me" button.** Today alone produced two reminders that every
+    router holds something we do not know about: hand-built PCC that would have silently
+    swallowed a failover install, and an existing WireGuard interface that made RouterOS
+    disable ours. Diagnosis is safe to automate; repair on a live branch is not.
+  - Verified against the fixture: a router with a rogue-DHCP line, a reboot and a link-down
+    returns `healthy: false`, 1 critical + 3 warnings, correctly ranked with the rogue DHCP
+    server first. 21 new tests (**386 total**), 120 routes.
+
 - **2026-09-05 (7)** — Font unified with v1, traffic graph defaults to the WAN, and a DHCP
   lease page so the most common WinBox errand no longer needs WinBox.
   - **Font: v2 now uses Prompt for Thai, matching v1.** The two UIs had been loading different

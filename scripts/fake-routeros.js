@@ -66,7 +66,15 @@ const db = {
     ],
     scheduler: [],
     resource: [{ version: VERSION, 'board-name': 'CCR2004-16G-2S+', uptime: '8w1d2h13m12s',
-                 'cpu-load': '3', 'free-memory': '1500000000' }],
+                 'cpu-load': '3', 'free-memory': '1500000000', 'total-memory': '4000000000',
+                 'free-hdd-space': '100000000', 'total-hdd-space': '128000000' }],
+    // log ตัวอย่างที่มีทั้งเรื่องปกติและเรื่องที่ต้องสนใจ
+    routerLogs: [
+        { time: '09:15:01', topics: 'system,info', message: 'router rebooted' },
+        { time: '10:02:11', topics: 'dhcp,warning', message: 'dhcp alert on bridge-lan: discovered unknown dhcp server, mac 00:11:22:33:44:55' },
+        { time: '10:30:00', topics: 'interface,info', message: 'ether3: link down' },
+        { time: '11:00:00', topics: 'system,info', message: 'user admin logged in from 10.10.88.1 via api' }
+    ],
     identity: [{ name: 'A4-Residence-FAKE' }],
     routerboard: [{ 'board-name': 'CCR2004-16G-2S+', model: 'CCR2004-16G-2S+',
                     'current-firmware': VERSION, 'upgrade-firmware': VERSION,
@@ -215,6 +223,7 @@ function handle(cmd, attrs) {
     if (c === '/ppp/active/print') return reply(db.pppActive);
     if (c === '/ppp/profile/print') return reply(db.pppProfiles);
     if (c === '/interface/pppoe-server/server/print') return reply(db.pppoeServers);
+    if (c === '/log/print') return reply(db.routerLogs);
     if (c === '/ip/dhcp-server/lease/print') return reply(db.dhcpLeases);
     if (c === '/ip/dhcp-server/print') return reply(db.dhcpServers);
     if (c === '/ip/dhcp-server/lease/make-static') {
