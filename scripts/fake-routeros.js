@@ -33,10 +33,18 @@ const nextId = () => `*${(++idSeq).toString(16).toUpperCase()}`;
 // ---- สถานะจำลอง ----
 const db = {
     interfaces: [
-        { '.id': '*1', name: 'ether1', type: 'ether', running: 'true' },
-        { '.id': '*2', name: 'ether2', type: 'ether', running: 'true' },
-        { '.id': '*3', name: 'ether3', type: 'ether', running: 'false' },
-        { '.id': '*4', name: 'bridge-lan', type: 'bridge', running: 'true' },
+        { '.id': '*1', name: 'ether1', type: 'ether', running: 'true',
+          'last-link-up-time': 'aug/01/2026 09:00:00', 'rx-byte': '9000000', 'tx-byte': '8000000' },
+        { '.id': '*2', name: 'ether2', type: 'ether', running: 'true',
+          'last-link-up-time': 'aug/01/2026 09:00:00', 'rx-byte': '5000000', 'tx-byte': '4000000' },
+        // ether3 = พอร์ตที่ไม่เคยใช้ ไม่เคยมีลิงก์ ไม่มี traffic ไม่มี comment -> ต้องไม่ขึ้นเตือน
+        { '.id': '*3', name: 'ether3', type: 'ether', running: 'false',
+          'rx-byte': '0', 'tx-byte': '0' },
+        // ether4 = เคยใช้จริง (มี last-link-up-time + traffic) แต่ตอนนี้สายหลุด -> ต้องขึ้นเตือน
+        { '.id': '*4', name: 'ether4', type: 'ether', running: 'false',
+          'last-link-up-time': 'sep/05/2026 18:48:03', 'rx-byte': '120000', 'tx-byte': '90000',
+          comment: 'กล้องวงจรปิด ชั้น 2' },
+        { '.id': '*6', name: 'bridge-lan', type: 'bridge', running: 'true' },
         { '.id': '*5', name: 'pppoe-out1', type: 'pppoe-out', running: 'true' }
     ],
     pppoeClients: [

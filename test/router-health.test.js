@@ -105,18 +105,45 @@ describe('router-health — เกณฑ์แต่ละอย่าง', () =
         assert.strictEqual(r.router.temperature, null);
     });
 
-    it('พอร์ต ether ที่ไม่มีสัญญาณ = ควรดู แต่พอร์ตที่ปิดไว้เองไม่นับ', () => {
+    it('เตือนเฉพาะพอร์ตที่เคยใช้แต่สายหลุด ไม่เตือนพอร์ตที่ไม่เคยใช้', () => {
+        // เคสจริงจากหน้างาน (2026-09-06): ether3/ether4 ไม่ได้เสียบสายไว้ตั้งแต่แรก
+        // ขึ้นเตือนทั้งที่ไม่ใช่ปัญหา — พอร์ตที่ไม่เคยมีลิงก์ ไม่มี traffic ไม่มี comment
+        // ต้องถือว่า "ไม่ได้ใช้" ไม่ใช่ "สายหลุด"
         const r = rh.analyzeHealth(healthy({
             ifaces: [
                 { name: 'ether1', type: 'ether', running: 'true', disabled: 'false' },
-                { name: 'ether5', type: 'ether', running: 'false', disabled: 'false' },
-                { name: 'ether9', type: 'ether', running: 'false', disabled: 'true' }
+                // ไม่เคยใช้ — ไม่มีหลักฐานใด ๆ ว่าเคยทำงาน
+                { name: 'ether3', type: 'ether', running: 'false', disabled: 'false',
+                  'rx-byte': '0', 'tx-byte': '0' },
+                // เคยใช้จริง (last-link-up-time + traffic) แล้วสายหลุด
+                { name: 'ether4', type: 'ether', running: 'false', disabled: 'false',
+                  'last-link-up-time': 'sep/05/2026 18:48:03', 'rx-byte': '120000', 'tx-byte': '90000' },
+                // มี comment กำกับว่าใช้ = ถือว่าตั้งใจใช้ แม้ไม่เคยลิงก์
+                { name: 'ether7', type: 'ether', running: 'false', disabled: 'false',
+                  comment: 'กล้องวงจรปิด' },
+                // ปิดไว้เอง = ไม่ใช่ปัญหา
+                { name: 'ether9', type: 'ether', running: 'false', disabled: 'true',
+                  'last-link-up-time': 'sep/05/2026 10:00:00' }
             ]
         }));
-        const f = r.findings.find((x) => x.title.includes('ไม่มีสัญญาณ'));
-        assert.ok(f);
-        assert.ok(f.detail.includes('ether5'));
-        assert.ok(!f.detail.includes('ether9'), 'พอร์ตที่ปิดไว้เองไม่ใช่ปัญหา');
+        const f = r.findings.find((x) => x.title.includes('สายหลุด'));
+        assert.ok(f, 'ต้องมีการเตือนพอร์ตที่เคยใช้แต่สายหลุด');
+        assert.ok(f.detail.includes('ether4'), 'พอร์ตที่เคยใช้แล้วหลุดต้องขึ้น');
+        assert.ok(f.detail.includes('ether7'), 'พอร์ตที่มี comment ต้องขึ้น');
+        assert.ok(!f.detail.includes('ether3'), 'พอร์ตที่ไม่เคยใช้ต้องไม่ขึ้น');
+        assert.ok(!f.detail.includes('ether9'), 'พอร์ตที่ปิดไว้เองต้องไม่ขึ้น');
+    });
+
+    it('พอร์ตที่ไม่เคยใช้ทั้งหมด = ไม่มีการเตือนพอร์ตเลย', () => {
+        const r = rh.analyzeHealth(healthy({
+            ifaces: [
+                { name: 'ether1', type: 'ether', running: 'true', disabled: 'false' },
+                { name: 'ether3', type: 'ether', running: 'false', disabled: 'false' },
+                { name: 'ether4', type: 'ether', running: 'false', disabled: 'false' }
+            ]
+        }));
+        assert.ok(!r.findings.some((x) => x.title.includes('สายหลุด') || x.title.includes('สัญญาณ')),
+            'ether ที่ไม่ได้เสียบสายไว้ ไม่ควรทำให้เกิดการเตือน');
     });
 
     it('มี lease แต่ไม่มีตัวไหน bound = ควรดู', () => {
