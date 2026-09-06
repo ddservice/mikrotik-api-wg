@@ -501,6 +501,63 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (5)** — Slips sent to LINE become payments. Closes the last recommendation.
+  **`sql/2026-09-06_payment_claims.sql` must be run in the Supabase SQL Editor.**
+  - **Found first, fixed first: `POST /api/line/webhook` never verified the LINE
+    signature.** It has to be public — LINE's servers call it — so without verification
+    anyone who knows the URL can post events. Exposure so far was limited (bind a LINE id
+    to any username, then read that account's remaining time; the password was never
+    sent), but the webhook was about to start creating **financial records**, at which
+    point verification stops being optional.
+    - `lib/line-verify.js`: HMAC-SHA256 over the **raw body**, timing-safe compare.
+    - `channelSecret` is new config in both DB layers and is **never returned to the
+      browser** — same pattern as the Telegram bot token — and an empty value on save
+      means "keep", because the GET does not hand it back and a blank field would
+      otherwise disable verification without anyone noticing.
+    - No secret configured = everything existing keeps working, but **slips are refused**.
+      Breaking the whole webhook on deploy would be worse than accepting the old
+      behaviour for the paths that were already there.
+  - **The fix did not work at first, and the reason is worth keeping.** The route-level
+    `express.json({ verify })` never ran, because a **global `express.json()` had already
+    consumed the body**. `req.rawBody` stayed `undefined` and every correctly signed
+    request was rejected. Caught only because the end-to-end test asserted a *valid*
+    signature is accepted, not merely that an invalid one is rejected — a test that only
+    checked the reject case would have passed on completely broken verification.
+    - Second time this session that a leftover process hid a result: the first re-run
+      after the fix still failed because the previous server was **still holding port
+      3194**, so the new code never started. `EADDRINUSE` was in the log, above the noise.
+  - **The rule the feature is built on: a slip image is not proof of payment.** It can be
+    edited, resent, or be last month's, and the number in the picture need not match what
+    reached the bank. The system only promises not to lose it — **the amount is typed by a
+    person who looked at the balance**. Same reasoning as Multi-WAN diagnosing without
+    repairing, and the health check having no "fix it for me" button.
+    - **An unlinked sender still creates a claim.** Dropping it would mean a customer paid
+      and nobody knows; the room is chosen at approval time instead.
+    - `message_id` is **unique** — LINE retries webhooks that do not get a prompt 200, and
+      one slip must not become two claims that both get approved.
+    - Approval runs the *same* path as a manual payment: renew from the previous due date,
+      write `room_payments`, update the router comment, then notify the customer.
+    - **Rejection requires a reason**, which is sent to the customer. Being refused with no
+      explanation just turns into a phone call, and the customer still does not know what
+      to fix.
+    - The slip is **downloaded when it arrives**, not when an admin opens it — LINE keeps
+      message content only briefly, so a Friday slip opened on Monday would be gone, and
+      the evidence would disappear exactly while nobody had checked it yet.
+  - Verified over HTTP end to end: unsigned webhook creates nothing; a correctly signed one
+    creates a pending claim with no room; a repeat of the same `message_id` stays one claim;
+    approving without naming a room is refused; approving with `rm319` wrote ฿3,000 to
+    `room_payments` as `LINE (สลิป)`, moved the due date and wrote
+    `คุณสมชาย ครบกำหนด 2026-10-06` back to the router; approving again is refused;
+    rejecting with no reason is refused; unauthenticated 401. Separately confirmed the
+    channel secret never appears in the config response and a blank save does not wipe it.
+    **22 new tests (534 total), 132 routes**, smoke clean.
+  - `slips/` is gitignored — customer financial images do not belong in a repository.
+    No auto-purge was added: it is payment evidence, and this repo's rule is not to add
+    retention to billing data without asking.
+  - Left alone deliberately: `channelAccessToken` **is** still returned by that endpoint,
+    because the v1 settings page reads it back and re-posts it. Tightening it would break
+    the old UI, so it is a separate decision rather than a side effect of this change.
+
 - **2026-09-06 (4)** — Rent due dates and payments become real records. Closes the second
   and third recommendations; `sql/2026-09-06_room_billing.sql` **must be run in the
   Supabase SQL Editor before the feature can store anything**.
