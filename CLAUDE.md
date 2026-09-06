@@ -501,6 +501,46 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (4)** — Rent due dates and payments become real records. Closes the second
+  and third recommendations; `sql/2026-09-06_room_billing.sql` **must be run in the
+  Supabase SQL Editor before the feature can store anything**.
+  - **The table is the source of truth, but the router comment is still written back.**
+    Nothing existing breaks, and anyone opening WinBox still sees the due date exactly
+    where they always did — nobody has to change how they work on day one. That is also
+    what makes the migration safe to do in one commit rather than a flag day.
+  - **Three rules in `lib/billing.js`, all of them because this is other people's money:**
+    - **Renewal counts from the previous due date, not the payment date.** Paying five
+      days late must not buy five free days. The exception is a room more than a full
+      cycle behind: counting forward from the old date lands in the past, so the room
+      would still read as overdue right after paying — it restarts from the payment date
+      and returns `resetFromPayment` so the reason is recorded rather than inferred.
+    - **31 Jan + 1 month is 28 Feb, not 3 Mar.** Letting `Date` roll invalid days forward
+      makes a due date drift later every short month, and the tenant notices before we do.
+    - **Writing the comment replaces the old date rather than appending**, and keeps
+      whatever the staff wrote (tenant name, phone). A test asserts the result parses back
+      through `lib/expiry` — the two halves of that round trip live in different files and
+      would otherwise drift apart silently.
+  - **`POST /api/mikrotik/billing/import` seeds the table from the comments already on the
+    router.** Without it the table is empty on day one and nobody retypes every room by
+    hand, so the feature would simply not get used. Rooms whose comment has no date are
+    created *without* one, so they show up as needing attention instead of vanishing the
+    way they did before.
+  - Verified over HTTP against the fixture: import created 4 rooms and reported 2 with no
+    date in the comment; setting a due date wrote `คุณสมชาย ครบกำหนด 2026-09-01` back to the
+    router **keeping the tenant name**; a late payment moved it to `2026-10-01` — from the
+    due date, not the payment date — and the comment held **exactly one** date, not two;
+    the month summary read ฿3,000 collected with `rm322` overdue by 2,440 days; negative
+    and non-numeric amounts and `2026-02-31` all rejected 400; unauthenticated 401;
+    re-import skipped all 4 without overwriting. **22 new tests (512 total), 128 routes**,
+    smoke clean.
+  - Not clicked through — the Chrome extension is still not connected. The new strings and
+    endpoints were verified present in the emitted bundle with no stale assets.
+  - **Deliberately not built**: recording payment slips from LINE (the fourth
+    recommendation). The webhook already tells customers to send a slip, and the loop
+    could now be closed cheaply since every approval would become a `room_payments` row —
+    but it changes what customers are told to do, so it is worth agreeing on the wording
+    before shipping it.
+
 - **2026-09-06 (2)** — Acted on the recommendations. The first one — "prove a restore
   actually works" — found that **it never worked and never could have**.
   - **`scripts/restore-from-r2.sh` could not restore anything.** It ran
