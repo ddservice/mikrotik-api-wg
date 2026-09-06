@@ -41,8 +41,8 @@ async function load() {
     }
 }
 
-onMounted(load);
-watch(activeSiteId, () => { data.value = null; month.value = ''; load(); });
+onMounted(() => { load(); loadClaims(); });
+watch(activeSiteId, () => { data.value = null; month.value = ''; claims.value = []; load(); loadClaims(); });
 watch(month, (v, old) => { if (old && v && v !== old) load(); });
 
 const today = computed(() => (data.value && data.value.today) || '');
@@ -76,6 +76,113 @@ const rows = computed(() => {
 function daysFrom(due) {
     if (!due || !today.value) return null;
     return Math.round((Date.parse(due + 'T00:00:00Z') - Date.parse(today.value + 'T00:00:00Z')) / 86400000);
+}
+
+// ---------- สลิปแจ้งชำระที่ส่งมาทาง LINE ----------
+//
+// ระบบรับเรื่องไว้เท่านั้น ไม่อนุมัติเอง — รูปสลิปไม่ใช่หลักฐานการชำระเงิน
+// คนที่เปิดดูยอดในบัญชีธนาคารจริงเป็นคนกรอกจำนวนและกดยืนยัน
+const claims = ref([]);
+const pendingCount = computed(() => claims.value.filter((c) => c.status === 'pending').length);
+const showAllClaims = ref(false);
+const shownClaims = computed(() => showAllClaims.value
+    ? claims.value
+    : claims.value.filter((c) => c.status === 'pending'));
+
+async function loadClaims() {
+    try {
+        const r = await apiFetch('/api/mikrotik/payment-claims');
+        claims.value = r.claims || [];
+    } catch (e) {
+        claims.value = [];   // ข้อมูลเสริม ไม่ควรทำให้ทั้งหน้าพัง
+    }
+}
+
+const slipUrl = (c) => '/api/mikrotik/payment-claims/' + c.id + '/slip';
+const slipOpen = ref(false);
+const slipClaim = ref(null);
+const slipSrc = ref('');
+
+// รูปสลิปต้องใช้ token เหมือน API อื่น ๆ จึงใส่ใน <img src> ตรง ๆ ไม่ได้
+// (ใส่ token ลง URL ก็ไม่ควร เพราะจะไปโผล่ใน log ของ proxy)
+async function openSlip(c) {
+    slipClaim.value = c;
+    slipSrc.value = '';
+    slipOpen.value = true;
+    try {
+        const res = await fetch(slipUrl(c), {
+            headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+        });
+        if (!res.ok) throw new Error('ไม่พบรูปสลิป');
+        slipSrc.value = URL.createObjectURL(await res.blob());
+    } catch (e) {
+        slipSrc.value = '';
+        toast.error(e.message);
+    }
+}
+
+const approveOpen = ref(false);
+const approve = ref({ id: '', username: '', amount: '', months: 1, paidOn: '' });
+
+function openApprove(c) {
+    approve.value = {
+        id: c.id, username: c.username || '', amount: '', months: 1, paidOn: today.value
+    };
+    approveOpen.value = true;
+}
+
+async function saveApprove() {
+    if (!approve.value.username) return toast.error('ต้องระบุว่าเป็นห้องไหน');
+    const amt = Number(approve.value.amount);
+    if (!isFinite(amt) || amt <= 0) return toast.error('จำนวนเงินต้องมากกว่า 0');
+    busy.value = 'approve';
+    try {
+        const r = await apiFetch('/api/mikrotik/payment-claims/' + approve.value.id + '/approve', {
+            method: 'POST',
+            body: JSON.stringify({
+                username: approve.value.username, amount: amt,
+                months: Number(approve.value.months) || 1, paidOn: approve.value.paidOn
+            })
+        });
+        toast.success('ยืนยันแล้ว — ครบกำหนดใหม่ ' + r.dueDate +
+                      (r.notified ? ' และแจ้งลูกค้าทาง LINE แล้ว' : ' (ส่งข้อความหาลูกค้าไม่สำเร็จ)'));
+        approveOpen.value = false;
+        slipOpen.value = false;
+        await Promise.all([load(), loadClaims()]);
+    } catch (e) {
+        toast.error(e.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
+async function rejectClaim(c) {
+    const reason = window.prompt(
+        'ไม่อนุมัติสลิปของ ' + (c.username || 'รายการนี้') + '\n\n' +
+        'เหตุผลจะถูกส่งให้ลูกค้าทาง LINE — เขียนให้ชัดว่าต้องแก้อะไร\n' +
+        'เช่น "ยอดไม่ตรงกับที่เข้าบัญชี" หรือ "เป็นสลิปของเดือนที่แล้ว"'
+    );
+    if (reason === null) return;
+    if (!reason.trim()) return toast.error('ต้องระบุเหตุผล');
+    busy.value = 'reject';
+    try {
+        await apiFetch('/api/mikrotik/payment-claims/' + c.id + '/reject', {
+            method: 'POST', body: JSON.stringify({ reason: reason.trim() })
+        });
+        toast.success('บันทึกว่าไม่อนุมัติ และแจ้งลูกค้าแล้ว');
+        await loadClaims();
+    } catch (e) {
+        toast.error(e.message);
+    } finally {
+        busy.value = '';
+    }
+}
+
+function claimTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleString('th-TH', { day: '2-digit', month: 'short',
+                                                       hour: '2-digit', minute: '2-digit' });
 }
 
 // ---------- นำเข้าจาก comment ----------
@@ -214,6 +321,45 @@ function baht(n) {
             <span>อ่านเราท์เตอร์ไม่ได้ตอนนี้ — แสดงเฉพาะห้องที่มีในระบบ ยอดเงินยังถูกต้อง</span>
         </div>
 
+        <!-- สลิปที่รอตรวจ — ขึ้นก่อนตัวเลขทั้งหมด เพราะมีคนจ่ายเงินไปแล้วและกำลังรออยู่ -->
+        <div v-if="pendingCount || showAllClaims" class="claims">
+            <div class="chead">
+                <span class="ctitle">
+                    <i class="fa-brands fa-line"></i>
+                    สลิปแจ้งชำระที่รอตรวจ
+                    <b v-if="pendingCount" class="cbadge">{{ pendingCount }}</b>
+                </span>
+                <button type="button" class="v2-btn ghost sm" @click="showAllClaims = !showAllClaims">
+                    {{ showAllClaims ? 'ดูเฉพาะที่รออยู่' : 'ดูที่ตรวจแล้วด้วย' }}
+                </button>
+            </div>
+            <p class="bnote">
+                ระบบ<b>ไม่ยืนยันให้อัตโนมัติ</b> — รูปสลิปแก้ไขได้และยอดในรูปอาจไม่ตรงกับที่เข้าบัญชีจริง
+                กดดูรูป เทียบกับยอดในบัญชีธนาคาร แล้วกรอกจำนวนที่<b>เข้าจริง</b>
+            </p>
+            <div v-if="!shownClaims.length" class="bnote">ไม่มีรายการ</div>
+            <div v-for="c in shownClaims" :key="c.id" class="claim" :class="c.status">
+                <div class="cinfo">
+                    <b class="mono">{{ c.username || 'ยังไม่ผูกบัญชี' }}</b>
+                    <span class="csub">{{ claimTime(c.receivedAt) }}</span>
+                    <span v-if="c.status !== 'pending'" class="tag" :class="c.status">
+                        {{ c.status === 'approved' ? 'ยืนยันแล้ว ฿' + baht(c.amount) : 'ไม่อนุมัติ' }}
+                    </span>
+                    <span v-if="c.rejectReason" class="csub">— {{ c.rejectReason }}</span>
+                </div>
+                <div class="cacts">
+                    <button type="button" class="v2-btn ghost sm" @click="openSlip(c)">
+                        <i class="fa-solid fa-image"></i> ดูสลิป
+                    </button>
+                    <template v-if="c.status === 'pending'">
+                        <button type="button" class="v2-btn primary sm" @click="openApprove(c)">ยืนยัน</button>
+                        <button type="button" class="v2-btn ghost sm" :disabled="busy === 'reject'"
+                                @click="rejectClaim(c)">ไม่อนุมัติ</button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
         <div class="cards">
             <div class="card">
                 <div class="clab">เก็บได้เดือนนี้</div>
@@ -292,6 +438,44 @@ function baht(n) {
         </template>
     </BaseModal>
 
+    <!-- ดูรูปสลิป -->
+    <BaseModal :open="slipOpen" :title="'สลิป — ' + (slipClaim ? (slipClaim.username || 'ยังไม่ผูกบัญชี') : '')"
+               @close="slipOpen = false">
+        <div class="sliparea">
+            <img v-if="slipSrc" :src="slipSrc" alt="สลิปแจ้งชำระ">
+            <p v-else class="bnote">
+                ไม่มีรูปสลิปเก็บไว้ — อาจโหลดจาก LINE ไม่สำเร็จตอนที่ลูกค้าส่งมา
+                รายการยังอยู่ ตรวจสอบยอดในบัญชีแล้วยืนยันได้ตามปกติ
+            </p>
+        </div>
+        <template #footer>
+            <button type="button" class="v2-btn ghost" @click="slipOpen = false">ปิด</button>
+            <button v-if="slipClaim && slipClaim.status === 'pending'" type="button"
+                    class="v2-btn primary" @click="openApprove(slipClaim)">ยืนยันการชำระ</button>
+        </template>
+    </BaseModal>
+
+    <!-- ยืนยันสลิป -->
+    <BaseModal :open="approveOpen" title="ยืนยันการชำระจากสลิป" @close="approveOpen = false">
+        <div class="frm">
+            <label>ห้อง<input v-model="approve.username" class="v2-input" placeholder="เช่น rm301"></label>
+            <label>จำนวนเงินที่<b>เข้าบัญชีจริง</b> (บาท)
+                <input v-model="approve.amount" type="number" min="1" class="v2-input"></label>
+            <label>วันที่ชำระ<input v-model="approve.paidOn" type="date" class="v2-input"></label>
+            <label>ต่ออายุกี่เดือน<input v-model="approve.months" type="number" min="1" max="24" class="v2-input"></label>
+            <p class="bnote">
+                กดยืนยันแล้วระบบจะบันทึกการชำระ ต่อวันครบกำหนด เขียนกลับลงเราท์เตอร์
+                และส่งข้อความแจ้งลูกค้าทาง LINE ทั้งหมดในครั้งเดียว
+            </p>
+        </div>
+        <template #footer>
+            <button type="button" class="v2-btn ghost" @click="approveOpen = false">ยกเลิก</button>
+            <button type="button" class="v2-btn primary" :disabled="busy === 'approve'" @click="saveApprove">
+                ยืนยันการชำระ
+            </button>
+        </template>
+    </BaseModal>
+
     <!-- รับชำระ -->
     <BaseModal :open="payOpen" :title="'รับชำระ — ' + pay.username" @close="payOpen = false">
         <div class="frm">
@@ -322,6 +506,23 @@ function baht(n) {
 </template>
 
 <style scoped>
+.claims { border: 1px solid var(--v2-border); border-left: 3px solid #06c755;
+          border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+.chead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ctitle { font-weight: 700; font-size: .88rem; display: flex; align-items: center; gap: 7px; }
+.ctitle i { color: #06c755; }
+.cbadge { background: var(--v2-danger); color: #fff; border-radius: 999px;
+          font-size: .7rem; padding: 1px 8px; }
+.claim { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+         flex-wrap: wrap; padding: 7px 0; border-top: 1px solid var(--v2-border); }
+.cinfo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .82rem; }
+.csub { font-size: .74rem; color: var(--v2-text-muted); }
+.cacts { display: flex; gap: 5px; }
+.tag.approved { color: var(--v2-success); border-color: color-mix(in srgb, var(--v2-success) 35%, transparent); }
+.tag.rejected { color: var(--v2-danger); border-color: color-mix(in srgb, var(--v2-danger) 35%, transparent); }
+.sliparea { text-align: center; }
+.sliparea img { max-width: 100%; max-height: 65vh; border-radius: 8px; border: 1px solid var(--v2-border); }
+
 .bill {
     background: var(--v2-surface); border: 1px solid var(--v2-border);
     border-radius: var(--v2-radius); padding: 14px 16px; margin-bottom: 14px;

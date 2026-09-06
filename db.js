@@ -1163,6 +1163,53 @@ function deleteRoomPayment(id) {
     return true;
 }
 
+// ============================================================
+// การแจ้งชำระเงินด้วยสลิปผ่าน LINE (payment_claims)
+//
+// ระบบรับเรื่องไว้เท่านั้น **ไม่อนุมัติเอง** — รูปสลิปไม่ใช่หลักฐานการชำระเงิน
+// แก้ไขได้ ส่งซ้ำได้ ส่งสลิปเก่าได้ คนที่เปิดดูยอดในบัญชีจริงเป็นคนกรอกจำนวนและกดอนุมัติ
+//
+// หน้าที่ของตารางนี้คือ "ไม่ทำหาย" — สลิปที่ส่งมาตอนตีสองต้องยังอยู่ตอนเช้า
+// พร้อมบอกว่าใครส่ง ห้องไหน เมื่อไหร่ และยังไม่มีใครดู
+// ============================================================
+
+const PAYMENT_CLAIMS_FILE = path.join(DB_DIR, 'payment_claims.json');
+
+function getPaymentClaims(options) {
+    options = options || {};
+    let rows = _readJsonArray(PAYMENT_CLAIMS_FILE);
+    if (options.siteId) rows = rows.filter((r) => String(r.siteId) === String(options.siteId));
+    if (options.status) rows = rows.filter((r) => r.status === options.status);
+    rows.sort((a, b) => String(b.receivedAt).localeCompare(String(a.receivedAt)));
+    return rows.slice(0, parseInt(options.limit, 10) || 200);
+}
+
+function getPaymentClaim(id) {
+    return _readJsonArray(PAYMENT_CLAIMS_FILE).find((r) => String(r.id) === String(id)) || null;
+}
+
+function addPaymentClaim(entry) {
+    const rows = _readJsonArray(PAYMENT_CLAIMS_FILE);
+    // LINE ส่ง webhook ซ้ำได้เมื่อไม่ได้รับ 200 ทัน — messageId เดิมต้องไม่กลายเป็นสองรายการ
+    const dup = rows.find((r) => r.messageId === entry.messageId);
+    if (dup) return dup;
+    const row = Object.assign({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 7)
+    }, entry);
+    rows.push(row);
+    _writeJsonArray(PAYMENT_CLAIMS_FILE, rows);
+    return row;
+}
+
+function updatePaymentClaim(id, patch) {
+    const rows = _readJsonArray(PAYMENT_CLAIMS_FILE);
+    const i = rows.findIndex((r) => String(r.id) === String(id));
+    if (i < 0) return null;
+    rows[i] = Object.assign({}, rows[i], patch);
+    _writeJsonArray(PAYMENT_CLAIMS_FILE, rows);
+    return rows[i];
+}
+
 const LOG_ARCHIVES_FILE = path.join(DB_DIR, 'log_archives.json');
 
 function _readArchives() {
@@ -1391,7 +1438,7 @@ function getLineDigestConfig(siteId) {
                 siteId: targetSiteId,
                 enabled: !!siteConfig.enabled,
                 channelAccessToken: siteConfig.channelAccessToken || siteConfig.lineNotifyToken || '',
-                channelSecret: siteConfig.channelSecret || '',
+                channelSecret: siteConfig.channelSecret || siteConfig.lineChannelSecret || '',
                 targetId: siteConfig.targetId || '',
                 digestTime: siteConfig.digestTime || '09:00',
                 includeHotspot: siteConfig.includeHotspot !== false,
@@ -1576,6 +1623,10 @@ module.exports = {
     saveTelegramAlertConfig,
     getLogArchives,
     getAllAppSettingsRaw,
+    getPaymentClaims,
+    getPaymentClaim,
+    addPaymentClaim,
+    updatePaymentClaim,
     getRoomBilling,
     saveRoomBilling,
     deleteRoomBilling,

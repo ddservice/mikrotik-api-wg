@@ -215,7 +215,7 @@ async function discoverChats() {
 
 // ---------- LINE OA ----------
 const lineSiteId = ref('');
-const line = ref({ enabled: false, channelAccessToken: '', targetId: '', digestTime: '09:00', lastSentDate: '' });
+const line = ref({ enabled: false, channelAccessToken: '', channelSecret: '', hasChannelSecret: false, targetId: '', digestTime: '09:00', lastSentDate: '' });
 const lineBusy = ref('');
 
 async function loadLine() {
@@ -237,6 +237,8 @@ async function saveLine() {
             body: JSON.stringify({
                 enabled: line.value.enabled,
                 channelAccessToken: line.value.channelAccessToken,
+                // ส่งว่าง = ไม่เปลี่ยน (server เก็บของเดิมไว้) เพราะ GET ไม่คืนค่านี้กลับมา
+                channelSecret: line.value.channelSecret,
                 targetId: line.value.targetId,
                 digestTime: line.value.digestTime
             })
@@ -700,6 +702,20 @@ onMounted(async () => {
                 <label>Channel Access Token</label>
                 <input v-model="line.channelAccessToken" type="password" class="v2-input mono" autocomplete="off"
                        placeholder="จาก LINE Developers Console">
+            </div>
+
+            <div class="v2-field">
+                <label>
+                    Channel Secret
+                    <span v-if="line.hasChannelSecret" class="v2-hint" style="font-weight:400">— ตั้งไว้แล้ว</span>
+                </label>
+                <input v-model="line.channelSecret" type="password" class="v2-input mono" autocomplete="off"
+                       :placeholder="line.hasChannelSecret ? 'ตั้งไว้แล้ว — เว้นว่างไว้ถ้าไม่เปลี่ยน' : 'จาก LINE Developers Console'">
+                <span class="v2-hint">
+                    ใช้ตรวจว่า webhook ที่เข้ามาส่งมาจาก LINE จริง —
+                    <b>ไม่ตั้งค่านี้ ระบบจะไม่รับสลิปแจ้งชำระเงินจากลูกค้า</b>
+                    เพราะยืนยันไม่ได้ว่าใครเป็นคนส่ง · ค่านี้ไม่เคยถูกส่งกลับมาแสดงในหน้าเว็บ
+                </span>
             </div>
 
             <div class="v2-row-2">

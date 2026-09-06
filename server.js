@@ -20,6 +20,8 @@ const mwAnalyze = require('./lib/multiwan-analyze');
 const mwMangle = require('./lib/multiwan-mangle');
 const expiryLib = require('./lib/expiry');
 const billing = require('./lib/billing');
+const lineVerify = require('./lib/line-verify');
+const paymentClaims = require('./lib/payment-claims');
 const mwPlan = require('./lib/multiwan-plan');
 const mwApply = require('./lib/multiwan-apply');
 const pccWeights = require('./lib/pcc-weights');
@@ -180,7 +182,16 @@ app.use('/api/', apiLimiter);
 
 // Exclude /api/wireguard/callback-register from the global JSON parser
 app.use(express.json({
-    type: (req) => req.path !== '/api/wireguard/callback-register' && (req.headers['content-type'] || '').includes('json')
+    type: (req) => req.path !== '/api/wireguard/callback-register' && (req.headers['content-type'] || '').includes('json'),
+    // เก็บ raw body ไว้เฉพาะ webhook ของ LINE — ลายเซ็นคำนวณจากไบต์ที่ส่งมาจริง
+    // JSON.stringify(req.body) ให้ผลต่างออกไป (ลำดับคีย์ ช่องว่าง ยูนิโค้ด) แล้วจะไม่ตรงเลย
+    //
+    // ต้องทำตรงนี้ ไม่ใช่ที่ตัว route: middleware ตัวนี้ทำงานก่อน จึงอ่าน body ไปหมดแล้ว
+    // express.json() ที่ผูกกับ route จะไม่ทำอะไรอีก และ verify ของมันไม่เคยถูกเรียก
+    // ผลคือ rawBody เป็น undefined และลายเซ็นที่ถูกต้องก็ถูกปฏิเสธทั้งหมด
+    verify: (req, res, buf) => {
+        if (req.path === '/api/line/webhook') req.rawBody = buf;
+    }
 }));
 
 // ---------- หน้าเว็บเก่า (v1) กับหน้าใหม่ (v2) ----------
@@ -3754,6 +3765,187 @@ function createDailyDigestFlex(digestData) {
 const parseExpiryFromComment = expiryLib.parseExpiry;
 
 // ==========================================
+// การแจ้งชำระเงินด้วยสลิปผ่าน LINE
+//
+// ระบบรับเรื่องไว้เท่านั้น ไม่อนุมัติเอง — รูปสลิปไม่ใช่หลักฐานการชำระเงิน
+// คนที่เปิดดูยอดในบัญชีจริงเป็นคนกรอกจำนวนและกดอนุมัติ
+// ==========================================
+
+/** GET /api/mikrotik/payment-claims — รายการแจ้งชำระ ค้างอยู่ขึ้นก่อน */
+app.get('/api/mikrotik/payment-claims', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = resolveSiteIdFromReq(req);
+        const rows = await db.getPaymentClaims({
+            siteId: req.query.allSites === '1' ? null : siteId,
+            status: req.query.status || null,
+            limit: 200
+        });
+        // รายการที่ยังไม่ผูกบัญชีไม่มี siteId จึงถูกกรองทิ้งเมื่อกรองตามสาขา
+        // ต้องดึงมาต่อท้ายเสมอ ไม่งั้นสลิปที่ไม่รู้ห้องจะไม่มีใครเห็นเลย
+        const orphans = req.query.allSites === '1' ? []
+            : (await db.getPaymentClaims({ limit: 200 })).filter((c) => !c.siteId);
+        const all = paymentClaims.sortClaims([...rows, ...orphans]
+            .filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i));
+        res.json({
+            success: true,
+            claims: all,
+            pending: all.filter((c) => c.status === 'pending').length
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * GET /api/mikrotik/payment-claims/:id/slip — รูปสลิป
+ *
+ * ชื่อไฟล์มาจากฐานข้อมูล แต่ยังยึดกับ slips/ ด้วย path.resolve อยู่ดี
+ * เพราะแถวในฐานข้อมูลมาจาก messageId ที่ LINE ส่งมา ซึ่งเป็นข้อมูลจากภายนอก
+ */
+app.get('/api/mikrotik/payment-claims/:id/slip', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const claim = await db.getPaymentClaim(req.params.id);
+        if (!claim || !claim.slipFile) return res.status(404).json({ error: 'ไม่พบรูปสลิปของรายการนี้' });
+
+        const root = path.join(__dirname, 'slips');
+        const full = path.resolve(root, claim.slipFile);
+        if (!full.startsWith(root + path.sep) || !fs.existsSync(full)) {
+            return res.status(404).json({ error: 'ไม่พบไฟล์' });
+        }
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        fs.createReadStream(full).pipe(res);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * POST /api/mikrotik/payment-claims/:id/approve — ยืนยันว่าเงินเข้าจริง
+ *
+ * จำนวนเงินมาจากคนกรอก ไม่ใช่จากรูป เพราะรูปสลิปแก้ไขได้และยอดในรูปกับยอดที่เข้า
+ * บัญชีจริงไม่จำเป็นต้องตรงกัน คนที่กดปุ่มนี้คือคนที่เปิดดูบัญชีธนาคารแล้ว
+ *
+ * ใช้เส้นทางเดียวกับการรับชำระด้วยมือทุกประการ — ต่ออายุจากวันครบกำหนดเดิม
+ * บันทึกลง room_payments และเขียน comment กลับลงเราท์เตอร์
+ */
+app.post('/api/mikrotik/payment-claims/:id/approve', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const claim = await db.getPaymentClaim(req.params.id);
+        const v = paymentClaims.validateApproval(claim, req.body || {});
+        if (!v.ok) return res.status(400).json({ error: v.error });
+
+        const siteId = claim.siteId || resolveSiteIdFromReq(req);
+        const paidOn = (req.body || {}).paidOn || billing.bkkDateStr(Date.now());
+
+        const rows = await db.getRoomBilling(siteId);
+        const existing = (rows || []).find((r) => r.username === v.username) || null;
+        const next = billing.nextDueDate({
+            currentDue: existing ? existing.dueDate : null, paidOn, months: v.months
+        });
+        if (!next.dueDate) return res.status(400).json({ error: 'คำนวณวันครบกำหนดใหม่ไม่ได้' });
+
+        await db.saveRoomBilling({
+            siteId, username: v.username,
+            tenant: existing ? existing.tenant : null,
+            rent: existing ? existing.rent : v.amount,
+            dueDate: next.dueDate,
+            active: existing ? existing.active !== false : true,
+            note: existing ? existing.note : null
+        });
+
+        const payment = await db.addRoomPayment({
+            siteId, username: v.username, amount: v.amount, paidOn,
+            months: next.months, method: 'LINE (สลิป)',
+            note: 'จากการแจ้งชำระผ่าน LINE #' + claim.id,
+            recordedBy: req.user.username,
+            dueDateBefore: existing ? existing.dueDate : null,
+            dueDateAfter: next.dueDate
+        });
+
+        await db.updatePaymentClaim(claim.id, {
+            status: 'approved', username: v.username, amount: v.amount, months: next.months,
+            reviewedBy: req.user.username, reviewedAt: new Date().toISOString(),
+            paymentId: payment.id || null, siteId
+        });
+
+        // เขียน comment กลับลงเราท์เตอร์ — ล้มเหลวไม่ทำให้การรับเงินเป็นโมฆะ
+        let commentWritten = false;
+        try {
+            await executeOnRouter(req, async (client) => {
+                const list = await client.exec('/ppp/secret/print');
+                const found = (list || []).find((u) => u.name === v.username);
+                if (!found) throw new Error('ไม่พบห้องนี้บนเราท์เตอร์');
+                await client.exec('/ppp/secret/set', {
+                    '.id': found['.id'], comment: billing.buildComment(found.comment, next.dueDate)
+                });
+            });
+            commentWritten = true;
+        } catch (_) { /* บันทึกไว้แล้วในฐานข้อมูล */ }
+
+        // แจ้งลูกค้ากลับทาง LINE — ล้มเหลวก็ไม่ย้อนการรับเงิน
+        let notified = false;
+        try {
+            const cfg = await db.getLineDigestConfig(siteId);
+            if (cfg.channelAccessToken && claim.lineUserId) {
+                await sendLinePushMessage(cfg.channelAccessToken, claim.lineUserId, {
+                    type: 'text',
+                    text: paymentClaims.approvedMessage({
+                        username: v.username, amount: v.amount, months: next.months, dueDate: next.dueDate
+                    })
+                });
+                notified = true;
+            }
+        } catch (_) { /* ไม่สำคัญพอที่จะทำให้ทั้งรายการล้มเหลว */ }
+
+        db.addLog(req.user.username, 'อนุมัติการแจ้งชำระ (LINE)',
+            v.username + ' ' + v.amount + ' บาท ' + next.months + ' เดือน — ครบกำหนดใหม่ ' + next.dueDate);
+        res.json({ success: true, dueDate: next.dueDate, resetFromPayment: next.resetFromPayment,
+                   commentWritten, notified });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/** POST /api/mikrotik/payment-claims/:id/reject — ไม่อนุมัติ ต้องมีเหตุผล */
+app.post('/api/mikrotik/payment-claims/:id/reject', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const reason = String((req.body || {}).reason || '').trim();
+    if (!reason) {
+        // ลูกค้าที่ถูกปฏิเสธโดยไม่บอกเหตุผลจะโทรมาถามอยู่ดี และไม่รู้ว่าต้องแก้อะไร
+        return res.status(400).json({ error: 'ต้องระบุเหตุผล เพื่อให้ลูกค้ารู้ว่าต้องแก้อะไร' });
+    }
+    try {
+        const claim = await db.getPaymentClaim(req.params.id);
+        if (!claim) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+        if (claim.status !== 'pending') {
+            return res.status(400).json({ error: 'รายการนี้ถูกตรวจสอบไปแล้ว' });
+        }
+
+        await db.updatePaymentClaim(claim.id, {
+            status: 'rejected', rejectReason: reason,
+            reviewedBy: req.user.username, reviewedAt: new Date().toISOString()
+        });
+
+        let notified = false;
+        try {
+            const cfg = await db.getLineDigestConfig(claim.siteId || resolveSiteIdFromReq(req));
+            if (cfg.channelAccessToken && claim.lineUserId) {
+                await sendLinePushMessage(cfg.channelAccessToken, claim.lineUserId, {
+                    type: 'text', text: paymentClaims.rejectedMessage(reason)
+                });
+                notified = true;
+            }
+        } catch (_) { /* ไม่สำคัญพอที่จะทำให้ทั้งรายการล้มเหลว */ }
+
+        db.addLog(req.user.username, 'ปฏิเสธการแจ้งชำระ (LINE)',
+            (claim.username || 'ไม่ทราบห้อง') + ' — ' + reason);
+        res.json({ success: true, notified });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ==========================================
 // รอบบิลค่าเช่าห้อง (ตารางจริง ไม่ใช่ comment บนเราท์เตอร์)
 // ==========================================
 
@@ -4305,7 +4497,55 @@ function createMultiSiteHealthFlex(healthData) {
 }
 
 // LINE Public Webhook Endpoint for LINE OA Auto-Reply
-app.post('/api/line/webhook', express.json(), async (req, res) => {
+/**
+ * ดาวน์โหลดรูปสลิปจาก LINE แล้วเก็บไว้บนเครื่อง
+ *
+ * ต้องโหลดตอนได้รับ ไม่ใช่ตอนแอดมินเปิดดู — LINE เก็บไฟล์ไว้ชั่วคราวเท่านั้น
+ * สลิปที่ส่งมาคืนวันศุกร์แล้วแอดมินมาดูวันจันทร์อาจหายไปแล้ว ซึ่งแปลว่า
+ * หลักฐานการชำระเงินหายพร้อมกับที่ยังไม่มีใครตรวจ
+ */
+async function downloadLineSlip(token, messageId) {
+    const dir = path.join(__dirname, 'slips', new Date().toISOString().slice(0, 7));
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, messageId + '.jpg');
+
+    await new Promise((resolve, reject) => {
+        const req2 = https.request({
+            hostname: 'api-data.line.me',
+            path: '/v2/bot/message/' + encodeURIComponent(messageId) + '/content',
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + token },
+            timeout: 20000
+        }, (r) => {
+            if (r.statusCode !== 200) {
+                r.resume();
+                return reject(new Error('LINE content HTTP ' + r.statusCode));
+            }
+            const chunks = [];
+            let size = 0;
+            r.on('data', (c) => {
+                size += c.length;
+                // สลิปเป็นรูปถ่ายจากมือถือ ไม่ควรเกินนี้ — กันไฟล์ใหญ่ผิดปกติมากินดิสก์
+                if (size > 12 * 1024 * 1024) { r.destroy(); return reject(new Error('ไฟล์ใหญ่เกิน 12 MB')); }
+                chunks.push(c);
+            });
+            r.on('end', () => {
+                try { fs.writeFileSync(file, Buffer.concat(chunks)); resolve(); }
+                catch (e) { reject(e); }
+            });
+            r.on('error', reject);
+        });
+        req2.on('timeout', () => { req2.destroy(new Error('หมดเวลาโหลดรูปจาก LINE')); });
+        req2.on('error', reject);
+        req2.end();
+    });
+
+    return path.relative(path.join(__dirname, 'slips'), file).split(path.sep).join('/');
+}
+
+// express.json ต้องเก็บ raw body ไว้ด้วย — ลายเซ็นของ LINE คำนวณจากไบต์ที่ส่งมาจริง
+// JSON.stringify(req.body) ให้ผลต่างออกไป (ลำดับคีย์ ช่องว่าง ยูนิโค้ด) แล้วจะไม่ตรงเลย
+app.post('/api/line/webhook', async (req, res) => {
     res.status(200).send('OK');
 
     try {
@@ -4313,8 +4553,56 @@ app.post('/api/line/webhook', express.json(), async (req, res) => {
         const token = config.channelAccessToken;
         if (!token) return;
 
+        // ตรวจว่ามาจาก LINE จริง
+        //
+        // endpoint นี้เป็นสาธารณะโดยจำเป็น (เซิร์ฟเวอร์ของ LINE เป็นคนเรียก) และ
+        // ไม่เคยตรวจลายเซ็นเลยจนถึง 2026-09-06 ตอนนี้มันสร้างรายการทางการเงินได้
+        // การตรวจจึงเป็นเรื่องบังคับ
+        //
+        // ยังไม่ได้ตั้ง channelSecret = ของเดิมทำงานต่อได้ตามปกติ แต่ **ไม่รับสลิป**
+        // เพราะรับไปก็เชื่อไม่ได้ว่าใครส่ง ดีกว่าปิด webhook ทั้งอันตอน deploy
+        const verified = config.channelSecret
+            ? lineVerify.verifySignature(req.rawBody, req.get('x-line-signature'), config.channelSecret)
+            : null;
+        if (verified === false) {
+            console.warn('[LINE] ปฏิเสธ webhook ที่ลายเซ็นไม่ถูกต้อง');
+            return;
+        }
+
         const events = req.body.events || [];
         for (const event of events) {
+            // ---- รูปสลิปแจ้งชำระเงิน ----
+            if (event.type === 'message' && event.message && event.message.type === 'image') {
+                if (verified !== true) {
+                    // ไม่ได้ตั้ง channelSecret จึงยืนยันไม่ได้ว่าใครส่ง — ไม่สร้างรายการเงิน
+                    await sendLineMessagingApiReply(token, event.replyToken, {
+                        type: 'text',
+                        text: 'ขออภัยครับ ระบบรับสลิปยังไม่พร้อมใช้งาน กรุณาส่งสลิปให้แอดมินโดยตรงครับ'
+                    }).catch(() => {});
+                    continue;
+                }
+                try {
+                    const binding = await db.getLineUserBinding(event.source?.userId);
+                    const claim = paymentClaims.claimFromEvent(event, binding);
+                    if (!claim) continue;
+                    try {
+                        claim.slipFile = await downloadLineSlip(token, claim.messageId);
+                    } catch (err) {
+                        // โหลดรูปไม่ได้ก็ยังต้องบันทึกว่ามีคนแจ้งชำระ ไม่ใช่ทิ้งทั้งรายการ
+                        console.warn('[LINE] โหลดสลิปไม่ได้:', err.message);
+                    }
+                    const saved = await db.addPaymentClaim(claim);
+                    db.addLog('LINE', 'รับแจ้งชำระเงิน',
+                        (claim.username || 'ยังไม่ผูกบัญชี') + ' · messageId ' + claim.messageId);
+                    await sendLineMessagingApiReply(token, event.replyToken, {
+                        type: 'text', text: paymentClaims.ackMessage(saved)
+                    });
+                } catch (err) {
+                    console.error('[LINE] บันทึกการแจ้งชำระไม่สำเร็จ:', err.message);
+                }
+                continue;
+            }
+
             if (event.type !== 'message' || !event.message || event.message.type !== 'text') continue;
 
             const text = (event.message.text || '').trim();
@@ -4716,7 +5004,15 @@ app.post('/api/mikrotik/dns-logging', requireAuth(['admin']), async (req, res) =
 
 app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.headers['x-site-id'];
-    res.json(await db.getLineDigestConfig(siteId));
+    const cfg = await db.getLineDigestConfig(siteId);
+    // channelSecret ไม่ถูกส่งกลับไปที่เบราว์เซอร์ — ใช้แบบเดียวกับ botToken ของ Telegram
+    // (channelAccessToken ยังส่งกลับอยู่ เพราะหน้า v1 อ่านมาแสดงและโพสต์กลับ
+    //  การเปลี่ยนตรงนั้นจะทำให้หน้าเดิมพัง จึงแยกเป็นเรื่องต่างหาก)
+    res.json(Object.assign({}, cfg, {
+        channelSecret: undefined,
+        hasChannelSecret: !!cfg.channelSecret,
+        channelSecretPreview: cfg.channelSecret ? cfg.channelSecret.slice(0, 6) + '…' : ''
+    }));
 });
 
 // วินิจฉัยว่า "ทำไมสาขานี้ไม่ได้รับแจ้งเตือนวันนี้"
@@ -4773,9 +5069,15 @@ app.get('/api/mikrotik/line-digest/status', requireAuth(['admin']), async (req, 
 
 app.post('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'];
-    const updated = await db.saveLineDigestConfig(req.body, siteId);
+    const body = Object.assign({}, req.body);
+    // ส่ง channelSecret ว่างมา = ไม่ได้ตั้งใจล้างของเดิม แต่เป็นเพราะฟอร์มไม่มีค่านั้น
+    // (GET ไม่คืนค่ามาให้แต่แรก) การเขียนทับด้วยค่าว่างจะปิดการตรวจลายเซ็นโดยไม่มีใครรู้
+    if (body.channelSecret === '' || body.channelSecret === undefined) delete body.channelSecret;
+    const updated = await db.saveLineDigestConfig(body, siteId);
     db.addLog(req.user.username, 'ตั้งค่า LINE OA Messaging API', `อัปเดตตั้งค่า LINE Official Account [สาขา: ${siteId || 'Default'}] (สถานะ: ${updated.enabled ? 'เปิด' : 'ปิด'}, เวลา: ${updated.digestTime})`);
-    res.json(updated);
+    res.json(Object.assign({}, updated, {
+        channelSecret: undefined, hasChannelSecret: !!updated.channelSecret
+    }));
 });
 
 // Test LINE OA Messaging API connection

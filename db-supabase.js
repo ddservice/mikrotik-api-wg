@@ -844,7 +844,7 @@ async function getLineDigestConfig(siteId) {
                 siteId: targetSiteId,
                 enabled: !!data.enabled,
                 channelAccessToken: data.channelAccessToken || data.lineNotifyToken || '',
-                channelSecret: data.channelSecret || '',
+                channelSecret: data.channelSecret || data.lineChannelSecret || '',
                 targetId: data.targetId || '',
                 digestTime: data.digestTime || '09:00',
                 includeHotspot: data.includeHotspot !== false,
@@ -863,7 +863,7 @@ async function getLineDigestConfig(siteId) {
                 siteId: targetSiteId,
                 enabled: !!dataOld.enabled,
                 channelAccessToken: dataOld.channelAccessToken || dataOld.lineNotifyToken || '',
-                channelSecret: dataOld.channelSecret || '',
+                channelSecret: dataOld.channelSecret || dataOld.lineChannelSecret || '',
                 targetId: dataOld.targetId || '',
                 digestTime: dataOld.digestTime || '09:00',
                 includeHotspot: dataOld.includeHotspot !== false,
@@ -1104,6 +1104,92 @@ async function deleteRoomPayment(id) {
     return true;
 }
 
+// ============================================================
+// การแจ้งชำระเงินด้วยสลิปผ่าน LINE (payment_claims)
+//
+// ระบบรับเรื่องไว้เท่านั้น **ไม่อนุมัติเอง** — รูปสลิปไม่ใช่หลักฐานการชำระเงิน
+// แก้ไขได้ ส่งซ้ำได้ ส่งสลิปเก่าได้ คนที่เปิดดูยอดในบัญชีจริงเป็นคนกรอกจำนวนและกดอนุมัติ
+//
+// หน้าที่ของตารางนี้คือ "ไม่ทำหาย" — สลิปที่ส่งมาตอนตีสองต้องยังอยู่ตอนเช้า
+// พร้อมบอกว่าใครส่ง ห้องไหน เมื่อไหร่ และยังไม่มีใครดู
+// ============================================================
+
+function _mapClaimRow(r) {
+    return {
+        id: r.id, siteId: r.site_id, siteName: r.site_name, username: r.username,
+        lineUserId: r.line_user_id, sourceId: r.source_id, messageId: r.message_id,
+        slipFile: r.slip_file, status: r.status,
+        amount: r.amount === null || r.amount === undefined ? null : Number(r.amount),
+        months: r.months, reviewedBy: r.reviewed_by, reviewedAt: r.reviewed_at,
+        rejectReason: r.reject_reason, paymentId: r.payment_id,
+        receivedAt: r.received_at
+    };
+}
+
+async function getPaymentClaims(options) {
+    options = options || {};
+    try {
+        let q = supabase.from('payment_claims').select('*').order('received_at', { ascending: false });
+        if (options.siteId) q = q.eq('site_id', String(options.siteId));
+        if (options.status) q = q.eq('status', options.status);
+        const res = await q.limit(parseInt(options.limit, 10) || 200);
+        if (res.error) throw res.error;
+        return (res.data || []).map(_mapClaimRow);
+    } catch (e) {
+        return [];
+    }
+}
+
+async function getPaymentClaim(id) {
+    try {
+        const res = await supabase.from('payment_claims').select('*').eq('id', id).maybeSingle();
+        if (res.error) throw res.error;
+        return res.data ? _mapClaimRow(res.data) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function addPaymentClaim(entry) {
+    // LINE ส่ง webhook ซ้ำได้ — message_id มี unique index กันรายการซ้ำไว้แล้ว
+    const existing = await supabase.from('payment_claims').select('*')
+        .eq('message_id', entry.messageId).maybeSingle();
+    if (existing.data) return _mapClaimRow(existing.data);
+
+    const row = {
+        site_id: entry.siteId ? String(entry.siteId) : null,
+        site_name: entry.siteName || null,
+        username: entry.username || null,
+        line_user_id: entry.lineUserId || null,
+        source_id: entry.sourceId || null,
+        message_id: entry.messageId,
+        slip_file: entry.slipFile || null,
+        status: entry.status || 'pending',
+        received_at: entry.receivedAt || new Date().toISOString()
+    };
+    const res = await supabase.from('payment_claims').insert(row).select().maybeSingle();
+    if (res.error) throw new Error(res.error.message);
+    return res.data ? _mapClaimRow(res.data) : entry;
+}
+
+async function updatePaymentClaim(id, patch) {
+    const row = {};
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.username !== undefined) row.username = patch.username;
+    if (patch.amount !== undefined) row.amount = patch.amount;
+    if (patch.months !== undefined) row.months = patch.months;
+    if (patch.reviewedBy !== undefined) row.reviewed_by = patch.reviewedBy;
+    if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
+    if (patch.rejectReason !== undefined) row.reject_reason = patch.rejectReason;
+    if (patch.paymentId !== undefined) row.payment_id = patch.paymentId;
+    if (patch.slipFile !== undefined) row.slip_file = patch.slipFile;
+    if (patch.siteId !== undefined) row.site_id = patch.siteId ? String(patch.siteId) : null;
+
+    const res = await supabase.from('payment_claims').update(row).eq('id', id).select().maybeSingle();
+    if (res.error) throw new Error(res.error.message);
+    return res.data ? _mapClaimRow(res.data) : null;
+}
+
 async function getLogArchives(options) {
     options = options || {};
     try {
@@ -1307,6 +1393,8 @@ module.exports = {
     getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
     getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive,
     getAllAppSettingsRaw: getAllAppSettingsRaw,
+    getPaymentClaims: getPaymentClaims, getPaymentClaim: getPaymentClaim,
+    addPaymentClaim: addPaymentClaim, updatePaymentClaim: updatePaymentClaim,
     getRoomBilling: getRoomBilling, saveRoomBilling: saveRoomBilling,
     deleteRoomBilling: deleteRoomBilling, getRoomPayments: getRoomPayments,
     addRoomPayment: addRoomPayment, deleteRoomPayment: deleteRoomPayment,
