@@ -501,6 +501,75 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (2)** — Acted on the recommendations. The first one — "prove a restore
+  actually works" — found that **it never worked and never could have**.
+  - **`scripts/restore-from-r2.sh` could not restore anything.** It ran
+    `cp "$RESTORE_TMP/"*.json db/ 2>/dev/null || true` and then printed
+    *"🎉 Disaster Recovery Restore completed successfully!"*. **There is not one `.json`
+    file in the bucket** — checked live: 118 objects, 44 CSV, 73 sealed archives, 1 txt.
+    The glob matched nothing, `|| true` swallowed it, and it reported success. Same
+    "reports success while doing nothing" class as the Multi-WAN mangle, the WireGuard
+    listen-port and the Hardened Preset — but on the recovery path, where the discovery
+    happens on the worst possible day. It also copied into `db/*.json`, which only the
+    JSON fallback reads, while production runs on Supabase.
+  - **What is backed up would not bring the system back either.** Only the four log
+    tables. `sites` (router hosts, credentials, WireGuard keys), `dashboard_users`,
+    `app_settings` (per-site LINE tokens, Telegram) and `log_archives` (the ม.26 SHA-256
+    index) **had never been backed up at all**. Restoring every log row still leaves a
+    system that cannot reach a single router.
+  - `lib/backup-manifest.js` states what a backup must contain and what "restorable"
+    means: **missing a critical part is a failure, not an incomplete set**. `backup.js`
+    now writes the config tables as JSON plus a `manifest.json` carrying a SHA-256 and
+    row count per file. `npm run verify-backup` downloads the real bytes and recomputes
+    the hashes — trusting the stored value would make the check pointless, the same
+    reasoning as the sealed-archive verify.
+  - `restore-from-r2.sh` downloads and verifies; it no longer overwrites anything by
+    itself. Writing rows back into a live Postgres is a person's decision, not a
+    one-command script's.
+  - **Secrets are redacted by default** (`BACKUP_INCLUDE_SECRETS=1` to include them),
+    because the bucket's own keys were committed to git. Stated in the module: a redacted
+    backup restores the structure but **WireGuard private keys cannot be retyped**, so
+    relying on it means rotating the R2 keys first, then enabling secrets.
+  - **The live R2 access key and secret were hardcoded in three tracked files** —
+    `backup.js`, `scripts/restore-from-r2.sh`, `scripts/setup-r2-backup.sh`. Fourth
+    instance of this pattern in this repo, and the worst: those keys allow **deleting
+    every off-site backup and every ม.26 sealed archive**. Removed from all three.
+    **They are burned and must be rotated in Cloudflare** — removing them from the files
+    does not undo the exposure, exactly as with the router password on 2026-07-30.
+  - In `backup.js` they were a *fallback default*, which meant **`backup.js` could not be
+    run without uploading to production**, whatever env you set. That is not theoretical:
+    it wrote a dev-machine backup set into the live bucket twice while this was being
+    investigated. Both were deleted and the bucket verified back at exactly 118 objects
+    with the latest set still 2026-09-05. Worth stating plainly rather than quietly
+    fixing, because the lesson is the fallback, not the accident.
+  - Verified end to end: the current production backup **fails** the check and names the
+    missing critical parts (exit 1); a backup from the new code passes all 9 parts, has
+    no `password` field anywhere, and flipping one byte is caught.
+
+- **2026-09-06 (3)** — Second recommendation: the due date of every room and coupon lives
+  in a free-text `comment` on the router, and that regex is the entire financial record.
+  - **Blank or mistyped dates disappeared silently.** `parseExpiryFromComment` returned
+    `null` and callers read that as "nothing to report", so a room whose date was never
+    entered **shows up in no report, triggers no alert, and leaves no trace**. Nobody
+    chases it. `no-expiry` is now its own status ranked next to `expired` and `soon`,
+    and the PPPoE page leads with it — including which comment formats the system can
+    actually read, since that is the fix.
+  - **It computed dates in the server's timezone**, using `new Date(y, m, d, 23, 59, 59)`
+    while **nothing in this project pins `TZ`**. On a UTC host every due date shifts by
+    seven hours, so a room that expired last night still reads as active until morning.
+    `lib/time.js` exists precisely because this class of bug already made the nightly seal
+    close the wrong day for weeks — this code was never moved onto it. Now Bangkok time
+    regardless of the host, asserted by parsing the same input under three timezones.
+  - Also fixed while extracting: `2026-02-31` used to become March 3rd silently, because
+    `Date` rolls invalid days forward. It is rejected now.
+  - `lib/expiry.js` + `GET /api/mikrotik/expiry-overview` (read-only). Verified over HTTP
+    against the fixture, which gained two rooms with real-shaped comments: 4 rooms → 1
+    expired, 1 no-expiry, 1 suspended, 1 active, correctly ranked. **19 new tests
+    (490 total), 124 routes**, smoke clean.
+  - Still open from that recommendation, and deliberately not built without asking: moving
+    the due date into a real table so it survives a router reset, and recording what was
+    actually sold and paid. Both are database-only work that never touches a router.
+
 - **2026-09-06** — Clean-code pass, and one thing worth writing down about v1.
   - **The unused-import checker was made to prove itself before it was allowed to report.**
     Same tool shape as 2026-09-04, where a heredoc turned `'\\b'` into a literal backspace and
