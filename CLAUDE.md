@@ -501,6 +501,37 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (8)** — **ความลับหลุดสู่สาธารณะ: GitHub repo `ddservice/mikrotik-api-wg`
+  เป็น public.** พบระหว่างตอบคำถามว่า "ถ้าไม่เปลี่ยนคีย์ R2 จะกระทบไซต์อื่นไหม" —
+  คำตอบคือกระทบ และหนักกว่าที่คิด เพราะ repo เปิดสาธารณะทั้งใบ ในประวัติ git มีของจริง:
+  - **คีย์ Cloudflare R2** (access key + secret) อยู่ใน 4 commit — `backup.js`,
+    `restore-from-r2.sh`, `setup-r2-backup.sh` ก่อนถูกถอดออกวันนี้ (2026-09-06 (2)).
+    **bucket `ddservicedb` ใช้ร่วมกัน 5 แอป** (Mikrotikapi-db 118 ไฟล์, cnxhaircutz,
+    daily, minimalcnx, sneakercaredb) — คีย์นี้ระดับ bucket ทั้งใบ จึงลบ backup ของทุกแอป
+    **และ archive ม.26 ที่เป็นหลักฐานตามกฎหมาย** ได้ทั้งหมด กระทบ 4 แอปที่ไม่เกี่ยวกับ
+    MikroTik เลย
+  - **รหัส admin ของแดชบอร์ด**: `db/users.json` เคยถูก commit (2 commit ในประวัติ) มี
+    `passwordHash` เป็น SHA256+salt และ `LEGACY_SALT` ก็ hardcode อยู่ในซอร์สที่เปิด
+    สาธารณะ ทำให้ถอดกลับได้ — ยืนยันแล้วว่า hash ของ admin ตรงกับรหัส **`admin1234`**
+    (ค่า default seed) ใครก็เข้าเป็น admin ได้ถ้ารหัสยังไม่เปลี่ยน
+  - **รหัสผ่านเราท์เตอร์ สาขาหลัก**: อยู่ใน `db/config.json` เก่าในประวัติ (11 ตัวอักษร)
+  - **สิ่งที่โค้ดยืนยันแล้วว่าไม่เป็นปัญหา**: ไฟล์ที่ track ปัจจุบันสะอาด — ไม่มีคีย์ R2,
+    account id, JWT/service key, หรือรหัสผ่านฝังอยู่เลย (ตรวจทั้ง `git ls-files`);
+    ทุกไฟล์ความลับ (`ecosystem.config.js`, `db/*.json`, `slips/`) ไม่ถูก track และ
+    gitignore ครอบถูกต้อง; การ auth ปัจจุบันใช้ PBKDF2 + salt สุ่มรายคน และย้ายบัญชีเก่า
+    อัตโนมัติตอนล็อกอิน — จึงไม่แก้ `LEGACY_SALT` เพราะจะทำให้บัญชีเก่าที่ยังไม่ล็อกอิน
+    เข้าไม่ได้ โดยไม่ได้เพิ่มความปลอดภัยจริง (hash ใหม่เป็น PBKDF2 อยู่แล้ว)
+  - **ต้องทำระดับบัญชี (Claude ทำแทนไม่ได้ ต้องใช้สิทธิ์ของเจ้าของ)** — เรียงตามด่วน:
+    1. เปลี่ยนรหัส admin แดชบอร์ดจาก `admin1234` (ทำในหน้าจัดการผู้ใช้ รหัสใหม่จะเป็น PBKDF2)
+    2. หมุนคีย์ R2 ใน Cloudflare แล้วใส่ใน VPS `ecosystem.config.js` + `pm2 reload` แล้ว
+       **ลบ token เก่า** — ปกป้อง backup ของทั้ง 5 แอป
+    3. เปลี่ยน GitHub repo เป็น **private** — ปิดต้นตอ (ล้างประวัติเป็นงานใหญ่กว่า
+       ทำทีหลังได้ แต่ private หยุดเลือดทันที)
+    4. รหัสผ่านเราท์เตอร์สาขาหลัก — หมุนใน WinBox ถ้ายังเป็นตัวเดิมกับที่เคย commit
+  - นี่เป็นครั้งที่สองที่ความลับถูก commit ลง repo นี้ (ครั้งแรก 2026-07-30 —
+    `db/config.json`/`db/users.json`) — บทเรียนเดิม: **ถอดออกจากไฟล์ไม่ได้ทำให้ค่าที่
+    หลุดไปแล้วปลอดภัยขึ้น การหมุนคีย์คือการแก้จริง** และคราวนี้ต้องบวกด้วยการปิด repo
+
 - **2026-09-06 (7)** — Per-site switch for the rent-billing feature, **off by default**.
   Asked for because the arrangement has not been agreed with the branch owners yet.
   - **Off is the default on purpose.** This feature writes due dates into the `comment`
