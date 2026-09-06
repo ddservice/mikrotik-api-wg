@@ -501,6 +501,23 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (6)** — The LINE **Channel Access Token** is no longer returned to the
+  browser either. The previous entry hid `channelSecret` and left the token exposed
+  because v1's settings page reads it back and re-posts it; that was a reason to be
+  careful, not a reason to leave it.
+  - Either value controls the branch's LINE Official Account outright — whoever holds one
+    can message every customer in the shop's name. **A form never needs the old value in
+    order to set a new one**, which is the rule already applied to router passwords
+    (`sanitizeSitePublic`) and the Telegram bot token.
+  - GET returns `hasChannelAccessToken` plus an 8-character preview; **an empty value on
+    save means "keep"**. That is what makes it safe for v1 with no change at all: the
+    field comes back blank, and saving preserves the stored token instead of wiping it.
+    v1 was updated anyway so a blank field explains itself rather than looking like the
+    token was lost (`app.js` **v=128.0**).
+  - Verified: neither value appears in the GET or the POST response; saving with both
+    fields blank leaves both set while other edits (`digestTime`) still apply; the real
+    values remain in the database and usable for sending.
+
 - **2026-09-06 (5)** — Slips sent to LINE become payments. Closes the last recommendation.
   **`sql/2026-09-06_payment_claims.sql` must be run in the Supabase SQL Editor.**
   - **Found first, fixed first: `POST /api/line/webhook` never verified the LINE
