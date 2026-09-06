@@ -19,10 +19,11 @@
     "rotate-api-password": "node scripts/rotate-mikrotik-api-password.js",
     "verify-pppoe-bytes": "node scripts/verify-pppoe-bytes.js",
     "test": "node test/run.js",
-    "check": "npm run test && npm run validate-html && npm run check-db-parity && npm run check-routes",
+    "check": "npm run test && npm run validate-html && npm run check-db-parity && npm run check-routes && npm run check-secrets",
     "normalize-site-names": "node scripts/normalize-site-names.js",
     "check-sites": "node scripts/check-sites.js",
-    "verify-backup": "node scripts/verify-backup.js"
+    "verify-backup": "node scripts/verify-backup.js",
+    "check-secrets": "node scripts/check-secrets.js"
   },
   "engines": {
     "node": ">=20"
