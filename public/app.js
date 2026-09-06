@@ -1775,7 +1775,13 @@ function setLineDigestUI(config) {
         toggle.disabled = false;
     }
     if (tokenInput) {
-        tokenInput.value = config.channelAccessToken || '';
+        // เซิร์ฟเวอร์ไม่ส่ง Channel Access Token กลับมาแล้ว (ตั้งแต่ 2026-09-06)
+        // ถ้าหลุดคือคุมบัญชี LINE OA ของสาขานั้นได้ทั้งบัญชี ฟอร์มไม่จำเป็นต้องรู้ค่าเดิม
+        // เว้นว่างไว้แล้วกดบันทึก = เก็บค่าเดิมไว้ ไม่ได้ล้างทิ้ง
+        tokenInput.value = '';
+        tokenInput.placeholder = config.hasChannelAccessToken
+            ? 'ตั้งไว้แล้ว (' + (config.channelAccessTokenPreview || '') + ') — เว้นว่างถ้าไม่เปลี่ยน'
+            : 'ยังไม่ได้ตั้งค่า — วาง Channel Access Token จาก LINE Developers Console';
         tokenInput.disabled = false;
     }
     if (targetInput) {

@@ -215,7 +215,7 @@ async function discoverChats() {
 
 // ---------- LINE OA ----------
 const lineSiteId = ref('');
-const line = ref({ enabled: false, channelAccessToken: '', channelSecret: '', hasChannelSecret: false, targetId: '', digestTime: '09:00', lastSentDate: '' });
+const line = ref({ enabled: false, channelAccessToken: '', hasChannelAccessToken: false, channelAccessTokenPreview: '', channelSecret: '', hasChannelSecret: false, targetId: '', digestTime: '09:00', lastSentDate: '' });
 const lineBusy = ref('');
 
 async function loadLine() {
@@ -699,9 +699,17 @@ onMounted(async () => {
             </div>
 
             <div class="v2-field">
-                <label>Channel Access Token</label>
+                <label>
+                    Channel Access Token
+                    <span v-if="line.hasChannelAccessToken" class="v2-hint" style="font-weight:400">
+                        — ตั้งไว้แล้ว ({{ line.channelAccessTokenPreview }})
+                    </span>
+                </label>
                 <input v-model="line.channelAccessToken" type="password" class="v2-input mono" autocomplete="off"
-                       placeholder="จาก LINE Developers Console">
+                       :placeholder="line.hasChannelAccessToken ? 'ตั้งไว้แล้ว — เว้นว่างถ้าไม่เปลี่ยน' : 'จาก LINE Developers Console'">
+                <span class="v2-hint">
+                    ค่านี้ไม่เคยถูกส่งกลับมาแสดงในหน้าเว็บ · เว้นว่างแล้วกดบันทึก = เก็บค่าเดิมไว้
+                </span>
             </div>
 
             <div class="v2-field">

@@ -5005,10 +5005,15 @@ app.post('/api/mikrotik/dns-logging', requireAuth(['admin']), async (req, res) =
 app.get('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.headers['x-site-id'];
     const cfg = await db.getLineDigestConfig(siteId);
-    // channelSecret ไม่ถูกส่งกลับไปที่เบราว์เซอร์ — ใช้แบบเดียวกับ botToken ของ Telegram
-    // (channelAccessToken ยังส่งกลับอยู่ เพราะหน้า v1 อ่านมาแสดงและโพสต์กลับ
-    //  การเปลี่ยนตรงนั้นจะทำให้หน้าเดิมพัง จึงแยกเป็นเรื่องต่างหาก)
+    // ความลับของ LINE ไม่ถูกส่งกลับไปที่เบราว์เซอร์ — แบบเดียวกับ botToken ของ Telegram
+    // และรหัสผ่านเราท์เตอร์ที่ใช้ sanitizeSitePublic
+    //
+    // ทั้งสองค่านี้ถ้าหลุดคือคุมบัญชี LINE OA ของสาขานั้นได้ทั้งบัญชี — ส่งข้อความหา
+    // ลูกค้าทุกคนในนามร้านได้ ฟอร์มไม่จำเป็นต้องรู้ค่าเดิมเพื่อจะแก้ค่าใหม่
     res.json(Object.assign({}, cfg, {
+        channelAccessToken: undefined,
+        hasChannelAccessToken: !!cfg.channelAccessToken,
+        channelAccessTokenPreview: cfg.channelAccessToken ? cfg.channelAccessToken.slice(0, 8) + '…' : '',
         channelSecret: undefined,
         hasChannelSecret: !!cfg.channelSecret,
         channelSecretPreview: cfg.channelSecret ? cfg.channelSecret.slice(0, 6) + '…' : ''
@@ -5070,12 +5075,15 @@ app.get('/api/mikrotik/line-digest/status', requireAuth(['admin']), async (req, 
 app.post('/api/mikrotik/line-digest/config', requireAuth(['admin', 'co-admin']), async (req, res) => {
     const siteId = req.query.siteId || req.body.siteId || req.headers['x-site-id'];
     const body = Object.assign({}, req.body);
-    // ส่ง channelSecret ว่างมา = ไม่ได้ตั้งใจล้างของเดิม แต่เป็นเพราะฟอร์มไม่มีค่านั้น
-    // (GET ไม่คืนค่ามาให้แต่แรก) การเขียนทับด้วยค่าว่างจะปิดการตรวจลายเซ็นโดยไม่มีใครรู้
+    // ส่งค่าว่างมา = ไม่ได้ตั้งใจล้างของเดิม แต่เป็นเพราะฟอร์มไม่มีค่านั้น
+    // (GET ไม่คืนค่ามาให้แต่แรก) เขียนทับด้วยค่าว่างจะปิดการตรวจลายเซ็นหรือทำให้
+    // การแจ้งเตือนของสาขานั้นเงียบไปโดยไม่มีใครรู้ว่าเกิดจากการกดบันทึกครั้งนั้น
     if (body.channelSecret === '' || body.channelSecret === undefined) delete body.channelSecret;
+    if (body.channelAccessToken === '' || body.channelAccessToken === undefined) delete body.channelAccessToken;
     const updated = await db.saveLineDigestConfig(body, siteId);
     db.addLog(req.user.username, 'ตั้งค่า LINE OA Messaging API', `อัปเดตตั้งค่า LINE Official Account [สาขา: ${siteId || 'Default'}] (สถานะ: ${updated.enabled ? 'เปิด' : 'ปิด'}, เวลา: ${updated.digestTime})`);
     res.json(Object.assign({}, updated, {
+        channelAccessToken: undefined, hasChannelAccessToken: !!updated.channelAccessToken,
         channelSecret: undefined, hasChannelSecret: !!updated.channelSecret
     }));
 });
