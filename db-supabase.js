@@ -1006,6 +1006,104 @@ async function getAllAppSettingsRaw() {
     return res.data || [];
 }
 
+// ============================================================
+// รอบบิลค่าเช่าห้อง (room_billing / room_payments)
+//
+// จนถึง 2026-09-06 วันครบกำหนดของทุกห้องอยู่ในช่อง comment ของ /ppp/secret เท่านั้น
+// พิมพ์ผิดหรือลืมใส่ = ห้องนั้นหายไปจากทุกรายงานเงียบ ๆ, เราท์เตอร์ถูก reset =
+// วันครบกำหนดหายทั้งสาขา, และตอบไม่ได้เลยว่าเดือนนี้เก็บได้เท่าไหร่ ใครยังค้าง
+//
+// ตารางนี้เป็นแหล่งความจริง แต่ระบบ**ยังเขียน comment กลับลงเราท์เตอร์เหมือนเดิม**
+// ของเดิมจึงทำงานต่อได้ และคนที่เปิด WinBox ยังเห็นวันครบกำหนดตรงที่เคยเห็น
+// ============================================================
+
+function _mapBillingRow(r) {
+    return {
+        siteId: r.site_id, username: r.username, tenant: r.tenant,
+        rent: r.rent === null || r.rent === undefined ? null : Number(r.rent),
+        dueDate: r.due_date, active: r.active !== false, note: r.note,
+        createdAt: r.created_at, updatedAt: r.updated_at
+    };
+}
+
+async function getRoomBilling(siteId) {
+    try {
+        let q = supabase.from('room_billing').select('*');
+        if (siteId) q = q.eq('site_id', String(siteId));
+        const res = await q;
+        if (res.error) throw res.error;
+        return (res.data || []).map(_mapBillingRow);
+    } catch (e) {
+        return [];
+    }
+}
+
+async function saveRoomBilling(entry) {
+    const row = {
+        site_id: String(entry.siteId), username: entry.username,
+        tenant: entry.tenant || null,
+        rent: entry.rent === undefined ? null : entry.rent,
+        due_date: entry.dueDate || null,
+        active: entry.active !== false,
+        note: entry.note || null,
+        updated_at: new Date().toISOString()
+    };
+    const res = await supabase.from('room_billing')
+        .upsert(row, { onConflict: 'site_id,username' }).select().maybeSingle();
+    if (res.error) throw new Error(res.error.message);
+    return res.data ? _mapBillingRow(res.data) : entry;
+}
+
+async function deleteRoomBilling(siteId, username) {
+    const res = await supabase.from('room_billing').delete()
+        .eq('site_id', String(siteId)).eq('username', username);
+    if (res.error) throw new Error(res.error.message);
+    return true;
+}
+
+async function getRoomPayments(options) {
+    options = options || {};
+    try {
+        let q = supabase.from('room_payments').select('*').order('paid_on', { ascending: false });
+        if (options.siteId) q = q.eq('site_id', String(options.siteId));
+        if (options.username) q = q.eq('username', options.username);
+        if (options.month) {
+            q = q.gte('paid_on', options.month + '-01').lte('paid_on', options.month + '-31');
+        }
+        const res = await q.limit(parseInt(options.limit, 10) || 500);
+        if (res.error) throw res.error;
+        return (res.data || []).map((r) => ({
+            id: r.id, siteId: r.site_id, username: r.username,
+            amount: Number(r.amount), paidOn: r.paid_on, months: r.months,
+            method: r.method, note: r.note, recordedBy: r.recorded_by,
+            dueDateBefore: r.due_date_before, dueDateAfter: r.due_date_after,
+            createdAt: r.created_at
+        }));
+    } catch (e) {
+        return [];
+    }
+}
+
+async function addRoomPayment(entry) {
+    const row = {
+        site_id: String(entry.siteId), username: entry.username,
+        amount: entry.amount, paid_on: entry.paidOn, months: entry.months,
+        method: entry.method || null, note: entry.note || null,
+        recorded_by: entry.recordedBy || null,
+        due_date_before: entry.dueDateBefore || null,
+        due_date_after: entry.dueDateAfter || null
+    };
+    const res = await supabase.from('room_payments').insert(row).select().maybeSingle();
+    if (res.error) throw new Error(res.error.message);
+    return res.data ? Object.assign({}, entry, { id: res.data.id }) : entry;
+}
+
+async function deleteRoomPayment(id) {
+    const res = await supabase.from('room_payments').delete().eq('id', id);
+    if (res.error) throw new Error(res.error.message);
+    return true;
+}
+
 async function getLogArchives(options) {
     options = options || {};
     try {
@@ -1209,5 +1307,8 @@ module.exports = {
     getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
     getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive,
     getAllAppSettingsRaw: getAllAppSettingsRaw,
+    getRoomBilling: getRoomBilling, saveRoomBilling: saveRoomBilling,
+    deleteRoomBilling: deleteRoomBilling, getRoomPayments: getRoomPayments,
+    addRoomPayment: addRoomPayment, deleteRoomPayment: deleteRoomPayment,
     getStorageStats: getStorageStats
 };

@@ -6,6 +6,7 @@ import { toast } from '../toast.js';
 import ProfileModal from './ProfileModal.vue';
 import PppoeRoomModal from './PppoeRoomModal.vue';
 import PppoeSetupPanel from './PppoeSetupPanel.vue';
+import BillingPanel from './BillingPanel.vue';
 
 // ค่า keepalive ของ PPPoE server — ใช้ตอนห้องไหนไฟดับแล้วตัดไม่สะอาด
 // เซสชันจะค้างอยู่จนกว่าเราท์เตอร์จะตรวจเจอว่าปลายทางตายแล้ว ค่านี้คุมว่านานแค่ไหน
@@ -114,39 +115,6 @@ const search = ref('');
 const statusFilter = ref('all');
 const busyRoom = ref('');
 
-// รอบบิล — ใครเลยกำหนด ใครใกล้ครบ และ **ใครไม่มีวันครบกำหนดเลย**
-//
-// ข้อสุดท้ายคือเหตุผลหลักที่มีส่วนนี้ วันครบกำหนดของทุกห้องเก็บอยู่ในช่อง comment
-// ของเราท์เตอร์ ถ้าพนักงานลืมใส่หรือพิมพ์ผิดรูปแบบ ห้องนั้นจะไม่โผล่ในรายงานไหนเลย
-// ไม่มีใครตามเก็บค่าเช่า และไม่มีอะไรบอกว่ามันหายไป — เป็นรายได้ที่รั่วแบบไม่มีร่องรอย
-const expiry = ref(null);
-
-async function loadExpiry() {
-    try {
-        expiry.value = await apiFetch('/api/mikrotik/expiry-overview');
-    } catch (e) {
-        expiry.value = null;   // เงียบ — เป็นข้อมูลเสริม ไม่ควรทำให้ทั้งหน้าพัง
-    }
-}
-
-const billing = computed(() => {
-    const r = expiry.value && expiry.value.rooms;
-    if (!r) return null;
-    return {
-        expired: r.counts.expired,
-        soon: r.counts.soon,
-        noExpiry: r.counts['no-expiry'],
-        items: r.needsAttention.slice(0, 12),
-        more: Math.max(0, r.needsAttention.length - 12)
-    };
-});
-
-const STATUS_TH = {
-    expired: 'เลยกำหนดแล้ว',
-    soon: 'ใกล้ครบกำหนด',
-    'no-expiry': 'ไม่ได้ระบุวันครบกำหนด'
-};
-
 let timer = null;
 let requestId = 0;
 
@@ -174,7 +142,6 @@ async function load({ quiet = false } = {}) {
 
 onMounted(() => {
     load();
-    loadExpiry();
     timer = setInterval(() => load({ quiet: true }), 15000);
 });
 
@@ -187,9 +154,7 @@ watch(activeSiteId, () => {
     rooms.value = [];
     packages.value = [];
     error.value = '';
-    expiry.value = null;   // ของสาขาเดิม ต้องไม่ค้างให้เข้าใจผิดว่าเป็นของสาขาใหม่
     load();
-    loadExpiry();
 });
 
 // ห้องที่ระงับการใช้งาน = /ppp/secret ถูก disable
@@ -281,36 +246,7 @@ async function kick(session) {
     </div>
 
     <!-- รอบบิล — ขึ้นก่อนตารางเพราะเป็นเรื่องที่ต้องลงมือทำ ไม่ใช่แค่ข้อมูล -->
-    <section v-if="billing && (billing.expired || billing.soon || billing.noExpiry)" class="billing">
-        <div class="bhead">
-            <div class="btitle"><i class="fa-solid fa-calendar-day"></i> รอบบิลที่ต้องจัดการ</div>
-            <div class="bchips">
-                <span v-if="billing.expired" class="bchip bad">เลยกำหนด {{ billing.expired }}</span>
-                <span v-if="billing.soon" class="bchip warn">ใกล้ครบ {{ billing.soon }}</span>
-                <span v-if="billing.noExpiry" class="bchip none">ไม่ระบุวันครบกำหนด {{ billing.noExpiry }}</span>
-            </div>
-        </div>
-
-        <p v-if="billing.noExpiry" class="bnote">
-            มี <b>{{ billing.noExpiry }} ห้อง</b>ที่ไม่ได้เขียนวันครบกำหนดไว้ในคอมเมนต์ —
-            ห้องพวกนี้จะ<b>ไม่ขึ้นในรายงานใด ๆ และไม่มีการแจ้งเตือน</b> จนกว่าจะใส่วันที่ให้
-            (รูปแบบที่ระบบอ่านได้: <code>2026-12-31</code>, <code>31/12/2026</code> หรือ <code>31/12/2569</code>)
-        </p>
-
-        <div class="brows">
-            <div v-for="i in billing.items" :key="i.name" class="brow" :class="i.status">
-                <span class="bname mono">{{ i.name }}</span>
-                <span class="bstat">{{ STATUS_TH[i.status] }}</span>
-                <span class="bdays v2-num">
-                    <template v-if="i.status === 'expired'">เกินมา {{ Math.abs(i.daysLeft) }} วัน</template>
-                    <template v-else-if="i.status === 'soon'">เหลือ {{ i.daysLeft }} วัน</template>
-                    <template v-else>—</template>
-                </span>
-                <span class="bcomment">{{ i.comment || '(ไม่มีคอมเมนต์)' }}</span>
-            </div>
-        </div>
-        <p v-if="billing.more" class="bnote">และอีก {{ billing.more }} ห้อง</p>
-    </section>
+    <BillingPanel />
 
     <div class="tabs">
         <button
@@ -532,34 +468,6 @@ async function kick(session) {
 </template>
 
 <style scoped>
-.billing {
-    background: var(--v2-surface); border: 1px solid var(--v2-border);
-    border-left: 3px solid var(--v2-warn); border-radius: var(--v2-radius);
-    padding: 14px 16px; margin-bottom: 14px;
-}
-.bhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.btitle { font-weight: 700; font-size: .92rem; display: flex; align-items: center; gap: 8px; }
-.bchips { display: flex; gap: 6px; flex-wrap: wrap; }
-.bchip { font-size: .74rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--v2-border); }
-.bchip.bad  { color: var(--v2-danger); border-color: color-mix(in srgb, var(--v2-danger) 35%, transparent); }
-.bchip.warn { color: var(--v2-warn);   border-color: color-mix(in srgb, var(--v2-warn) 35%, transparent); }
-.bchip.none { color: var(--v2-text-muted); }
-.bnote { margin: 8px 0 0; font-size: .78rem; color: var(--v2-text-muted); line-height: 1.65; }
-.brows { margin-top: 10px; border-top: 1px solid var(--v2-border); }
-.brow {
-    display: grid; grid-template-columns: 90px 150px 110px 1fr; gap: 10px; align-items: center;
-    padding: 6px 0; font-size: .8rem; border-bottom: 1px solid var(--v2-border);
-}
-.brow:last-child { border-bottom: none; }
-.brow.expired .bstat { color: var(--v2-danger); font-weight: 600; }
-.brow.soon .bstat { color: var(--v2-warn); font-weight: 600; }
-.brow.no-expiry .bstat { color: var(--v2-text-muted); }
-.bcomment { color: var(--v2-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 640px) {
-    .brow { grid-template-columns: 1fr 1fr; }
-    .bcomment { grid-column: 1 / -1; }
-}
-
 .pkgbar { margin-bottom: 12px; }
 .roombar {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

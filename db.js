@@ -1074,6 +1074,95 @@ function clearArchivedHotspotUsers(siteName) {
 // LOG ARCHIVES (พรบ. ม.26 — ไฟล์ปิดผนึกรายวัน + SHA-256)
 // ต้องมี signature และ return shape ตรงกับ db-supabase.js เป๊ะ ๆ
 // ==========================================
+// ============================================================
+// รอบบิลค่าเช่าห้อง (room_billing / room_payments)
+//
+// จนถึง 2026-09-06 วันครบกำหนดของทุกห้องอยู่ในช่อง comment ของ /ppp/secret เท่านั้น
+// พิมพ์ผิดหรือลืมใส่ = ห้องนั้นหายไปจากทุกรายงานเงียบ ๆ, เราท์เตอร์ถูก reset =
+// วันครบกำหนดหายทั้งสาขา, และตอบไม่ได้เลยว่าเดือนนี้เก็บได้เท่าไหร่ ใครยังค้าง
+//
+// ตารางนี้เป็นแหล่งความจริง แต่ระบบ**ยังเขียน comment กลับลงเราท์เตอร์เหมือนเดิม**
+// ของเดิมจึงทำงานต่อได้ และคนที่เปิด WinBox ยังเห็นวันครบกำหนดตรงที่เคยเห็น
+// ============================================================
+
+const ROOM_BILLING_FILE = path.join(DB_DIR, 'room_billing.json');
+const ROOM_PAYMENTS_FILE = path.join(DB_DIR, 'room_payments.json');
+
+function _readJsonArray(file) {
+    try {
+        if (!fs.existsSync(file)) return [];
+        const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return Array.isArray(d) ? d : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function _writeJsonArray(file, rows) {
+    // เขียนผ่านไฟล์ชั่วคราวแล้ว rename — ไฟล์นี้เป็นข้อมูลการเงิน
+    // เครื่องดับกลางเขียนแล้วได้ไฟล์ครึ่ง ๆ ไม่ใช่เรื่องที่ยอมได้
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rows, null, 2), 'utf8');
+    fs.renameSync(tmp, file);
+}
+
+function getRoomBilling(siteId) {
+    const rows = _readJsonArray(ROOM_BILLING_FILE);
+    return siteId ? rows.filter((r) => String(r.siteId) === String(siteId)) : rows;
+}
+
+function saveRoomBilling(entry) {
+    const rows = _readJsonArray(ROOM_BILLING_FILE);
+    const i = rows.findIndex((r) => String(r.siteId) === String(entry.siteId) &&
+                                    r.username === entry.username);
+    const now = new Date().toISOString();
+    if (i >= 0) {
+        rows[i] = Object.assign({}, rows[i], entry, { updatedAt: now });
+    } else {
+        rows.push(Object.assign({ createdAt: now, updatedAt: now }, entry));
+    }
+    _writeJsonArray(ROOM_BILLING_FILE, rows);
+    return i >= 0 ? rows[i] : rows[rows.length - 1];
+}
+
+function deleteRoomBilling(siteId, username) {
+    const rows = _readJsonArray(ROOM_BILLING_FILE);
+    const kept = rows.filter((r) => !(String(r.siteId) === String(siteId) && r.username === username));
+    if (kept.length === rows.length) return false;
+    _writeJsonArray(ROOM_BILLING_FILE, kept);
+    return true;
+}
+
+function getRoomPayments(options) {
+    options = options || {};
+    let rows = _readJsonArray(ROOM_PAYMENTS_FILE);
+    if (options.siteId) rows = rows.filter((r) => String(r.siteId) === String(options.siteId));
+    if (options.username) rows = rows.filter((r) => r.username === options.username);
+    if (options.month) rows = rows.filter((r) => String(r.paidOn || '').startsWith(options.month));
+    rows.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
+    const limit = parseInt(options.limit, 10) || 500;
+    return rows.slice(0, limit);
+}
+
+function addRoomPayment(entry) {
+    const rows = _readJsonArray(ROOM_PAYMENTS_FILE);
+    const row = Object.assign({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
+        createdAt: new Date().toISOString()
+    }, entry);
+    rows.push(row);
+    _writeJsonArray(ROOM_PAYMENTS_FILE, rows);
+    return row;
+}
+
+function deleteRoomPayment(id) {
+    const rows = _readJsonArray(ROOM_PAYMENTS_FILE);
+    const kept = rows.filter((r) => String(r.id) !== String(id));
+    if (kept.length === rows.length) return false;
+    _writeJsonArray(ROOM_PAYMENTS_FILE, kept);
+    return true;
+}
+
 const LOG_ARCHIVES_FILE = path.join(DB_DIR, 'log_archives.json');
 
 function _readArchives() {
@@ -1487,6 +1576,12 @@ module.exports = {
     saveTelegramAlertConfig,
     getLogArchives,
     getAllAppSettingsRaw,
+    getRoomBilling,
+    saveRoomBilling,
+    deleteRoomBilling,
+    getRoomPayments,
+    addRoomPayment,
+    deleteRoomPayment,
     getLogArchive,
     saveLogArchive,
     getStorageStats

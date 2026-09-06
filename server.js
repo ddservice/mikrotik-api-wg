@@ -19,6 +19,7 @@ const rosErrors = require('./lib/routeros-errors');
 const mwAnalyze = require('./lib/multiwan-analyze');
 const mwMangle = require('./lib/multiwan-mangle');
 const expiryLib = require('./lib/expiry');
+const billing = require('./lib/billing');
 const mwPlan = require('./lib/multiwan-plan');
 const mwApply = require('./lib/multiwan-apply');
 const pccWeights = require('./lib/pcc-weights');
@@ -3751,6 +3752,238 @@ function createDailyDigestFlex(digestData) {
 // ปักหมุด TZ ไว้ ถ้าเครื่องรันเป็น UTC วันหมดอายุจะเลื่อน 7 ชั่วโมง และมันอยู่ใน
 // server.js จึงเทสต์ไม่ได้เลยทั้งที่เป็นตรรกะที่ข้อมูลการเงินทั้งหมดพึ่งอยู่
 const parseExpiryFromComment = expiryLib.parseExpiry;
+
+// ==========================================
+// รอบบิลค่าเช่าห้อง (ตารางจริง ไม่ใช่ comment บนเราท์เตอร์)
+// ==========================================
+
+/** วันที่วันนี้ตามเวลาไทย — ห้ามใช้เวลาของเครื่อง เพราะ VPS ไม่ได้ตั้งเป็นเวลาไทย */
+function todayBkk() {
+    return billing.bkkDateStr(Date.now());
+}
+
+/**
+ * GET /api/mikrotik/billing — ห้องทั้งหมดพร้อมวันครบกำหนด และสรุปยอดของเดือน
+ *
+ * รวมข้อมูลสองแหล่งเข้าด้วยกัน: ห้องจริงบนเราท์เตอร์ (/ppp/secret) กับตารางรอบบิล
+ * ห้องที่มีบนเราท์เตอร์แต่ยังไม่มีในตาราง จะขึ้นเป็น needsSetup — ไม่ใช่หายไปเฉย ๆ
+ * ซึ่งเป็นพฤติกรรมเดิมที่ทำให้รายได้รั่วโดยไม่มีใครรู้
+ */
+app.get('/api/mikrotik/billing', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const siteId = resolveSiteIdFromReq(req);
+        const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : todayBkk().slice(0, 7);
+
+        const [secrets, rows, payments] = await Promise.all([
+            executeOnRouter(req, async (client) => client.exec('/ppp/secret/print')).catch(() => null),
+            db.getRoomBilling(siteId),
+            db.getRoomPayments({ siteId, month })
+        ]);
+
+        const byName = new Map((rows || []).map((r) => [r.username, r]));
+        const today = todayBkk();
+
+        // เราท์เตอร์อ่านไม่ได้ก็ยังต้องแสดงข้อมูลบิลได้ — บิลไม่ควรพึ่งว่าสาขาออนไลน์อยู่
+        const routerRooms = secrets === null ? null : (secrets || []).map((u) => u.name).filter(Boolean);
+
+        const merged = (routerRooms || [...byName.keys()]).map((name) => {
+            const b = byName.get(name);
+            const sec = (secrets || []).find((u) => u.name === name) || {};
+            return {
+                username: name,
+                tenant: b ? b.tenant : null,
+                rent: b ? b.rent : null,
+                dueDate: b ? b.dueDate : null,
+                active: b ? b.active !== false : true,
+                note: b ? b.note : null,
+                inTable: !!b,
+                // ยังไม่ตั้งค่าในตาราง = ยังไม่มีใครรับผิดชอบรอบบิลห้องนี้
+                needsSetup: !b || !b.dueDate,
+                routerComment: sec.comment || '',
+                routerDisabled: sec.disabled === 'true',
+                // วันที่ที่อ่านได้จาก comment — ใช้ตอนนำเข้าครั้งแรก
+                commentDueDate: expiryLib.parseExpiry(sec.comment)
+                    ? billing.bkkDateStr(expiryLib.parseExpiry(sec.comment)) : null
+            };
+        });
+
+        const summary = billing.summariseRevenue(
+            merged.filter((r) => r.inTable), payments, month, today);
+        summary.notInTable = merged.filter((r) => !r.inTable).length;
+
+        res.json({ success: true, month, today, rooms: merged, payments,
+                   summary, routerReachable: secrets !== null });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/** PUT /api/mikrotik/billing/:username — ตั้ง/แก้ค่าเช่าและวันครบกำหนดของห้องหนึ่ง */
+app.put('/api/mikrotik/billing/:username', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { tenant, rent, dueDate, active, note, writeComment } = req.body || {};
+    if (dueDate && billing.dueDateToEpoch(dueDate) === null) {
+        return res.status(400).json({ error: 'dueDate ต้องเป็นรูปแบบ YYYY-MM-DD และเป็นวันที่ที่มีอยู่จริง' });
+    }
+    if (rent !== undefined && rent !== null && (isNaN(Number(rent)) || Number(rent) < 0)) {
+        return res.status(400).json({ error: 'rent ต้องเป็นตัวเลขไม่ติดลบ' });
+    }
+    try {
+        const siteId = resolveSiteIdFromReq(req);
+        const saved = await db.saveRoomBilling({
+            siteId, username: req.params.username,
+            tenant: tenant || null,
+            rent: rent === undefined || rent === null || rent === '' ? null : Number(rent),
+            dueDate: dueDate || null,
+            active: active !== false,
+            note: note || null
+        });
+
+        // เขียนวันครบกำหนดกลับลง comment ของเราท์เตอร์ด้วย เพื่อให้ WinBox ยังเห็นเหมือนเดิม
+        // ล้มเหลวก็ไม่ถือว่าทั้งรายการล้มเหลว — ตารางเป็นแหล่งความจริงแล้ว
+        let commentWritten = false;
+        let commentError = null;
+        if (dueDate && writeComment !== false) {
+            try {
+                await executeOnRouter(req, async (client) => {
+                    const list = await client.exec('/ppp/secret/print');
+                    const found = (list || []).find((u) => u.name === req.params.username);
+                    if (!found) throw new Error('ไม่พบห้องนี้บนเราท์เตอร์');
+                    await client.exec('/ppp/secret/set', {
+                        '.id': found['.id'],
+                        comment: billing.buildComment(found.comment, dueDate)
+                    });
+                });
+                commentWritten = true;
+            } catch (err) {
+                commentError = rosErrors.explain(err, { task: 'write' });
+            }
+        }
+
+        db.addLog(req.user.username, 'ตั้งรอบบิลห้อง',
+            req.params.username + (dueDate ? ' ครบกำหนด ' + dueDate : '') +
+            (rent ? ' ค่าเช่า ' + rent : ''));
+        res.json({ success: true, room: saved, commentWritten, commentError });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * POST /api/mikrotik/billing/:username/payment — บันทึกการชำระ
+ *
+ * ต่ออายุจาก **วันครบกำหนดเดิม** ไม่ใช่จากวันที่จ่าย ลูกค้าที่จ่ายช้าจึงไม่ได้เดือนนั้น
+ * ยาวขึ้นฟรี ยกเว้นค้างเกินหนึ่งรอบเต็ม ซึ่งจะเริ่มนับใหม่จากวันที่จ่ายและบอกไว้ในผลลัพธ์
+ */
+app.post('/api/mikrotik/billing/:username/payment', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    const { amount, paidOn, months, method, note } = req.body || {};
+    const amt = Number(amount);
+    if (!isFinite(amt) || amt <= 0) {
+        return res.status(400).json({ error: 'amount ต้องเป็นตัวเลขมากกว่า 0' });
+    }
+    const on = paidOn || todayBkk();
+    if (billing.dueDateToEpoch(on) === null) {
+        return res.status(400).json({ error: 'paidOn ต้องเป็นรูปแบบ YYYY-MM-DD' });
+    }
+    try {
+        const siteId = resolveSiteIdFromReq(req);
+        const rows = await db.getRoomBilling(siteId);
+        const existing = (rows || []).find((r) => r.username === req.params.username) || null;
+
+        const next = billing.nextDueDate({
+            currentDue: existing ? existing.dueDate : null, paidOn: on, months
+        });
+        if (!next.dueDate) return res.status(400).json({ error: 'คำนวณวันครบกำหนดใหม่ไม่ได้' });
+
+        await db.saveRoomBilling({
+            siteId, username: req.params.username,
+            tenant: existing ? existing.tenant : null,
+            rent: existing ? existing.rent : amt,
+            dueDate: next.dueDate,
+            active: existing ? existing.active !== false : true,
+            note: existing ? existing.note : null
+        });
+
+        const payment = await db.addRoomPayment({
+            siteId, username: req.params.username, amount: amt, paidOn: on,
+            months: next.months, method: method || null, note: note || null,
+            recordedBy: req.user.username,
+            dueDateBefore: existing ? existing.dueDate : null,
+            dueDateAfter: next.dueDate
+        });
+
+        let commentWritten = false;
+        let commentError = null;
+        try {
+            await executeOnRouter(req, async (client) => {
+                const list = await client.exec('/ppp/secret/print');
+                const found = (list || []).find((u) => u.name === req.params.username);
+                if (!found) throw new Error('ไม่พบห้องนี้บนเราท์เตอร์');
+                await client.exec('/ppp/secret/set', {
+                    '.id': found['.id'],
+                    comment: billing.buildComment(found.comment, next.dueDate)
+                });
+            });
+            commentWritten = true;
+        } catch (err) {
+            commentError = rosErrors.explain(err, { task: 'write' });
+        }
+
+        db.addLog(req.user.username, 'รับชำระค่าเช่า',
+            req.params.username + ' ' + amt + ' บาท ' + next.months + ' เดือน — ครบกำหนดใหม่ ' + next.dueDate);
+        res.json({ success: true, payment, dueDate: next.dueDate,
+                   resetFromPayment: next.resetFromPayment, commentWritten, commentError });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * POST /api/mikrotik/billing/import — นำวันครบกำหนดที่อยู่ใน comment เข้าตารางครั้งแรก
+ *
+ * ไม่มีขั้นนี้ ตารางจะว่างเปล่าในวันแรกและไม่มีใครยอมกรอกใหม่ทั้งหมดด้วยมือ
+ * ห้องที่ comment ไม่มีวันที่จะถูกสร้างแถวไว้โดยไม่มีวันครบกำหนด (needsSetup)
+ * เพื่อให้เห็นว่ามีอยู่และยังต้องจัดการ ดีกว่าปล่อยให้หายไปเหมือนเดิม
+ */
+app.post('/api/mikrotik/billing/import', requireAuth(['admin']), async (req, res) => {
+    const overwrite = (req.body || {}).overwrite === true;
+    try {
+        const siteId = resolveSiteIdFromReq(req);
+        const secrets = await executeOnRouter(req, async (client) => client.exec('/ppp/secret/print'));
+        const existing = await db.getRoomBilling(siteId);
+        const have = new Map((existing || []).map((r) => [r.username, r]));
+
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+        let withoutDate = 0;
+
+        for (const u of secrets || []) {
+            if (!u.name) continue;
+            const cur = have.get(u.name);
+            if (cur && !overwrite) { skipped += 1; continue; }
+            const ts = expiryLib.parseExpiry(u.comment);
+            const dueDate = ts ? billing.bkkDateStr(ts) : null;
+            if (!dueDate) withoutDate += 1;
+            await db.saveRoomBilling({
+                siteId, username: u.name,
+                tenant: cur ? cur.tenant : null,
+                rent: cur ? cur.rent : null,
+                dueDate: dueDate || (cur ? cur.dueDate : null),
+                active: u.disabled === 'true' ? false : (cur ? cur.active !== false : true),
+                note: cur ? cur.note : null
+            });
+            if (cur) updated += 1; else created += 1;
+        }
+
+        db.addLog(req.user.username, 'นำเข้ารอบบิลจากเราท์เตอร์',
+            'สร้าง ' + created + ' แก้ไข ' + updated + ' ข้าม ' + skipped +
+            ' · ไม่มีวันครบกำหนดในคอมเมนต์ ' + withoutDate);
+        res.json({ success: true, created, updated, skipped, withoutDate,
+                   total: (secrets || []).length });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'read' }) });
+    }
+});
 
 /**
  * GET /api/mikrotik/expiry-overview — ใครใกล้หมดอายุ ใครเลยกำหนด และ **ใครไม่มีวันครบกำหนดเลย**
