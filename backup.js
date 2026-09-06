@@ -26,13 +26,22 @@ try {
     console.warn('[backup] Could not load ecosystem.config.js, relying on process.env only:', e.message);
 }
 
+const manifestLib = require('./lib/backup-manifest');
 const db = process.env.SUPABASE_URL ? require('./db-supabase') : require('./db');
 console.log(`[backup] Using DB: ${process.env.SUPABASE_URL ? 'Supabase (PostgreSQL)' : 'Local JSON files'}`);
 
 // Cloudflare R2 Configuration
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '78059e3268d79b09600de14776ad345a';
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || 'd2f634ec540b296b0fb6323254aee1e6b59788d9ea9702318cf8603f344c0d64';
-const R2_ENDPOINT = process.env.R2_ENDPOINT || 'https://b8fd2913de1c592db914b68e01d645c8.r2.cloudflarestorage.com';
+// คีย์ R2 ต้องมาจาก env เท่านั้น
+//
+// ของเดิมใส่คีย์จริงไว้เป็นค่า fallback ตรงนี้ ซึ่งมีผลสองอย่าง หนักทั้งคู่:
+//   1. คีย์เข้าถึง bucket ที่เก็บ backup ทั้งหมดและ archive ม.26 ถูก commit ลง git
+//   2. **รัน backup.js โดยไม่อัปโหลดขึ้น production ไม่ได้เลย** ต่อให้ล้าง env ทิ้ง
+//      มันก็ตกมาใช้คีย์ที่ฝังไว้ — ทดสอบทีไรก็เขียนทับของจริงทุกที (เกิดขึ้นจริง
+//      ระหว่างตรวจสอบเมื่อ 2026-09-06 สองครั้ง ต้องตามลบออกทั้งสองครั้ง)
+// ไม่มีคีย์ = ไม่อัปโหลด และบอกให้รู้ ดีกว่าอัปโหลดไปที่ที่ไม่ได้ตั้งใจ
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
+const R2_ENDPOINT = process.env.R2_ENDPOINT || '';
 const R2_BUCKET = process.env.R2_BUCKET || 'ddservicedb';
 const R2_SITE_NAME = process.env.R2_SITE_NAME || 'Mikrotikapi-db';
 
@@ -97,7 +106,7 @@ function uploadFileToR2(filePath, objectKey) {
                 'x-amz-date': amzDate,
                 'x-amz-content-sha256': payloadHash,
                 'Authorization': authorizationHeader,
-                'Content-Type': 'text/csv; charset=utf-8',
+                'Content-Type': objectKey.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/csv; charset=utf-8',
                 'Content-Length': fileContent.length
             }
         }, (res) => {
@@ -144,7 +153,66 @@ async function main() {
             writeCsv(path.join(scratchDir, item.file), item.headers, item.data, item.mapper);
         }
 
+        // ------------------------------------------------------------------
+        // ตารางตั้งค่า — สิ่งที่ทำให้ระบบกลับมาทำงานได้จริง
+        //
+        // จนถึง 2026-09-06 backup มีแต่ log ซึ่งกู้คืนมาแล้วระบบยังใช้งานไม่ได้:
+        // ไม่มีทะเบียนสาขา ไม่มีบัญชีเข้าระบบ ไม่มี token LINE/Telegram
+        // เขียนเป็น JSON ไม่ใช่ CSV เพราะโครงสร้างซ้อนกันหลายชั้นและต้องอ่านกลับได้ตรงตัว
+        // ------------------------------------------------------------------
+        const includeSecrets = String(process.env.BACKUP_INCLUDE_SECRETS || '') === '1';
+        const configParts = [
+            { part: 'sites', get: () => db.getSites() },
+            { part: 'dashboard_users', get: () => db.getUsers() },
+            { part: 'app_settings', get: () => (db.getAllAppSettingsRaw ? db.getAllAppSettingsRaw() : null) },
+            { part: 'archived_hotspot_users', get: () => db.getArchivedHotspotUsers({ limit: 100000 }) },
+            { part: 'log_archives', get: () => db.getLogArchives({ limit: 100000 }) }
+        ];
+
+        const manifestFiles = [];
+        for (const item of filesToUpload) {
+            const buf = fs.readFileSync(path.join(scratchDir, item.file));
+            manifestFiles.push({ part: item.file.replace(/_\d{4}-\d{2}-\d{2}\.csv$/, ''),
+                                 name: item.file, rows: (item.data || []).length, buffer: buf });
+        }
+
+        for (const cp of configParts) {
+            let rows;
+            try {
+                rows = await cp.get();
+            } catch (err) {
+                // ตารางที่ดึงไม่ได้ต้องดังพอให้ได้ยิน ไม่ใช่หายไปเงียบ ๆ แล้วรายงานว่าสำเร็จ
+                console.error(`[backup] อ่าน ${cp.part} ไม่ได้: ${err.message}`);
+                continue;
+            }
+            if (rows === null || rows === undefined) {
+                console.warn(`[backup] ข้าม ${cp.part} — DB layer นี้ไม่มีฟังก์ชันให้ดึง`);
+                continue;
+            }
+            const list = Array.isArray(rows) ? rows : (rows.items || rows.data || rows);
+            const payload = includeSecrets ? list : manifestLib.redact(list);
+            const name = `${cp.part}_${today}.json`;
+            const buf = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
+            fs.writeFileSync(path.join(scratchDir, name), buf);
+            manifestFiles.push({ part: cp.part, name,
+                                 rows: Array.isArray(list) ? list.length : 0, buffer: buf });
+            filesToUpload.push({ file: name });
+        }
+
+        const manifest = manifestLib.buildManifest({
+            date: today, files: manifestFiles, includesSecrets: includeSecrets,
+            backend: process.env.SUPABASE_URL ? 'supabase' : 'local-json'
+        });
+        fs.writeFileSync(path.join(scratchDir, 'manifest.json'),
+                         JSON.stringify(manifest, null, 2), 'utf8');
+        filesToUpload.push({ file: 'manifest.json' });
+        console.log(`[backup] สำรอง ${manifestFiles.length} ชุดข้อมูล` +
+                    (includeSecrets ? ' (รวมความลับ)' : ' (ตัดความลับออก — ดู BACKUP_INCLUDE_SECRETS)'));
+
         // 1. Upload to Cloudflare R2 (Direct Native S3 API)
+        if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ENDPOINT) {
+            console.warn('[backup] ไม่ได้ตั้งค่า R2 — ไฟล์อยู่แค่บนเครื่องนี้ ไม่มีสำเนานอกเครื่อง');
+        }
         if (R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_ENDPOINT) {
             console.log(`[backup] Uploading CSVs directly to Cloudflare R2 (${R2_BUCKET}/${R2_SITE_NAME}/${today}/) ...`);
             for (const item of filesToUpload) {

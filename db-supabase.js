@@ -993,6 +993,19 @@ function _mapArchiveRow(r) {
     };
 }
 
+/**
+ * ดึงการตั้งค่าทั้งหมดออกมาดิบ ๆ สำหรับการสำรองข้อมูล
+ *
+ * ตารางนี้ไม่เคยถูกสำรองเลยจนถึง 2026-09-06 — ในนั้นมี token LINE ของแต่ละสาขา,
+ * bot Telegram, สิทธิ์เมนู และตั้งค่าการล้างคูปองอัตโนมัติ กู้คืนโดยไม่มีส่วนนี้
+ * แปลว่าต้องตั้งค่าใหม่ทั้งหมดด้วยมือ และ token ของ LINE แต่ละสาขาก็หาไม่ได้แล้ว
+ */
+async function getAllAppSettingsRaw() {
+    const res = await supabase.from('app_settings').select('*');
+    if (res.error) throw new Error(res.error.message);
+    return res.data || [];
+}
+
 async function getLogArchives(options) {
     options = options || {};
     try {
@@ -1195,5 +1208,6 @@ module.exports = {
     getLineUserBinding: getLineUserBinding, bindLineUser: bindLineUser, unbindLineUser: unbindLineUser,
     getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
     getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive,
+    getAllAppSettingsRaw: getAllAppSettingsRaw,
     getStorageStats: getStorageStats
 };

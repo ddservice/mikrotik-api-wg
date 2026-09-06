@@ -1086,6 +1086,25 @@ function _readArchives() {
     }
 }
 
+/**
+ * ดึงการตั้งค่าทั้งหมดออกมาดิบ ๆ สำหรับการสำรองข้อมูล
+ *
+ * ตารางนี้ไม่เคยถูกสำรองเลยจนถึง 2026-09-06 — ในนั้นมี token LINE ของแต่ละสาขา,
+ * bot Telegram, สิทธิ์เมนู และตั้งค่าการล้างคูปองอัตโนมัติ กู้คืนโดยไม่มีส่วนนี้
+ * แปลว่าต้องตั้งค่าใหม่ทั้งหมดด้วยมือ และ token ของ LINE แต่ละสาขาก็หาไม่ได้แล้ว
+ */
+function getAllAppSettingsRaw() {
+    // ฝั่ง JSON เก็บทุกอย่างรวมในไฟล์เดียว จึงคืนเป็นรูป key/value ให้เหมือน Postgres
+    // ไม่งั้นไฟล์ backup จากสองโหมดจะคนละหน้าตา แล้วสคริปต์กู้คืนต้องรู้จักสองแบบ
+    try {
+        if (!fs.existsSync(SETTINGS_FILE)) return [];
+        const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        return Object.entries(data).map(([key, value]) => ({ key, value }));
+    } catch (e) {
+        return [];
+    }
+}
+
 function getLogArchives(options) {
     options = options || {};
     try {
@@ -1467,6 +1486,7 @@ module.exports = {
     getTelegramAlertConfig,
     saveTelegramAlertConfig,
     getLogArchives,
+    getAllAppSettingsRaw,
     getLogArchive,
     saveLogArchive,
     getStorageStats

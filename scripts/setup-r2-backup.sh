@@ -14,13 +14,20 @@ RCLONE_CONF_FILE="$RCLONE_CONF_DIR/rclone.conf"
 
 mkdir -p "$RCLONE_CONF_DIR"
 
-cat << 'EOF' > /tmp/r2_block.conf
+# คีย์อ่านจาก env เท่านั้น — ห้ามฝังไว้ในไฟล์ที่ commit ลง git
+# (ของเดิมฝังไว้ตรงนี้ จึงเท่ากับเปิดสิทธิ์อ่าน/ลบ backup ทั้งหมดและ archive ม.26
+#  ให้ทุกคนที่เห็น repo นี้)
+: "${R2_ACCESS_KEY_ID:?ต้องตั้ง R2_ACCESS_KEY_ID ก่อน เช่น export R2_ACCESS_KEY_ID=...}"
+: "${R2_SECRET_ACCESS_KEY:?ต้องตั้ง R2_SECRET_ACCESS_KEY ก่อน}"
+: "${R2_ENDPOINT:?ต้องตั้ง R2_ENDPOINT ก่อน เช่น https://<account>.r2.cloudflarestorage.com}"
+
+cat << EOF > /tmp/r2_block.conf
 [r2]
 type = s3
 provider = Cloudflare
-access_key_id = 78059e3268d79b09600de14776ad345a
-secret_access_key = d2f634ec540b296b0fb6323254aee1e6b59788d9ea9702318cf8603f344c0d64
-endpoint = https://b8fd2913de1c592db914b68e01d645c8.r2.cloudflarestorage.com
+access_key_id = ${R2_ACCESS_KEY_ID}
+secret_access_key = ${R2_SECRET_ACCESS_KEY}
+endpoint = ${R2_ENDPOINT}
 acl = private
 EOF
 

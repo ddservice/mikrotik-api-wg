@@ -21,7 +21,8 @@
     "test": "node test/run.js",
     "check": "npm run test && npm run validate-html && npm run check-db-parity && npm run check-routes",
     "normalize-site-names": "node scripts/normalize-site-names.js",
-    "check-sites": "node scripts/check-sites.js"
+    "check-sites": "node scripts/check-sites.js",
+    "verify-backup": "node scripts/verify-backup.js"
   },
   "engines": {
     "node": ">=20"
