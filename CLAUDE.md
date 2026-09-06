@@ -501,6 +501,35 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-06 (7)** — Per-site switch for the rent-billing feature, **off by default**.
+  Asked for because the arrangement has not been agreed with the branch owners yet.
+  - **Off is the default on purpose.** This feature writes due dates into the `comment`
+    field on the *customer's own router* and replies to their tenants over LINE, so
+    enabling it for a branch is not "showing another menu" — it is touching their system
+    and their customers.
+  - **Off means off, not a hidden menu**: all eight billing / payment-claim endpoints
+    check the switch and answer `403`, and the LINE webhook refuses slips for a disabled
+    site and tells the sender to contact an admin directly. **Accepting a slip silently
+    would be worse than refusing** — the acknowledgement promises an admin will check,
+    and the tenant would wait for something nobody can see. Switching off keeps the data;
+    switching back on resumes where it left off.
+  - **Two real bugs found by testing the switch rather than reading it:**
+    - `resolveSiteIdFromReq` returns `null` when no `X-Site-Id` header is sent. Harmless
+      everywhere else — `db.getConfig(null)` falls back to the active site — but here it
+      meant the switch could never match, so **enabling a site changed nothing**. Worse,
+      the billing routes were storing rows under `siteId: null`, which works with one
+      site and **silently mixes branches** once there is more than one. Everything now
+      resolves the same effective site the router call will use, so the switch cannot be
+      on for one branch while the write lands on another.
+    - `check-db-parity` caught `db.getConfig(null).catch(...)` that had just been written
+      — sync in the JSON layer, so `.catch` is not a function. Same shape as the
+      2026-08-13 outage, which is exactly why that guard exists.
+  - Verified over HTTP: default off for every site; five endpoints `403` while off and a
+    correctly signed slip creates nothing; enabling one site flips them to `200` and the
+    next slip is accepted; disabling again returns `403` **with all 4 imported rows still
+    present**; `401` without a token, `400` for a non-boolean. 534 tests, **134 routes**,
+    smoke clean.
+
 - **2026-09-06 (6)** — The LINE **Channel Access Token** is no longer returned to the
   browser either. The previous entry hid `channelSecret` and left the token exposed
   because v1's settings page reads it back and re-posts it; that was a reason to be
