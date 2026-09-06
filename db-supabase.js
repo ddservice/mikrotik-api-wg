@@ -1190,6 +1190,38 @@ async function updatePaymentClaim(id, patch) {
     return res.data ? _mapClaimRow(res.data) : null;
 }
 
+// ============================================================
+// สวิตช์เปิด/ปิดฟีเจอร์รอบบิลค่าเช่า (แยกรายสาขา)
+//
+// **ค่าเริ่มต้นคือปิด** และตั้งใจให้เป็นแบบนั้น — ฟีเจอร์นี้เขียน comment กลับลง
+// เราท์เตอร์ของลูกค้าและตอบข้อความหาลูกค้าทาง LINE การเปิดใช้กับสาขาที่ยังไม่ได้
+// ตกลงกันจึงไม่ใช่แค่ "แสดงเมนูเพิ่ม" แต่คือไปแตะระบบและลูกค้าของเขาจริง ๆ
+//
+// ปิดอยู่แล้วต้องปิดจริง ไม่ใช่แค่ซ่อนเมนู — API ทุกเส้นของรอบบิลตรวจค่านี้เอง
+// (กติกาเดิมของโปรเจกต์: การซ่อนเมนูไม่ใช่การล็อกสิทธิ์)
+// ============================================================
+
+async function getBillingConfig() {
+    try {
+        const res = await supabase.from('app_settings').select('value')
+            .eq('key', 'billing_config').maybeSingle();
+        if (res.error) throw res.error;
+        const d = res.data && res.data.value;
+        return { sites: (d && d.sites) || {} };
+    } catch (e) {
+        return { sites: {} };
+    }
+}
+
+async function saveBillingConfig(config) {
+    const cur = await getBillingConfig();
+    const next = { sites: Object.assign({}, cur.sites, (config && config.sites) || {}) };
+    const res = await supabase.from('app_settings')
+        .upsert({ key: 'billing_config', value: next, updated_at: new Date().toISOString() });
+    if (res.error) throw new Error(res.error.message);
+    return next;
+}
+
 async function getLogArchives(options) {
     options = options || {};
     try {
@@ -1393,6 +1425,7 @@ module.exports = {
     getTelegramAlertConfig: getTelegramAlertConfig, saveTelegramAlertConfig: saveTelegramAlertConfig,
     getLogArchives: getLogArchives, getLogArchive: getLogArchive, saveLogArchive: saveLogArchive,
     getAllAppSettingsRaw: getAllAppSettingsRaw,
+    getBillingConfig: getBillingConfig, saveBillingConfig: saveBillingConfig,
     getPaymentClaims: getPaymentClaims, getPaymentClaim: getPaymentClaim,
     addPaymentClaim: addPaymentClaim, updatePaymentClaim: updatePaymentClaim,
     getRoomBilling: getRoomBilling, saveRoomBilling: saveRoomBilling,

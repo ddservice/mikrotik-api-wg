@@ -3765,6 +3765,105 @@ function createDailyDigestFlex(digestData) {
 const parseExpiryFromComment = expiryLib.parseExpiry;
 
 // ==========================================
+// สวิตช์เปิด/ปิดฟีเจอร์รอบบิลค่าเช่า
+// ==========================================
+
+/**
+ * สาขานี้เปิดใช้รอบบิลหรือยัง — ค่าเริ่มต้นคือ **ยัง**
+ *
+ * ฟีเจอร์นี้เขียน comment กลับลงเราท์เตอร์ของลูกค้าและตอบข้อความหาลูกค้าทาง LINE
+ * การเปิดกับสาขาที่ยังไม่ได้ตกลงกันจึงไม่ใช่แค่เพิ่มเมนู แต่คือไปแตะระบบของเขาจริง
+ */
+async function isBillingEnabled(siteId) {
+    if (!siteId) return false;
+    const cfg = await db.getBillingConfig();
+    return cfg.sites[String(siteId)] === true;
+}
+
+/**
+ * สาขาที่คำขอนี้ทำงานด้วยจริง ๆ
+ *
+ * resolveSiteIdFromReq คืน null เมื่อไม่มี X-Site-Id มาด้วย ซึ่งที่อื่นไม่เป็นไร
+ * เพราะ db.getConfig(null) ตกไปใช้ "สาขาที่เลือกใช้งานอยู่" ให้เอง
+ * แต่ตรงนี้ null แปลว่าเทียบสวิตช์ไม่ได้ และแถวรอบบิลจะถูกเก็บใต้ siteId ว่าง
+ * ซึ่งจะปนกันทันทีที่มีมากกว่าหนึ่งสาขา — เจอตอนทดสอบสวิตช์ (2026-09-06)
+ *
+ * ต้องเป็นสาขาเดียวกับที่ executeOnRouter จะไปคุยด้วย ไม่งั้นสวิตช์อาจเปิดของสาขาหนึ่ง
+ * ขณะที่คำสั่งไปเขียน comment ลงเราท์เตอร์ของอีกสาขา
+ */
+async function effectiveSiteId(req) {
+    const explicit = resolveSiteIdFromReq(req);
+    if (explicit) return explicit;
+    try {
+        const cfg = await db.getConfig(null);
+        return cfg && cfg.id ? cfg.id : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * ปิดอยู่ = ปฏิเสธจริงที่ระดับ API ไม่ใช่แค่ซ่อนเมนู
+ * (กติกาเดิมของโปรเจกต์: การซ่อนเมนูเป็นความสะดวก ไม่ใช่มาตรการความปลอดภัย)
+ *
+ * @returns {boolean} true ถ้าตอบ error ไปแล้ว ผู้เรียกต้อง return ทันที
+ */
+async function blockedByBillingSwitch(req, res) {
+    const siteId = await effectiveSiteId(req);
+    if (await isBillingEnabled(siteId)) return false;
+    res.status(403).json({
+        error: 'ยังไม่ได้เปิดใช้ฟีเจอร์รอบบิลค่าเช่าสำหรับสาขานี้',
+        billingDisabled: true
+    });
+    return true;
+}
+
+/** GET /api/mikrotik/billing/settings — สาขาไหนเปิดอยู่บ้าง */
+app.get('/api/mikrotik/billing/settings', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const [{ sites }, cfg] = await Promise.all([db.getSites(), db.getBillingConfig()]);
+        res.json({
+            success: true,
+            sites: (sites || []).map((x) => ({
+                id: x.id, name: x.name, enabled: cfg.sites[String(x.id)] === true
+            }))
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * POST /api/mikrotik/billing/settings — เปิด/ปิดรายสาขา (หรือทุกสาขาพร้อมกัน)
+ *
+ * บันทึกลง activity log ทุกครั้ง — การเปิดฟีเจอร์ที่ไปแตะเราท์เตอร์และส่งข้อความ
+ * หาลูกค้าของสาขาหนึ่ง ต้องตอบได้ทีหลังว่าใครเป็นคนเปิดและเปิดเมื่อไหร่
+ */
+app.post('/api/mikrotik/billing/settings', requireAuth(['admin']), async (req, res) => {
+    const { enabled, siteId } = req.body || {};
+    if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'ต้องระบุ enabled เป็น true หรือ false' });
+    }
+    try {
+        const { sites } = await db.getSites();
+        const targets = siteId
+            ? (sites || []).filter((x) => String(x.id) === String(siteId))
+            : (sites || []);
+        if (!targets.length) return res.status(400).json({ error: 'ไม่พบสาขาที่ระบุ' });
+
+        const patch = { sites: {} };
+        targets.forEach((x) => { patch.sites[String(x.id)] = enabled; });
+        await db.saveBillingConfig(patch);
+
+        db.addLog(req.user.username, (enabled ? 'เปิด' : 'ปิด') + 'ฟีเจอร์รอบบิลค่าเช่า',
+            targets.map((x) => x.name).join(', '));
+        res.json({ success: true, changed: targets.length, enabled });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ==========================================
 // การแจ้งชำระเงินด้วยสลิปผ่าน LINE
 //
 // ระบบรับเรื่องไว้เท่านั้น ไม่อนุมัติเอง — รูปสลิปไม่ใช่หลักฐานการชำระเงิน
@@ -3774,7 +3873,8 @@ const parseExpiryFromComment = expiryLib.parseExpiry;
 /** GET /api/mikrotik/payment-claims — รายการแจ้งชำระ ค้างอยู่ขึ้นก่อน */
 app.get('/api/mikrotik/payment-claims', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const siteId = resolveSiteIdFromReq(req);
+        if (await blockedByBillingSwitch(req, res)) return;
+        const siteId = await effectiveSiteId(req);
         const rows = await db.getPaymentClaims({
             siteId: req.query.allSites === '1' ? null : siteId,
             status: req.query.status || null,
@@ -3804,6 +3904,7 @@ app.get('/api/mikrotik/payment-claims', requireAuth(['admin', 'co-admin']), asyn
  */
 app.get('/api/mikrotik/payment-claims/:id/slip', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
+        if (await blockedByBillingSwitch(req, res)) return;
         const claim = await db.getPaymentClaim(req.params.id);
         if (!claim || !claim.slipFile) return res.status(404).json({ error: 'ไม่พบรูปสลิปของรายการนี้' });
 
@@ -3831,11 +3932,12 @@ app.get('/api/mikrotik/payment-claims/:id/slip', requireAuth(['admin', 'co-admin
  */
 app.post('/api/mikrotik/payment-claims/:id/approve', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
+        if (await blockedByBillingSwitch(req, res)) return;
         const claim = await db.getPaymentClaim(req.params.id);
         const v = paymentClaims.validateApproval(claim, req.body || {});
         if (!v.ok) return res.status(400).json({ error: v.error });
 
-        const siteId = claim.siteId || resolveSiteIdFromReq(req);
+        const siteId = claim.siteId || await effectiveSiteId(req);
         const paidOn = (req.body || {}).paidOn || billing.bkkDateStr(Date.now());
 
         const rows = await db.getRoomBilling(siteId);
@@ -3915,6 +4017,7 @@ app.post('/api/mikrotik/payment-claims/:id/reject', requireAuth(['admin', 'co-ad
         return res.status(400).json({ error: 'ต้องระบุเหตุผล เพื่อให้ลูกค้ารู้ว่าต้องแก้อะไร' });
     }
     try {
+        if (await blockedByBillingSwitch(req, res)) return;
         const claim = await db.getPaymentClaim(req.params.id);
         if (!claim) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
         if (claim.status !== 'pending') {
@@ -3928,7 +4031,7 @@ app.post('/api/mikrotik/payment-claims/:id/reject', requireAuth(['admin', 'co-ad
 
         let notified = false;
         try {
-            const cfg = await db.getLineDigestConfig(claim.siteId || resolveSiteIdFromReq(req));
+            const cfg = await db.getLineDigestConfig(claim.siteId || await effectiveSiteId(req));
             if (cfg.channelAccessToken && claim.lineUserId) {
                 await sendLinePushMessage(cfg.channelAccessToken, claim.lineUserId, {
                     type: 'text', text: paymentClaims.rejectedMessage(reason)
@@ -3963,7 +4066,8 @@ function todayBkk() {
  */
 app.get('/api/mikrotik/billing', requireAuth(['admin', 'co-admin']), async (req, res) => {
     try {
-        const siteId = resolveSiteIdFromReq(req);
+        if (await blockedByBillingSwitch(req, res)) return;
+        const siteId = await effectiveSiteId(req);
         const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : todayBkk().slice(0, 7);
 
         const [secrets, rows, payments] = await Promise.all([
@@ -4020,7 +4124,8 @@ app.put('/api/mikrotik/billing/:username', requireAuth(['admin', 'co-admin']), a
         return res.status(400).json({ error: 'rent ต้องเป็นตัวเลขไม่ติดลบ' });
     }
     try {
-        const siteId = resolveSiteIdFromReq(req);
+        if (await blockedByBillingSwitch(req, res)) return;
+        const siteId = await effectiveSiteId(req);
         const saved = await db.saveRoomBilling({
             siteId, username: req.params.username,
             tenant: tenant || null,
@@ -4077,7 +4182,8 @@ app.post('/api/mikrotik/billing/:username/payment', requireAuth(['admin', 'co-ad
         return res.status(400).json({ error: 'paidOn ต้องเป็นรูปแบบ YYYY-MM-DD' });
     }
     try {
-        const siteId = resolveSiteIdFromReq(req);
+        if (await blockedByBillingSwitch(req, res)) return;
+        const siteId = await effectiveSiteId(req);
         const rows = await db.getRoomBilling(siteId);
         const existing = (rows || []).find((r) => r.username === req.params.username) || null;
 
@@ -4139,7 +4245,8 @@ app.post('/api/mikrotik/billing/:username/payment', requireAuth(['admin', 'co-ad
 app.post('/api/mikrotik/billing/import', requireAuth(['admin']), async (req, res) => {
     const overwrite = (req.body || {}).overwrite === true;
     try {
-        const siteId = resolveSiteIdFromReq(req);
+        if (await blockedByBillingSwitch(req, res)) return;
+        const siteId = await effectiveSiteId(req);
         const secrets = await executeOnRouter(req, async (client) => client.exec('/ppp/secret/print'));
         const existing = await db.getRoomBilling(siteId);
         const have = new Map((existing || []).map((r) => [r.username, r]));
@@ -4585,6 +4692,22 @@ app.post('/api/line/webhook', async (req, res) => {
                     const binding = await db.getLineUserBinding(event.source?.userId);
                     const claim = paymentClaims.claimFromEvent(event, binding);
                     if (!claim) continue;
+
+                    // สาขายังไม่เปิดใช้รอบบิล = ไม่รับสลิป และบอกลูกค้าตรง ๆ
+                    //
+                    // รับไว้เฉย ๆ แย่กว่าไม่รับ เพราะข้อความตอบกลับบอกว่า "แอดมินจะตรวจสอบ"
+                    // ทั้งที่ไม่มีใครเห็นรายการนั้น ลูกค้าจะรอโดยคิดว่าเรื่องกำลังเดินอยู่
+                    // effectiveSiteId มี try/catch อยู่แล้ว และครอบคลุมกรณีไม่มี req
+                    // (เรียกด้วย null ได้ — resolveSiteIdFromReq คืน null ทันที)
+                    const claimSiteId = claim.siteId || (await effectiveSiteId(null));
+                    if (!(await isBillingEnabled(claimSiteId))) {
+                        await sendLineMessagingApiReply(token, event.replyToken, {
+                            type: 'text',
+                            text: 'ขออภัยครับ ยังไม่เปิดรับแจ้งชำระเงินผ่านแชต ' +
+                                  'รบกวนส่งสลิปให้แอดมินโดยตรงนะครับ'
+                        }).catch(() => {});
+                        continue;
+                    }
                     try {
                         claim.slipFile = await downloadLineSlip(token, claim.messageId);
                     } catch (err) {

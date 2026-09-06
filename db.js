@@ -1210,6 +1210,39 @@ function updatePaymentClaim(id, patch) {
     return rows[i];
 }
 
+// ============================================================
+// สวิตช์เปิด/ปิดฟีเจอร์รอบบิลค่าเช่า (แยกรายสาขา)
+//
+// **ค่าเริ่มต้นคือปิด** และตั้งใจให้เป็นแบบนั้น — ฟีเจอร์นี้เขียน comment กลับลง
+// เราท์เตอร์ของลูกค้าและตอบข้อความหาลูกค้าทาง LINE การเปิดใช้กับสาขาที่ยังไม่ได้
+// ตกลงกันจึงไม่ใช่แค่ "แสดงเมนูเพิ่ม" แต่คือไปแตะระบบและลูกค้าของเขาจริง ๆ
+//
+// ปิดอยู่แล้วต้องปิดจริง ไม่ใช่แค่ซ่อนเมนู — API ทุกเส้นของรอบบิลตรวจค่านี้เอง
+// (กติกาเดิมของโปรเจกต์: การซ่อนเมนูไม่ใช่การล็อกสิทธิ์)
+// ============================================================
+
+const BILLING_CONFIG_FILE = path.join(DB_DIR, 'billing_config.json');
+
+function getBillingConfig() {
+    try {
+        if (!fs.existsSync(BILLING_CONFIG_FILE)) return { sites: {} };
+        const d = JSON.parse(fs.readFileSync(BILLING_CONFIG_FILE, 'utf8'));
+        return { sites: (d && d.sites) || {} };
+    } catch (e) {
+        // อ่านไม่ได้ = ถือว่าปิด ปลอดภัยกว่าเปิดโดยไม่ได้ตั้งใจ
+        return { sites: {} };
+    }
+}
+
+function saveBillingConfig(config) {
+    const cur = getBillingConfig();
+    const next = { sites: Object.assign({}, cur.sites, (config && config.sites) || {}) };
+    const tmp = BILLING_CONFIG_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf8');
+    fs.renameSync(tmp, BILLING_CONFIG_FILE);
+    return next;
+}
+
 const LOG_ARCHIVES_FILE = path.join(DB_DIR, 'log_archives.json');
 
 function _readArchives() {
@@ -1623,6 +1656,8 @@ module.exports = {
     saveTelegramAlertConfig,
     getLogArchives,
     getAllAppSettingsRaw,
+    getBillingConfig,
+    saveBillingConfig,
     getPaymentClaims,
     getPaymentClaim,
     addPaymentClaim,

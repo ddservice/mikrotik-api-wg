@@ -27,22 +27,36 @@ const FILTERS = [
     { key: 'all', label: 'ทุกห้อง' }
 ];
 
+// ปิดอยู่สำหรับสาขานี้ — ไม่ใช่ error ที่ต้องเด้ง toast ขึ้นมา
+// เป็นสถานะปกติของสาขาที่ยังไม่ได้ตกลงเรื่องใช้ฟีเจอร์นี้กัน
+const disabled = ref(false);
+
 async function load() {
     loading.value = true;
     try {
         const q = month.value ? '?month=' + encodeURIComponent(month.value) : '';
         data.value = await apiFetch('/api/mikrotik/billing' + q);
+        disabled.value = false;
         if (!month.value) month.value = data.value.month;
     } catch (e) {
-        toast.error('ดึงข้อมูลรอบบิลไม่สำเร็จ: ' + e.message);
-        data.value = null;
+        if (/ยังไม่ได้เปิดใช้ฟีเจอร์รอบบิล/.test(e.message)) {
+            disabled.value = true;
+            data.value = null;
+        } else {
+            toast.error('ดึงข้อมูลรอบบิลไม่สำเร็จ: ' + e.message);
+            data.value = null;
+        }
     } finally {
         loading.value = false;
     }
 }
 
-onMounted(() => { load(); loadClaims(); });
-watch(activeSiteId, () => { data.value = null; month.value = ''; claims.value = []; load(); loadClaims(); });
+onMounted(async () => { await load(); loadClaims(); });
+watch(activeSiteId, async () => {
+    data.value = null; month.value = ''; claims.value = [];
+    await load();
+    loadClaims();
+});
 watch(month, (v, old) => { if (old && v && v !== old) load(); });
 
 const today = computed(() => (data.value && data.value.today) || '');
@@ -90,6 +104,7 @@ const shownClaims = computed(() => showAllClaims.value
     : claims.value.filter((c) => c.status === 'pending'));
 
 async function loadClaims() {
+    if (disabled.value) { claims.value = []; return; }
     try {
         const r = await apiFetch('/api/mikrotik/payment-claims');
         claims.value = r.claims || [];
@@ -299,7 +314,7 @@ function baht(n) {
 </script>
 
 <template>
-<section class="bill">
+<section v-if="!disabled" class="bill">
     <div class="bhead">
         <div class="btitle"><i class="fa-solid fa-file-invoice-dollar"></i> รอบบิลค่าเช่า</div>
         <div class="bactions">

@@ -11,6 +11,7 @@ const TABS = [
     { key: 'sites', label: 'สาขา / เราท์เตอร์', icon: 'fa-solid fa-network-wired' },
     { key: 'telegram', label: 'แจ้งเตือนแอดมิน (Telegram)', icon: 'fa-brands fa-telegram' },
     { key: 'line', label: 'แจ้งเตือนลูกค้า (LINE OA)', icon: 'fa-brands fa-line' },
+    { key: 'billing', label: 'รอบบิลค่าเช่า', icon: 'fa-solid fa-file-invoice-dollar' },
     { key: 'storage', label: 'พื้นที่เก็บข้อมูล', icon: 'fa-solid fa-hard-drive' },
     { key: 'ops', label: 'จัดการเราท์เตอร์', icon: 'fa-solid fa-screwdriver-wrench' }
 ];
@@ -297,6 +298,51 @@ async function testLine() {
     }
 }
 
+// ---------- สวิตช์รอบบิลค่าเช่า ----------
+//
+// ค่าเริ่มต้นคือปิดทุกสาขา และตั้งใจให้เป็นแบบนั้น — ฟีเจอร์นี้เขียน comment กลับลง
+// เราท์เตอร์ของลูกค้าและตอบข้อความหาลูกค้าทาง LINE จึงไม่ควรเปิดเองก่อนตกลงกัน
+const billingSites = ref([]);
+const billingBusy = ref('');
+
+async function loadBillingSettings() {
+    billingBusy.value = 'load';
+    try {
+        const r = await apiFetch('/api/mikrotik/billing/settings');
+        billingSites.value = r.sites || [];
+    } catch (e) {
+        toast.error('ดึงค่าไม่สำเร็จ: ' + e.message);
+    } finally {
+        billingBusy.value = '';
+    }
+}
+
+async function setBilling(site, enabled) {
+    if (enabled) {
+        const ok = window.confirm(
+            'เปิดฟีเจอร์รอบบิลค่าเช่าสำหรับสาขา "' + site.name + '"\n\n' +
+            'เมื่อเปิดแล้ว ระบบจะ:\n' +
+            '• เขียนวันครบกำหนดกลับลงช่อง comment ของห้องบนเราท์เตอร์สาขานี้\n' +
+            '• รับสลิปแจ้งชำระเงินที่ลูกค้าส่งเข้ามาทาง LINE และตอบกลับหาลูกค้า\n\n' +
+            'ควรตกลงกับเจ้าของสาขาก่อน — ยืนยันหรือไม่'
+        );
+        if (!ok) return;
+    }
+    billingBusy.value = site.id;
+    try {
+        await apiFetch('/api/mikrotik/billing/settings', {
+            method: 'POST', body: JSON.stringify({ enabled, siteId: site.id })
+        });
+        toast.success((enabled ? 'เปิด' : 'ปิด') + 'รอบบิลของ ' + site.name + ' แล้ว');
+        await loadBillingSettings();
+    } catch (e) {
+        toast.error(e.message);
+        await loadBillingSettings();   // คืนสวิตช์กลับสถานะจริง
+    } finally {
+        billingBusy.value = '';
+    }
+}
+
 // ---------- พื้นที่เก็บข้อมูล ----------
 const st = ref(null);
 const stBusy = ref('');
@@ -467,6 +513,7 @@ async function sendStorageReport() {
 // ไม่ควรยิงทุกครั้งที่สลับแท็บไปมา ถ้าอยากได้ค่าล่าสุดมีปุ่ม "ตรวจใหม่" ให้กด
 watch(tab, (v) => {
     if (v === 'storage' && !st.value && !stBusy.value) loadStorage();
+    if (v === 'billing' && !billingSites.value.length) loadBillingSettings();
 });
 
 onMounted(async () => {
@@ -759,6 +806,49 @@ onMounted(async () => {
     </template>
 
     <!-- ================= พื้นที่เก็บข้อมูล ================= -->
+    <template v-else-if="tab === 'billing'">
+        <div class="v2-callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>
+                <strong>เปิดแล้วระบบจะไปแตะระบบของลูกค้าจริง</strong> —
+                เขียนวันครบกำหนดลงช่อง comment ของห้องบนเราท์เตอร์สาขานั้น
+                และรับสลิปที่ลูกค้าส่งเข้ามาทาง LINE พร้อมตอบกลับหาลูกค้า
+                จึงควรตกลงกับเจ้าของสาขาก่อน · <strong>ค่าเริ่มต้นคือปิดทุกสาขา</strong>
+            </span>
+        </div>
+
+        <div class="panel">
+            <div class="ptitle" style="padding:16px 16px 0">
+                <i class="fa-solid fa-file-invoice-dollar"></i> เปิดใช้รอบบิลค่าเช่ารายสาขา
+            </div>
+            <div v-if="billingBusy === 'load'" class="sub" style="padding:16px">กำลังโหลด…</div>
+            <div v-else class="dirs" style="margin:0;padding:8px 16px 16px">
+                <div v-for="s in billingSites" :key="s.id" class="dirrow dnsrow">
+                    <span>
+                        {{ s.name }}
+                        <span class="badge" :class="s.enabled ? 'ok' : 'bad'">
+                            {{ s.enabled ? 'เปิดอยู่' : 'ปิดอยู่' }}
+                        </span>
+                    </span>
+                    <label class="sw sm">
+                        <input type="checkbox" :checked="s.enabled" :disabled="billingBusy === s.id"
+                               @change="setBilling(s, $event.target.checked)">
+                        <span></span>
+                    </label>
+                </div>
+                <div v-if="!billingSites.length" class="sub">ไม่พบสาขา</div>
+            </div>
+            <div class="v2-callout ok" style="margin:0 16px 16px">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>
+                    ปิดอยู่ = ปิดจริงทั้งระบบ ไม่ใช่แค่ซ่อนเมนู — API ของรอบบิลทุกเส้นจะปฏิเสธ
+                    และสลิปที่ลูกค้าส่งเข้ามาจะไม่ถูกรับไว้ (ตอบกลับว่ายังไม่เปิดให้บริการ)
+                    ข้อมูลที่บันทึกไว้แล้วไม่ถูกลบ เปิดกลับมาก็ใช้ต่อได้ทันที
+                </span>
+            </div>
+        </div>
+    </template>
+
     <template v-else-if="tab === 'storage'">
         <div class="bar">
             <button type="button" class="v2-btn ghost" :disabled="stBusy === 'load'" @click="loadStorage">
