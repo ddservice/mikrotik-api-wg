@@ -122,7 +122,14 @@ const db = {
           'last-logged-out': 'sep/03/2026 21:10:04' },
         { '.id': '*PS2', name: 'rm320', password: 'room320', profile: 'default',
           service: 'pppoe', disabled: 'true', comment: 'ค้างค่าเช่า',
-          'last-logged-out': 'aug/28/2026 08:00:00' }
+          'last-logged-out': 'aug/28/2026 08:00:00' },
+        // ห้องที่มีวันครบกำหนดเขียนไว้ในคอมเมนต์ — รูปแบบที่พนักงานใช้จริง
+        { '.id': '*PS3', name: 'rm321', password: 'room321', profile: 'default',
+          service: 'pppoe', disabled: 'false', comment: 'คุณมานี ครบกำหนด 2027-12-31',
+          'last-logged-out': 'sep/05/2026 10:00:00' },
+        { '.id': '*PS4', name: 'rm322', password: 'room322', profile: 'default',
+          service: 'pppoe', disabled: 'false', comment: 'ครบกำหนด 01/01/2020',
+          'last-logged-out': 'jan/02/2020 10:00:00' }
     ],
     pppActive: [
         { '.id': '*PA1', name: 'rm319', address: '10.20.0.5', 'caller-id': 'DE:AD:BE:EF:00:01',

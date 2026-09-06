@@ -18,6 +18,7 @@ const siteDiagnostics = require('./lib/site-diagnostics');
 const rosErrors = require('./lib/routeros-errors');
 const mwAnalyze = require('./lib/multiwan-analyze');
 const mwMangle = require('./lib/multiwan-mangle');
+const expiryLib = require('./lib/expiry');
 const mwPlan = require('./lib/multiwan-plan');
 const mwApply = require('./lib/multiwan-apply');
 const pccWeights = require('./lib/pcc-weights');
@@ -3746,50 +3747,44 @@ function createDailyDigestFlex(digestData) {
     };
 }
 
-function parseExpiryFromComment(comment) {
-    if (!comment) return null;
-    const str = String(comment).trim();
-    
-    // Pattern 1: ISO date (2026-08-30 or 2026/08/30)
-    const isoMatch = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
-    if (isoMatch) {
-        const year = parseInt(isoMatch[1]);
-        const month = parseInt(isoMatch[2]) - 1;
-        const day = parseInt(isoMatch[3]);
-        const hour = isoMatch[4] ? parseInt(isoMatch[4]) : 23;
-        const min = isoMatch[5] ? parseInt(isoMatch[5]) : 59;
-        const d = new Date(year, month, day, hour, min, 59);
-        if (!isNaN(d.getTime())) return d.getTime();
-    }
+// ย้ายไป lib/expiry.js แล้ว — ของเดิมคำนวณด้วยเวลาของเครื่อง VPS ซึ่งไม่มีที่ไหน
+// ปักหมุด TZ ไว้ ถ้าเครื่องรันเป็น UTC วันหมดอายุจะเลื่อน 7 ชั่วโมง และมันอยู่ใน
+// server.js จึงเทสต์ไม่ได้เลยทั้งที่เป็นตรรกะที่ข้อมูลการเงินทั้งหมดพึ่งอยู่
+const parseExpiryFromComment = expiryLib.parseExpiry;
 
-    // Pattern 2: Thai / DD/MM/YYYY (30/08/2026 or 30-08-2026)
-    const dmyMatch = str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
-    if (dmyMatch) {
-        const day = parseInt(dmyMatch[1]);
-        const month = parseInt(dmyMatch[2]) - 1;
-        let year = parseInt(dmyMatch[3]);
-        if (year > 2500) year -= 543; // Buddhist Era conversion (e.g. 2569 -> 2026)
-        const hour = dmyMatch[4] ? parseInt(dmyMatch[4]) : 23;
-        const min = dmyMatch[5] ? parseInt(dmyMatch[5]) : 59;
-        const d = new Date(year, month, day, hour, min, 59);
-        if (!isNaN(d.getTime())) return d.getTime();
+/**
+ * GET /api/mikrotik/expiry-overview — ใครใกล้หมดอายุ ใครเลยกำหนด และ **ใครไม่มีวันครบกำหนดเลย**
+ *
+ * ข้อสุดท้ายคือเหตุผลหลักที่มี endpoint นี้ วันครบกำหนดของทุกห้องและทุกคูปองเก็บอยู่ใน
+ * ช่อง comment ของเราท์เตอร์ ถ้าพนักงานลืมใส่หรือพิมพ์ผิดรูปแบบ บัญชีนั้นจะไม่โผล่
+ * ในรายงานไหนเลย ไม่มีใครตามเก็บเงิน และไม่มีอะไรบอกว่ามันหายไป
+ * รายงานเดิม (สรุปรายวันเข้า LINE) กรองบัญชีพวกนี้ทิ้งเงียบ ๆ
+ *
+ * อ่านอย่างเดียว ไม่เขียนอะไรลงเราท์เตอร์
+ */
+app.get('/api/mikrotik/expiry-overview', requireAuth(['admin', 'co-admin', 'user']), async (req, res) => {
+    try {
+        const soonDays = Math.min(90, Math.max(1, parseInt(req.query.soonDays, 10) || 7));
+        const out = await executeOnRouter(req, async (client) => {
+            const [secrets, hotspot] = await Promise.all([
+                client.exec('/ppp/secret/print'),
+                client.exec('/ip/hotspot/user/print')
+            ]);
+            const now = Date.now();
+            const toItem = (u) => ({ name: u.name, comment: u.comment, disabled: u.disabled });
+            return {
+                rooms: expiryLib.summarise((secrets || []).map(toItem), now, soonDays),
+                // คูปอง Hotspot ชื่อ default ของ RouterOS ไม่ใช่ของลูกค้า ไม่ต้องตาม
+                coupons: expiryLib.summarise(
+                    (hotspot || []).filter((u) => u.name && u.name !== 'default-trial').map(toItem),
+                    now, soonDays)
+            };
+        });
+        res.json({ success: true, soonDays, ...out });
+    } catch (e) {
+        res.status(500).json({ error: rosErrors.explain(e, { task: 'read' }) });
     }
-
-    // Pattern 3: MikroTik style (aug/28/2026 14:00 or aug/28 14:00)
-    const mtMatch = str.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[/ ](\d{1,2})(?:[/ ](\d{4}))?(?:\s+(\d{1,2}):(\d{1,2}))?/i);
-    if (mtMatch) {
-        const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
-        const month = months[mtMatch[1].toLowerCase()];
-        const day = parseInt(mtMatch[2]);
-        const year = mtMatch[3] ? parseInt(mtMatch[3]) : new Date().getFullYear();
-        const hour = mtMatch[4] ? parseInt(mtMatch[4]) : 23;
-        const min = mtMatch[5] ? parseInt(mtMatch[5]) : 59;
-        const d = new Date(year, month, day, hour, min, 59);
-        if (!isNaN(d.getTime())) return d.getTime();
-    }
-
-    return null;
-}
+});
 
 async function generateDailyExpiryDigest(reqOrSiteId = null) {
     const resolvedSiteId = typeof reqOrSiteId === 'string' ? reqOrSiteId : (reqOrSiteId?.query?.siteId || reqOrSiteId?.body?.siteId || reqOrSiteId?.headers?.['x-site-id'] || reqOrSiteId?.user?.assignedSiteId || null);
