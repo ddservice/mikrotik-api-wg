@@ -104,6 +104,42 @@ describe('router-log — สรุปเป็นเรื่อง ไม่ใ
         assert.strictEqual(rl.summarize(many('out of memory', 1, 'system,info')).needsAttention, true);
     });
 
+    it('เหตุการณ์ที่หายเองได้ เกิดครั้งเดียว = info ไม่ใช่เรื่องควรเตือน', () => {
+        // เคสจริง (2026-09-06): สาย/PPPoE หลุด 1 ครั้งเมื่อวานแล้วต่อกลับเอง
+        // ยังค้างใน log buffer — ไม่ควรขึ้นเป็นเรื่องควรดู
+        const link = rl.summarize(many('ether4: link down', 1, 'interface,info'));
+        assert.strictEqual(link.groups[0].severity, rl.SEVERITY.INFO);
+        assert.ok(link.groups[0].demoted);
+        assert.ok(link.groups[0].meaning.includes('ต่อกลับเองแล้ว'));
+
+        const ppp = rl.summarize(many('pppoe-out1: terminated, disconnected', 1, 'pppoe,info'));
+        assert.strictEqual(ppp.groups[0].severity, rl.SEVERITY.INFO);
+    });
+
+    it('หลุดถี่ผิดปกติ = ยกกลับเป็นเรื่องควรดู แล้วเป็นร้ายแรงเมื่อถี่มาก', () => {
+        // PPPoE: noteAt 6 -> warning, escalateAt 20 -> critical
+        assert.strictEqual(rl.summarize(many('pppoe-out1: disconnected', 5, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.INFO);
+        assert.strictEqual(rl.summarize(many('pppoe-out1: disconnected', 6, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.WARNING);
+        assert.strictEqual(rl.summarize(many('pppoe-out1: disconnected', 20, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.CRITICAL);
+        // link-down: noteAt 4
+        assert.strictEqual(rl.summarize(many('ether4: link down', 3, 'interface,info'))
+            .groups[0].severity, rl.SEVERITY.INFO);
+        assert.strictEqual(rl.summarize(many('ether4: link down', 4, 'interface,info'))
+            .groups[0].severity, rl.SEVERITY.WARNING);
+    });
+
+    it('เหตุการณ์ปกติที่หายเองแล้ว ต้องไม่ทำให้ needsAttention เป็นจริง', () => {
+        // ถ้า needsAttention เด้ง = Telegram จะส่งแจ้งเตือนเรื่องที่ไม่ต้องทำอะไร
+        const s = rl.summarize([
+            ...many('ether4: link down', 1, 'interface,info'),
+            ...many('pppoe-out1: disconnected', 2, 'pppoe,info')
+        ]);
+        assert.strictEqual(s.needsAttention, false);
+    });
+
     it('log ว่าง = ไม่มีอะไรต้องทำ ไม่ใช่ error', () => {
         const s = rl.summarize([]);
         assert.strictEqual(s.total, 0);
