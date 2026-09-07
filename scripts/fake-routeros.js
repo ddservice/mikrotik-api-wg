@@ -103,6 +103,8 @@ const db = {
         { '.id': '*F1', chain: 'input', action: 'accept', 'connection-state': 'established,related' },
         { '.id': '*F2', chain: 'input', action: 'drop', comment: 'drop everything else' }
     ],
+    // address-list ว่างตอนเริ่ม — หน้า Firewall จะเพิ่มเข้ามาเองตอนกดบล็อกบริการ
+    addressList: [],
     scripts: [],
     ifaceLists: [],
     ifaceListMembers: [],
@@ -226,6 +228,7 @@ function handle(cmd, attrs) {
     if (c === '/ip/dns/print') return reply(db.dns);
     if (c === '/ip/dhcp-server/network/print') return reply(db.dhcpNetworks);
     if (c === '/ip/firewall/filter/print') return reply(db.filter);
+    if (c === '/ip/firewall/address-list/print') return reply(db.addressList);
     if (c === '/ip/dns/set') { Object.assign(db.dns[0], attrs); return done(); }
     if (c === '/system/script/print') return reply(db.scripts);
     if (c === '/interface/list/print') return reply(db.ifaceLists);
@@ -329,6 +332,7 @@ function handle(cmd, attrs) {
             '/tool/netwatch': db.netwatch,
             '/ip/address': db.addresses,
             '/ip/firewall/filter': db.filter,
+            '/ip/firewall/address-list': db.addressList,
             '/ip/dhcp-server/network': db.dhcpNetworks,
             '/system/script': db.scripts,
             '/interface/list': db.ifaceLists,
@@ -344,12 +348,23 @@ function handle(cmd, attrs) {
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 
+        // RouterOS เก็บและ print ค่า boolean เป็น true/false เสมอ ไม่ว่าจะสั่งด้วย
+        // yes/no หรือ true/false — fixture ต้องแปลงให้เหมือน ไม่งั้นโค้ดที่อ่าน
+        // disabled === 'false' กลับมาจะไม่ตรง (เช่นหน้า Firewall status)
+        const normBool = (o) => {
+            for (const k of ['disabled', 'dynamic', 'invalid', 'active']) {
+                if (o[k] === 'no') o[k] = 'false';
+                else if (o[k] === 'yes') o[k] = 'true';
+            }
+            return o;
+        };
+
         if (op === 'add') {
             // เลียนแบบ RouterOS: place-before ที่ชี้ไปยังของที่ไม่มีจะ error
             if (attrs['place-before'] != null && table.length === 0) {
                 return err('no such item (place-before)');
             }
-            const row = Object.assign({ '.id': nextId(), active: 'true' }, attrs);
+            const row = normBool(Object.assign({ '.id': nextId(), active: 'true' }, attrs));
             // RouterOS: place-before แทรกก่อนตำแหน่งที่ระบุ ไม่ใช่ต่อท้าย
             if (attrs['place-before'] != null) {
                 const at = Number(attrs['place-before']);
@@ -362,7 +377,7 @@ function handle(cmd, attrs) {
         if (op === 'set') {
             const row = table.find((r) => r['.id'] === attrs['.id']);
             if (!row) return err('no such item');
-            Object.assign(row, attrs);
+            normBool(Object.assign(row, attrs));
             return done();
         }
         if (op === 'remove') {

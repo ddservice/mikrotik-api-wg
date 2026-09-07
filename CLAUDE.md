@@ -501,6 +501,20 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 
 Keep this updated after every code change — newest entry on top.
 
+- **2026-09-07 (2)** — เราท์เตอร์จำลองรองรับ `/ip/firewall/address-list` และ normalize boolean
+  แบบ RouterOS — ปิดช่องว่างสองจุดที่พบตอนคลิกผ่าน Firewall (2026-09-07)
+  - **fixture ไม่มี `/ip/firewall/address-list`** จึงตอบ "no such command" ทำให้หน้า Firewall
+    ขึ้น error และเทสต์ flow บล็อก/ปลดบล็อกจบวงจรไม่ได้ เพิ่มตาราง `addressList` + print
+    handler + write mapping
+  - **fixture echo ค่า boolean ดิบกลับมา** ต่างจากเราท์เตอร์จริงที่แปลง `yes/no` เป็น
+    `true/false` เสมอตอน print ผลคือหน้า Firewall status (เช็ค `disabled === 'false'`)
+    อ่านค่า `'no'` ที่ toggle ส่งไปแล้วไม่ตรง — บล็อกสำเร็จแต่ status ยังขึ้นว่าไม่บล็อก
+    **ไม่ใช่บั๊ก production** (ของจริง print เป็น false) แต่ fixture ต้องเลียนแบบให้ตรง
+    เพิ่ม `normBool()` แปลง disabled/dynamic/invalid/active ตอน add และ set
+  - ยืนยันผ่าน HTTP: status คืน 16 บริการไม่ error, บล็อก youtube → `blocked=true`,
+    ปลด → `false` — จบวงจรตรงพฤติกรรมของจริง · แก้เฉพาะ fixture ไม่แตะโค้ด production
+    545 เทสต์ / check ผ่านครบ
+
 - **2026-09-07** — **v2 ผ่านการคลิกด้วยมือจริงครบทุกหน้าแล้ว** — ครั้งแรกที่ทำได้ใน session
   series นี้ ปิดช่องว่างที่หลายเซสชันก่อนเขียนว่า "ยังไม่เคยมีใครคลิก v2 ด้วยมือ"
   - Chrome extension เชื่อมต่อและ**ต่อ local server ได้** รอบนี้ (ก่อนหน้านี้เชื่อมเบราว์เซอร์
