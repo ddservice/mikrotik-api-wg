@@ -31,6 +31,7 @@ const wgScript = require('./lib/wireguard-script');
 const routerLog = require('./lib/router-log');
 const routerHealth = require('./lib/router-health');
 const routerBackup = require('./lib/router-backup');
+const routerFiles = require('./lib/router-files');
 const fwHarden = require('./lib/firewall-hardening');
 const r2 = require('./lib/r2');
 
@@ -194,25 +195,7 @@ app.use(express.json({
     }
 }));
 
-// ---------- หน้าเว็บเก่า (v1) กับหน้าใหม่ (v2) ----------
-//
-// ตั้งแต่ 2026-09-04 v2 ทำได้ครบทุกอย่างที่ v1 ทำได้แล้ว แต่ยังไม่ตัด v1 ทิ้ง
-// เพราะกฎในไฟล์นี้เขียนไว้ว่าห้ามลบจนกว่าจะมีคนคลิกใช้จริงจนครบด้วยมือ
-//
-// UI_DEFAULT คุมว่า "/" จะเสิร์ฟตัวไหน โดยไม่ต้องแก้โค้ดหรือ deploy ใหม่:
-//   UI_DEFAULT=v2 (ค่าเริ่มต้น)  "/" = หน้าใหม่
-//   UI_DEFAULT=v1                "/" = หน้าเดิม
-//
-// สลับมาเป็น v2 เมื่อ 2026-09-05 เพราะ v1 ตามไม่ทันแล้ว ไม่ใช่แค่ v2 ตามทัน:
-// ฟีเจอร์ที่เพิ่มหลังจากนั้น (หน้า DHCP, ตรวจสุขภาพ, สำรองคอนฟิก, กรอง log ตามสาขา)
-// อยู่ใน v2 ทั้งหมด คนที่เปิดเว็บตามปกติจึงไม่เห็นของใหม่เลย และช่องว่างกว้างขึ้นทุกครั้ง
-//
-// **ย้อนกลับได้ทันทีโดยไม่ต้องแก้โค้ด**: ใส่ UI_DEFAULT: 'v1' ใน ecosystem.config.js
-// แล้ว pm2 reload — ใช้เวลาไม่ถึงนาที ไม่ต้อง git ไม่ต้อง build
-//
-// ไม่ว่าตั้งค่าไหน /v1/ กับ /v2/ ก็ยังเข้าได้เสมอ
-const UI_DEFAULT = String(process.env.UI_DEFAULT || 'v2').toLowerCase() === 'v1' ? 'v1' : 'v2';
-
+// Static Assets Caching Strategy (Fast asset loading + no-cache for index.html)
 const STATIC_OPTS = {
     maxAge: '1d',
     etag: true,
@@ -225,20 +208,6 @@ const STATIC_OPTS = {
     }
 };
 
-// "/" ต้องตัดสินใจก่อน express.static จะเสิร์ฟ public/index.html ให้อัตโนมัติ
-app.get('/', (req, res, next) => {
-    if (UI_DEFAULT !== 'v2') return next();   // ปล่อยให้ static เสิร์ฟหน้าเดิมตามปกติ
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
-});
-
-// URL ถาวรของหน้าเดิม — ต้องมีก่อนสลับ ไม่งั้นพอ "/" กลายเป็น v2 แล้วจะไม่มีทางเข้า v1 เลย
-// mount ทั้งโฟลเดอร์เพราะ index.html ของ v1 อ้างไฟล์แบบ relative (app.js?v=, style.css?v=)
-// ถ้าเสิร์ฟแค่ไฟล์ HTML เดี่ยว ๆ เบราว์เซอร์จะหา /v1/app.js ไม่เจอ
-// (ต่างจาก v2 ที่ vite ตั้ง base เป็น /v2/ จึงอ้างแบบ absolute อยู่แล้ว)
-app.use('/v1', express.static(path.join(__dirname, 'public'), STATIC_OPTS));
-
-// Static Assets Caching Strategy (Fast asset loading + no-cache for index.html)
 app.use(express.static(path.join(__dirname, 'public'), STATIC_OPTS));
 
 // Session store — คีย์เป็น "แฮชของ token" ไม่ใช่ token ตรง ๆ (ดู lib/session-store.js)
@@ -2536,6 +2505,78 @@ app.get('/api/mikrotik/backup/config/:fileName/download', requireAuth(['admin'])
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
     res.send(fs.readFileSync(full));
+});
+
+// ==========================================
+// Router Files Management (จัดการไฟล์บนเราท์เตอร์)
+//
+// อ่านไฟล์บน MikroTik (/file/print) และลบไฟล์ที่ไม่ใช้แล้ว (/file/remove)
+// ช่วยแก้ปัญหา Flash 16MB เต็ม (hAP ac^2, hEX) จากไฟล์ backup/npk/dmp ตกค้าง
+// ==========================================
+app.get('/api/mikrotik/files', requireAuth(['admin', 'co-admin']), async (req, res) => {
+    try {
+        const out = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/file/print');
+            return routerFiles.parseRouterFiles(list);
+        });
+        res.json({ success: true, ...out });
+    } catch (err) {
+        res.status(500).json({ error: rosErrors.explain(err, { task: 'files' }) || err.message });
+    }
+});
+
+app.delete('/api/mikrotik/files/:name', requireAuth(['admin']), async (req, res) => {
+    const fileName = decodeURIComponent(req.params.name);
+    if (!fileName) {
+        return res.status(400).json({ error: 'ต้องระบุชื่อไฟล์ที่ต้องการลบ' });
+    }
+    try {
+        await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/file/print');
+            const target = (Array.isArray(list) ? list : []).find(f => f.name === fileName || f['.id'] === fileName);
+            if (!target) {
+                throw new Error(`ไม่พบไฟล์ ${fileName} บนเราท์เตอร์`);
+            }
+            await client.exec('/file/remove', { numbers: target['.id'] || target.name });
+        });
+        db.addLog(req.user.username, 'ลบไฟล์บนเราท์เตอร์', `ลบไฟล์ ${fileName}`);
+        res.json({ success: true, message: `ลบไฟล์ ${fileName} เรียบร้อยแล้ว` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/mikrotik/files/clean-temporary', requireAuth(['admin']), async (req, res) => {
+    try {
+        const { targetCategories } = req.body || {};
+        const out = await executeOnRouter(req, async (client) => {
+            const list = await client.exec('/file/print');
+            const parsed = routerFiles.parseRouterFiles(list);
+            const plan = routerFiles.planCleanup(parsed.files, targetCategories);
+
+            const deleted = [];
+            let freedBytes = 0;
+
+            for (const f of plan.toDelete) {
+                try {
+                    await client.exec('/file/remove', { numbers: f.id || f.name });
+                    deleted.push(f.name);
+                    freedBytes += (f.size || 0);
+                } catch (e) {
+                    console.warn(`[FileClean] ลบ ${f.name} ไม่สำเร็จ:`, e.message);
+                }
+            }
+
+            return { deleted, freedBytes, remainingCount: list.length - deleted.length };
+        });
+
+        db.addLog(req.user.username, 'ล้างไฟล์ชั่วคราวบนเราท์เตอร์',
+            `ลบไฟล์ ${out.deleted.length} ไฟล์ (${Math.round(out.freedBytes / 1024)} KB)`);
+
+        res.json({ success: true, ...out });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ==========================================

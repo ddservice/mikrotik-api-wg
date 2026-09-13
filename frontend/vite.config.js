@@ -2,18 +2,18 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
-// Build output ไปที่ ../public/v2 — Express เสิร์ฟ public/ เป็น static อยู่แล้ว
-// ทำให้เข้าถึงได้ที่ /v2/ โดยไม่ต้องแตะ server.js, PM2, nginx หรือพอร์ตใด ๆ
+// Build output ไปที่ ../public — Express เสิร์ฟ public/ เป็น static อยู่แล้ว
+// ทำให้เข้าถึงได้โดยตรงที่ root (/)
 //
 // สำคัญ: build ทำบนเครื่อง dev แล้ว commit ผลลัพธ์ลง git
 // VPS รัน `npm install --omit=dev` และไม่เคยเห็น vite/vue เลย
 // ขั้นตอน deploy ยังเป็น `git pull && pm2 reload` เหมือนเดิมทุกประการ
 export default defineConfig({
     plugins: [vue()],
-    base: '/v2/',
+    base: '/',
     build: {
-        outDir: fileURLToPath(new URL('../public/v2', import.meta.url)),
-        emptyOutDir: true,
+        outDir: fileURLToPath(new URL('../public', import.meta.url)),
+        emptyOutDir: false,
         // ชื่อไฟล์มี content hash อยู่แล้ว -> ไม่ต้องมานั่ง bump ?v= เองอีก
         // และ Cloudflare cache ไฟล์เก่าไว้ก็ไม่เป็นไร เพราะชื่อไฟล์ใหม่คนละชื่อ
         rollupOptions: {

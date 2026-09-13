@@ -76,11 +76,41 @@ describe('router-health — เกณฑ์แต่ละอย่าง', () =
         assert.strictEqual(rh.analyzeHealth(mem(40)).healthy, true);
     });
 
-    it('ดิสก์เหลือน้อยกว่า 10% = ร้ายแรง', () => {
-        const r = rh.analyzeHealth(healthy({
-            resource: Object.assign(healthy().resource, { 'free-hdd-space': '5000000', 'total-hdd-space': '128000000' })
+    it('ดิสก์ขนาดปกติ (>32MB): เหลือน้อยกว่า 10% = ร้ายแรง, 15% = ควรดู, 40% = เงียบ', () => {
+        const at = (freeMb, totalMb) => rh.analyzeHealth(healthy({
+            resource: Object.assign(healthy().resource, {
+                'free-hdd-space': String(freeMb * 1048576),
+                'total-hdd-space': String(totalMb * 1048576)
+            })
         }));
-        assert.ok(r.findings.some((f) => f.severity === 'critical' && f.title.includes('พื้นที่')));
+        // 128MB disk
+        assert.strictEqual(at(8, 128).counts.critical, 1); // 6.25% < 10% -> critical
+        assert.strictEqual(at(20, 128).counts.warning, 1); // 15.6% < 20% -> warning
+        assert.strictEqual(at(50, 128).healthy, true);     // 39% -> ok
+    });
+
+    it('Flash เล็ก 16MB (hAP ac^2 / hEX): 1500KB = ควรดู (ไม่ปลุกตอนเช้า), 600KB = ร้ายแรง', () => {
+        // เคสจริง: hAP ac^2 16MB flash (total 15616 KB, free 1504 KB)
+        const flash16Mb = (freeKb) => rh.analyzeHealth(healthy({
+            resource: Object.assign(healthy().resource, {
+                'free-hdd-space': String(freeKb * 1024),
+                'total-hdd-space': String(15616 * 1024)
+            })
+        }));
+        // 1504 KB (~9.6%) ในเกณฑ์เดิมเป็น critical แต่ของจริงยังใช้งานได้ตามปกติ -> ตอนนี้เป็น warning
+        const warn = flash16Mb(1504);
+        assert.strictEqual(warn.counts.critical, 0);
+        assert.strictEqual(warn.counts.warning, 1);
+        assert.strictEqual(rh.formatAlert('Auioun@WiFi', warn), null, 'warning ต้องไม่ส่งเข้า Telegram');
+
+        // 600 KB -> critical (ต้องเตือนก่อนบูตไม่ขึ้น)
+        const crit = flash16Mb(600);
+        assert.strictEqual(crit.counts.critical, 1);
+        assert.ok(crit.findings[0].title.includes('เหลือน้อยมาก'));
+        assert.notStrictEqual(rh.formatAlert('Auioun@WiFi', crit), null, 'critical ต้องแจ้งเตือน');
+
+        // 2500 KB -> healthy
+        assert.strictEqual(flash16Mb(2500).healthy, true);
     });
 
     it('CPU 95% = ร้ายแรง, 75% = ควรดู, 40% = เงียบ', () => {

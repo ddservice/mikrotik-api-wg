@@ -172,6 +172,14 @@ const db = {
     hotspotActive: [
         { '.id': '*HA1', user: 'a028', address: '192.168.88.101', 'mac-address': 'AA:BB:CC:DD:EE:01',
           'login-by': 'http-chap', uptime: '1h20m', 'bytes-in': '104857600', 'bytes-out': '20971520' }
+    ],
+    files: [
+        { '.id': '*FL1', name: 'backup-2026-08-01.backup', type: 'backup', size: '154820', 'creation-time': 'aug/01/2026 03:00:00' },
+        { '.id': '*FL2', name: 'old-backup.backup', type: 'backup', size: '142100', 'creation-time': 'jul/15/2026 03:00:00' },
+        { '.id': '*FL3', name: 'crash.dmp', type: 'crash dump', size: '32450', 'creation-time': 'aug/10/2026 14:20:00' },
+        { '.id': '*FL4', name: 'routeros-7.24.1-arm.npk', type: 'package', size: '11534336', 'creation-time': 'sep/01/2026 10:00:00' },
+        { '.id': '*FL5', name: 'hotspot', type: 'directory', size: '4096', 'creation-time': 'jan/01/1970 00:00:00' },
+        { '.id': '*FL6', name: 'hotspot/login.html', type: '.html file', size: '4500', 'creation-time': 'aug/01/2026 12:00:00' }
     ]
 };
 
@@ -233,6 +241,7 @@ function handle(cmd, attrs) {
     if (c === '/system/script/print') return reply(db.scripts);
     if (c === '/interface/list/print') return reply(db.ifaceLists);
     if (c === '/interface/list/member/print') return reply(db.ifaceListMembers);
+    if (c === '/file/print') return reply(db.files);
     if (c === '/system/script/run') {
         // รันสคริปต์ที่เก็บไว้จริง ๆ เท่าที่จำเป็นต่อการทดสอบการคืนค่า
         const sc = db.scripts.find((x) => x['.id'] === attrs['.id']);
@@ -344,7 +353,8 @@ function handle(cmd, attrs) {
             '/ip/dhcp-server/lease': db.dhcpLeases,
             '/ip/hotspot/user': db.hotspotUsers,
             '/ip/hotspot/user/profile': db.hotspotProfiles,
-            '/ip/hotspot/active': db.hotspotActive
+            '/ip/hotspot/active': db.hotspotActive,
+            '/file': db.files
         }[base];
         if (!table) return err(`no such command prefix (${base})`);
 

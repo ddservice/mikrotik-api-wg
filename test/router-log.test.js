@@ -129,6 +129,19 @@ describe('router-log — สรุปเป็นเรื่อง ไม่ใ
             .groups[0].severity, rl.SEVERITY.INFO);
         assert.strictEqual(rl.summarize(many('ether4: link down', 4, 'interface,info'))
             .groups[0].severity, rl.SEVERITY.WARNING);
+
+        // PPPoE auth-failed: noteAt 3 -> warning, escalateAt 8 -> critical
+        // เคสจริง: เกิด 1 ครั้งตอนตีสอง (ISP reset) -> info
+        assert.strictEqual(rl.summarize(many('pppoe-out1: authentication failed', 1, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.INFO);
+        assert.ok(rl.summarize(many('pppoe-out1: authentication failed', 1, 'pppoe,info'))
+            .groups[0].meaning.includes('รีเซ็ตสายรายวัน'));
+        assert.strictEqual(rl.summarize(many('pppoe-out1: authentication failed', 2, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.INFO);
+        assert.strictEqual(rl.summarize(many('pppoe-out1: authentication failed', 3, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.WARNING);
+        assert.strictEqual(rl.summarize(many('pppoe-out1: authentication failed', 8, 'pppoe,info'))
+            .groups[0].severity, rl.SEVERITY.CRITICAL);
     });
 
     it('เหตุการณ์ปกติที่หายเองแล้ว ต้องไม่ทำให้ needsAttention เป็นจริง', () => {

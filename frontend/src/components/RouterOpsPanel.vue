@@ -1,14 +1,15 @@
 <script setup>
 /**
- * คำสั่งจัดการเราท์เตอร์ — ย้ายมาจากแท็บที่ 4 ของหน้าตั้งค่าในระบบเดิม
+ * คำสั่งจัดการเราท์เตอร์ — ระบบควบคุม ตรวจสอบ และจัดการพื้นที่
  *
  * ทุกปุ่มในนี้สั่งงานเราท์เตอร์ที่ลูกค้ากำลังใช้อยู่จริง จึงแยกเป็นสองกลุ่มชัดเจน:
- * กลุ่มตรวจสอบ (ไม่กระทบผู้ใช้) กับกลุ่มที่กระทบ (รีบูตทำให้เน็ตหลุดทั้งสาขา)
+ * กลุ่มตรวจสอบ/จัดการไฟล์ (ไม่กระทบผู้ใช้) กับกลุ่มที่กระทบ (รีบูตทำให้เน็ตหลุดทั้งสาขา)
  * และกลุ่มหลังต้องยืนยันก่อนเสมอ
  */
 import { ref } from 'vue';
 import { apiFetch } from '../api.js';
 import { toast } from '../toast.js';
+import { formatBytes } from '../format.js';
 import FullUpgradeModal from './FullUpgradeModal.vue';
 
 const busy = ref('');
@@ -20,6 +21,9 @@ const upgradeMode = ref('full');
 
 const pingHost = ref('8.8.8.8');
 const pingCount = ref(4);
+
+// ข้อมูลไฟล์และพื้นที่ในเราท์เตอร์
+const filesData = ref(null);
 
 async function run(key, fn, okMsg) {
     busy.value = key;
@@ -90,6 +94,36 @@ async function checkUpdate() {
     updateInfo.value = null;
     const r = await run('update', () => apiFetch('/api/mikrotik/system/update-check'));
     if (r) updateInfo.value = r;
+}
+
+// โหลดรายการไฟล์และคำนวณพื้นที่
+async function loadFiles() {
+    const r = await run('loadfiles', () => apiFetch('/api/mikrotik/files'));
+    if (r) filesData.value = r;
+}
+
+// ล้างไฟล์ชั่วคราวและไฟล์ขยะ 1-Click
+async function cleanTempFiles() {
+    const ok = window.confirm('ยืนยันลบไฟล์ชั่วคราวและไฟล์ขยะทั้งหมดในเราท์เตอร์? (ไฟล์คอนฟิกหลักจะไม่ถูกลบ)');
+    if (!ok) return;
+
+    const r = await run('cleantemp', () => apiFetch('/api/mikrotik/files/clean-temporary', { method: 'POST' }),
+        (res) => `ลบไฟล์ชั่วคราวแล้ว ${res.deletedCount || 0} ไฟล์ (คืนพื้นที่ ${formatBytes(res.freedBytes || 0)})`);
+    if (r) {
+        await loadFiles();
+    }
+}
+
+// ลบไฟล์เดี่ยว
+async function deleteSingleFile(fileName) {
+    const ok = window.confirm(`ยืนยันลบไฟล์ "${fileName}" ออกจากเราท์เตอร์?`);
+    if (!ok) return;
+
+    const r = await run(`del-${fileName}`, () => apiFetch(`/api/mikrotik/files/${encodeURIComponent(fileName)}`, { method: 'DELETE' }),
+        `ลบไฟล์ "${fileName}" สำเร็จ`);
+    if (r) {
+        await loadFiles();
+    }
 }
 
 // รีบูตทำให้ทั้งสาขาเน็ตหลุด 1-3 นาที — ต้องพิมพ์ยืนยัน ไม่ใช่แค่กด OK
@@ -204,6 +238,73 @@ function pingSummary(rows) {
         </div>
     </div>
 
+    <!-- จัดการพื้นที่และไฟล์ในเราท์เตอร์ -->
+    <div class="panel">
+        <div class="ptitle">
+            <i class="fa-solid fa-folder-open"></i> จัดการพื้นที่และไฟล์ในเราท์เตอร์
+            <button type="button" class="v2-btn ghost sm ml-auto" :disabled="busy === 'loadfiles'" @click="loadFiles">
+                <i class="fa-solid" :class="busy === 'loadfiles' ? 'fa-spinner fa-spin' : 'fa-rotate'"></i> ดูไฟล์ในเราท์เตอร์
+            </button>
+        </div>
+        <div class="sub" style="margin-bottom: 12px;">
+            ตรวจสอบไฟล์ตกค้าง เช่น backup เก่า, ไฟล์ autosave, supout.rif เพื่อคืนพื้นที่ว่างให้ flash storage
+        </div>
+
+        <div v-if="filesData" class="files-container">
+            <!-- ข้อมูลพื้นที่จัดเก็บ -->
+            <div class="storage-summary-bar">
+                <div class="storage-item">
+                    <span class="slabel">พื้นที่ใช้ไป:</span>
+                    <span class="sval v2-num">{{ formatBytes(filesData.usedHdd || 0) }} / {{ formatBytes(filesData.totalHdd || 0) }}</span>
+                </div>
+                <div class="storage-item">
+                    <span class="slabel">พื้นที่ว่าง:</span>
+                    <span class="sval v2-num" :class="filesData.freeHdd < 1600000 ? 'bad' : 'ok'">{{ formatBytes(filesData.freeHdd || 0) }}</span>
+                </div>
+                <div class="storage-item">
+                    <span class="slabel">ไฟล์ชั่วคราว/ขยะ:</span>
+                    <span class="sval v2-num">{{ filesData.tempFilesCount || 0 }} ไฟล์ ({{ formatBytes(filesData.tempFilesBytes || 0) }})</span>
+                </div>
+                <button v-if="filesData.tempFilesCount > 0" type="button" class="v2-btn danger sm" :disabled="busy === 'cleantemp'" @click="cleanTempFiles">
+                    <i class="fa-solid" :class="busy === 'cleantemp' ? 'fa-spinner fa-spin' : 'fa-trash-can'"></i> ล้างไฟล์ขยะ 1-Click
+                </button>
+            </div>
+
+            <!-- ตารางรายการไฟล์ -->
+            <div v-if="filesData.files && filesData.files.length" class="table-wrap">
+                <table class="ftable">
+                    <thead>
+                        <tr>
+                            <th>ชื่อไฟล์</th>
+                            <th>ประเภท</th>
+                            <th>ขนาด</th>
+                            <th>วันที่สร้าง</th>
+                            <th style="text-align: right;">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="f in filesData.files" :key="f.name">
+                            <td class="mono font-bold">{{ f.name }}</td>
+                            <td>
+                                <span class="tag" :class="f.category">{{ f.category }}</span>
+                            </td>
+                            <td class="v2-num">{{ formatBytes(f.size || 0) }}</td>
+                            <td class="v2-num">{{ f.creationTime || '-' }}</td>
+                            <td style="text-align: right;">
+                                <button type="button" class="v2-btn danger sm" :disabled="busy === 'del-' + f.name" @click="deleteSingleFile(f.name)">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div v-else class="sub empty-files">
+                ไม่พบไฟล์เพิ่มเติมในเราท์เตอร์
+            </div>
+        </div>
+    </div>
+
     <!-- กระทบผู้ใช้ — ต้องยืนยัน -->
     <div class="panel danger">
         <div class="ptitle"><i class="fa-solid fa-triangle-exclamation"></i> คำสั่งที่กระทบผู้ใช้งาน</div>
@@ -291,4 +392,46 @@ function pingSummary(rows) {
 .result .bad { color: var(--v2-danger); font-weight: 600; }
 .grade { display: inline-block; font-weight: 700; font-size: 1.1rem; margin-right: 8px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ml-auto { margin-left: auto; }
+
+/* File manager styles */
+.files-container {
+    margin-top: 10px;
+    border: 1px solid var(--v2-border);
+    border-radius: 10px;
+    padding: 12px;
+    background: var(--v2-bg);
+}
+.storage-summary-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--v2-border);
+}
+.storage-item {
+    font-size: .82rem;
+    display: flex;
+    gap: 6px;
+}
+.slabel { color: var(--v2-text-muted); }
+.sval { font-weight: 600; }
+.sval.ok { color: var(--v2-success); }
+.sval.bad { color: var(--v2-danger); }
+.table-wrap { overflow-x: auto; }
+.ftable { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.ftable th, .ftable td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--v2-border); }
+.ftable th { font-weight: 600; color: var(--v2-text-muted); font-size: .75rem; text-transform: uppercase; }
+.ftable tr:last-child td { border-bottom: none; }
+.font-bold { font-weight: 600; }
+.tag {
+    display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: .72rem; font-weight: 600;
+}
+.tag.temp, .tag.log { background: #fee2e2; color: #b91c1c; }
+.tag.backup, .tag.config { background: #e0f2fe; color: #0369a1; }
+.tag.package { background: #fef3c7; color: #b45309; }
+.tag.other { background: #f1f5f9; color: #475569; }
+.empty-files { padding: 12px 0; text-align: center; }
 </style>

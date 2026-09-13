@@ -1,22 +1,14 @@
-# frontend/ — Vue 3 + Vite (นำร่อง)
+# frontend/ — Vue 3 + Vite
 
-หน้าเว็บเวอร์ชันใหม่ที่กำลังทยอยย้ายมาจาก `public/index.html` + `public/app.js`
-ตอนนี้ย้ายมาแล้ว **7 หน้า** — ครบทุกหน้าที่ใช้งานประจำวัน
-(Overview, Hotspot, PPPoE, Logs, Settings, Firewall, ผู้ใช้งาน Dashboard) (ดูรายละเอียดในหัวข้อ "ลำดับการย้าย" ท้ายไฟล์)
-
-เข้าดูได้ที่ **`/v2/`** (เช่น `https://api.ddserviceth.com/v2/`) — มีหน้าล็อกอินของตัวเอง
-และใช้ token ร่วมกับหน้าเดิมใน `localStorage` เข้าสลับไปมาได้ระหว่างช่วงย้ายระบบ
+หน้าเว็บหลักของระบบ (Single-Page Application)
+สร้างด้วย Vue 3 + Vite และคอมไพล์เป็น static assets ใน `public/` เสิร์ฟโดย Express ที่ root (`/`)
 
 ## สิ่งที่ไม่ถูกแตะเลย
 
 `server.js`, PM2, nginx, พอร์ต 3001, `db.js` / `db-supabase.js`, RouterOS API client,
 WireGuard, LINE OA webhook, background poller — **ทั้งหมดไม่เกี่ยวข้องกับงานนี้**
 งานนี้เปลี่ยนแค่ไฟล์ที่เบราว์เซอร์โหลดเท่านั้น build ออกมาเป็น static file
-แล้ววางใน `public/v2/` ซึ่ง Express เสิร์ฟเป็น static อยู่แล้ว
-
-นี่คือข้อแตกต่างสำคัญจากการทดลอง Next.js เมื่อ 12-13 ส.ค. ที่ทำเว็บล่ม —
-ครั้งนั้น Next ไป**แทนตัวเซิร์ฟเวอร์** ต้องมี process + พอร์ตของตัวเอง เลยชนพอร์ต
-กับแอปอื่นบน VPS และ nginx ชี้ผิด upstream
+แล้ววางใน `public/` ซึ่ง Express เสิร์ฟเป็น static อยู่แล้ว
 
 ## คำสั่ง
 
@@ -36,7 +28,7 @@ npm run build:frontend            # หรือจาก repo root
 
 ## ⚠️ ต้อง build บนเครื่อง dev แล้ว commit ผลลัพธ์
 
-`public/v2/` **ถูก track ใน git โดยตั้งใจ** เพราะ VPS รัน `npm install --omit=dev`
+`public/` **ถูก track ใน git โดยตั้งใจ** เพราะ VPS รัน `npm install --omit=dev`
 และไม่มี vite/vue ติดตั้งอยู่เลย ขั้นตอน deploy จึงยังเป็น
 
 ```bash

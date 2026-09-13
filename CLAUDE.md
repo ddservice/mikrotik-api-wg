@@ -17,16 +17,13 @@ cannot write to `/root/` or `/var/log/`.
 
 ## Product direction (stable long-term)
 
-**Backend stays Express (`server.js`) forever. Frontend is migrating to
-Vue 3 + Vite, page by page.** The Next.js App Router experiment is **gone** —
-`src/` was deleted 2026-08-31 (recoverable from git history at tag
-`pre-rewrite-express-2026-08-13` if anyone ever needs it). Do not resurrect it.
+**Backend stays Express (`server.js`) forever. Frontend is Vue 3 + Vite.**
+The legacy vanilla JS v1 (`public/app.js`, `public/style.css`) has been retired and removed.
+Vue 3 frontend in `frontend/` builds directly to `public/` (producing `public/index.html` and `public/assets/`), served statically by Express at root (`/`).
 
 Handoff model for future developers:
-- Backend entry: `server.js` (Express) — 97 JSON REST routes, Bearer-token auth
-- Frontend (legacy, still the live `/`): `public/index.html` + `public/app.js`
-  (bump `?v=` on every JS change)
-- Frontend (new, at `/v2/`): `frontend/` → builds to `public/v2/` (see `frontend/README.md`)
+- Backend entry: `server.js` (Express) — 136 JSON REST routes, Bearer-token auth
+- Frontend: `frontend/` (Vue 3 + Vite) → builds to `public/` (`npm run build:frontend`)
 - DB: `db-supabase.js` (prod) / `db.js` (local JSON) — keep signatures in sync
 - Sessions: `db/sessions.json` (gitignored, mode 0600, SHA-256 keyed) — survives `pm2 reload`
 - WireGuard setup tokens: `db/wg-registration-tokens.json` (gitignored, mode 0600) — also survives a restart
@@ -500,6 +497,22 @@ The overnight Next.js swap caused 502s, port fights with `minimalcnx`/`cnxhaircu
 ## Change log
 
 Keep this updated after every code change — newest entry on top.
+
+- **2026-09-13** — ปรับปรุงเกณฑ์ Flash 16MB, PPPoE auth-failed log transient, เพิ่ม Router Files Manager และย้ายสู่ Vue 3 เป็นหน้าหลักเดี่ยว (ปลดระวาง v1)
+  - **Flash เล็ก 16MB (hAP ac^2, hEX) ไม่เตือน critical พร่ำเพรื่อ**: แยกการตรวจ `free-hdd-space` ของเราท์เตอร์ขนาด Flash ≤ 32MB ออกมาใช้เกณฑ์ Absolute Size (`< 800 KB` = critical เสี่ยงบูตไม่ขึ้น, `< 1600 KB` = warning ควรดู) แทนเกณฑ์ 10% (1.56MB) เดิมที่ทำให้ hAP ac^2 ส่งแจ้งเตือนทุกเช้าทั้งที่ใช้งานได้ปกติ
+  - **PPPoE Auth Failed รองรับ Transient**: ปรับ `pppoe-auth-failed` ใน `lib/router-log.js` ให้เป็น transient (`noteAt: 3`, `escalateAt: 8`) เกิด 1-2 ครั้ง (มักเป็นจังหวะ ISP รีเซ็ตสายรายวันหรือ RADIUS lag) ลดระดับเป็น `info` ไม่ปลุก Telegram, เกิด 3-7 ครั้งเป็น `warning`, เกิด 8+ ครั้งยกระดับเป็น `critical`
+  - **ระบบจัดการไฟล์บนเราท์เตอร์ (Router Files Manager & 1-Click Clean)**:
+    - เพิ่ม `lib/router-files.js` สำหรับจัดหมวดหมู่ไฟล์ (.backup, .npk, .dmp, .rif, .rsc) และคำนวณสรุปพื้นที่
+    - เพิ่ม REST API endpoints ใน `server.js`: `GET /api/mikrotik/files`, `DELETE /api/mikrotik/files/:name`, `POST /api/mikrotik/files/clean-temporary`
+    - เพิ่ม UI จัดการไฟล์และล้างไฟล์ขยะ 1-Click ใน `RouterOpsPanel.vue`
+    - อัปเดต `scripts/fake-routeros.js` จำลอง `/file/print` และ `/file/remove`
+    - เพิ่ม 6 unit tests ใหม่ (`test/router-files.test.js` + router health/log tests รวม **551 เทสต์** ผ่านครบทั้งหมด)
+  - **ปลดระวาง v1 และโปรโมต Vue 3 สู่ Root UI (`/`)**:
+    - เลิกใช้ v1 (ลบ `public/app.js`, `public/style.css`, โฟลเดอร์ขยะ `.next/`)
+    - ย้ายการ build ของ `frontend/vite.config.js` ให้ output ลง `public/` โดยตรง (`base: '/'`)
+    - ย้าย voucher styles & print rules เข้า `frontend/src/styles/voucher.css` ทำให้ Frontend เป็น modular และ self-contained 100%
+    - ปรับปรุง `server.js` ลบ route `/v1` และ fallback `UI_DEFAULT`, เสิร์ฟ `public/` ตรง ๆ ผ่าน `express.static`
+    - อัปเดต `scripts/check-routes.js` (136 routes) และ `scripts/validate-html.js` ผ่านการตรวจสอบ 100%
 
 - **2026-09-07 (2)** — เราท์เตอร์จำลองรองรับ `/ip/firewall/address-list` และ normalize boolean
   แบบ RouterOS — ปิดช่องว่างสองจุดที่พบตอนคลิกผ่าน Firewall (2026-09-07)
